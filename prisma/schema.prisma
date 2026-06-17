@@ -1,0 +1,237 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum MovementType {
+  STOCK_IN
+  STOCK_OUT
+  DAMAGED
+  RETURNED
+  ADJUSTMENT
+  TRANSFER
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+}
+
+enum PaymentMethod {
+  COD
+  QR
+}
+
+enum DeliveryStatus {
+  IN_PROCESS
+  DELIVERED
+  RETURN_PROCESS
+  RETURNED
+}
+
+model User {
+  id         String        @id // Stores Clerk user ID directly (e.g., "user_2...")
+  email      String        @unique
+  name       String
+  role       Role          @default(STAFF)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  activities ActivityLog[]
+}
+
+model Category {
+  id             String     @id @default(uuid())
+  name           String     @unique
+  description    String?
+  parentId       String?
+  parentCategory Category?  @relation("NestedCategories", fields: [parentId], references: [id], onDelete: SetNull)
+  subCategories  Category[] @relation("NestedCategories")
+  products       Product[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Supplier {
+  id             String          @id @default(uuid())
+  companyName    String          @unique
+  contactPerson  String
+  phone          String
+  email          String
+  address        String
+  notes          String?
+  purchaseOrders PurchaseOrder[]
+  products       Product[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Warehouse {
+  id             String          @id @default(uuid())
+  name           String          @unique
+  location       String
+  description    String?
+  stocks         Stock[]
+  movementsFrom  StockMovement[] @relation("SourceWarehouse")
+  movementsTo    StockMovement[] @relation("DestWarehouse")
+  purchaseOrders PurchaseOrder[]
+  sales          Sale[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Product {
+  id              String          @id @default(uuid())
+  name            String
+  sku             String          @unique
+  barcode         String?         @unique
+  description     String?
+  brand           String?
+  categoryId      String
+  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplierId      String
+  supplier        Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  costPrice       Float
+  sellingPrice    Float
+  minStockLevel   Int             @default(5)
+  imageUrl        String?
+  expiryDate      DateTime?
+  status          String          @default("active") // "active" | "inactive"
+  stocks          Stock[]
+  movements       StockMovement[]
+  purchaseItems   PurchaseItem[]
+  saleItems       SaleItem[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([sku])
+  @@index([categoryId])
+}
+
+model Stock {
+  id          String    @id @default(uuid())
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  warehouseId String
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  quantity    Int       @default(0)
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([productId, warehouseId])
+}
+
+model StockMovement {
+  id              String       @id @default(uuid())
+  productId       String
+  product         Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity        Int
+  type            MovementType
+  sourceWhId      String?
+  sourceWarehouse Warehouse?   @relation("SourceWarehouse", fields: [sourceWhId], references: [id], onDelete: SetNull)
+  destWhId        String?
+  destWarehouse   Warehouse?   @relation("DestWarehouse", fields: [destWhId], references: [id], onDelete: SetNull)
+  referenceId     String?      // e.g. PurchaseOrderId or SaleId / Invoice number
+  notes           String?
+  userId          String?
+  createdAt       DateTime     @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+}
+
+model PurchaseOrder {
+  id            String         @id @default(uuid())
+  orderNumber   String         @unique // e.g. PO-XXXX
+  supplierId    String
+  supplier      Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  warehouseId   String
+  warehouse     Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  status        OrderStatus    @default(PENDING)
+  paymentStatus PaymentStatus  @default(UNPAID)
+  items         PurchaseItem[]
+  totalAmount   Float
+  notes         String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([supplierId])
+}
+
+model PurchaseItem {
+  id              String        @id @default(uuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity        Int
+  unitCost        Float
+  createdAt       DateTime      @default(now())
+}
+
+model Sale {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique // e.g. INV-XXXX
+  customerName    String?
+  customerEmail   String?
+  customerPhone   String?
+  customerAddress String?
+  warehouseId   String
+  warehouse     Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items         SaleItem[]
+  taxAmount     Float         @default(0.0)
+  discount      Float         @default(0.0)
+  totalAmount   Float
+  paymentStatus PaymentStatus @default(PAID)
+  paymentMethod PaymentMethod @default(COD)
+  deliveryStatus DeliveryStatus @default(IN_PROCESS)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model SaleItem {
+  id          String   @id @default(uuid())
+  saleId      String
+  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity    Int
+  unitPrice   Float
+  createdAt   DateTime @default(now())
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  action    String
+  details   String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String   // "info" | "warning" | "error"
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
