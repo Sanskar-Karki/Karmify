@@ -197,6 +197,8 @@ model Sale {
   items         SaleItem[]
   taxAmount     Float         @default(0.0)
   discount      Float         @default(0.0)
+  deliveryAmount Float        @default(0.0)
+  codAmount     Float         @default(0.0)
   totalAmount   Float
   paymentStatus PaymentStatus @default(PAID)
   paymentMethod PaymentMethod @default(COD)

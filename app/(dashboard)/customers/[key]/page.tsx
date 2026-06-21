@@ -1,23 +1,49 @@
 "use client";
 
+import { Skeleton } from "boneyard-js/react";
+import { CustomerDetailFixture } from "@/components/skeletons/fixtures";
 import React, { useState, useEffect, use } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, User, Phone, MapPin, Edit2, Save, X,
-  Receipt, ShoppingBag, Users,
+  Receipt, ShoppingBag, Users, DollarSign,
 } from "lucide-react";
-import { getCustomers, updateCustomerInfo } from "@/app/actions";
-import { cn } from "@/lib/utils";
+import { getCustomers, updateCustomerInfo, updateSaleDetails } from "@/app/actions";
+import { cn, formatNPR } from "@/lib/utils";
+import { getPageCache, setPageCache } from "@/lib/pageCache";
+
+const CACHE_KEY = "customers-detail-list";
+
+const DELIVERY_STATUSES = [
+  { value: "IN_PROCESS", label: "In Process" },
+  { value: "DELIVERED", label: "Delivered" },
+  { value: "RETURN_PROCESS", label: "Return Process" },
+  { value: "RETURNED", label: "Returned" },
+];
+
+const DELIVERY_STYLES: Record<string, string> = {
+  IN_PROCESS: "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400",
+  DELIVERED: "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400",
+  RETURN_PROCESS: "bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400",
+  RETURNED: "bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400",
+};
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ key: string }> }) {
   const { key: rawKey } = use(params);
   const key = decodeURIComponent(rawKey);
 
-  const [mounted, setMounted] = useState(false);
-  const [customer, setCustomer] = useState<any | null>(null);
+  const cachedCustomers = getPageCache<any[]>(CACHE_KEY);
+  const cachedFound = cachedCustomers?.find(c => c.key === key) ?? null;
+
+  const [mounted, setMounted] = useState(!!cachedCustomers);
+  const [customer, setCustomer] = useState<any | null>(cachedFound);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", address: "" });
+  const [form, setForm] = useState({ name: cachedFound?.name ?? "", phone: cachedFound?.phone ?? "", address: cachedFound?.address ?? "" });
   const [saving, setSaving] = useState(false);
+
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [saleForm, setSaleForm] = useState({ totalAmount: "", customerAddress: "", deliveryStatus: "IN_PROCESS" });
+  const [savingSale, setSavingSale] = useState(false);
 
   useEffect(() => {
     refresh().then(() => setMounted(true));
@@ -25,6 +51,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
 
   async function refresh() {
     const customers = await getCustomers();
+    setPageCache(CACHE_KEY, customers);
     const found = customers.find(c => c.key === key) ?? null;
     setCustomer(found);
     if (found) setForm({ name: found.name, phone: found.phone ?? "", address: found.address ?? "" });
@@ -39,9 +66,32 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     setEditing(false);
   }
 
-  if (!mounted) {
-    return <div className="h-64 rounded-2xl bg-muted animate-pulse" />;
+  function startEditSale(sale: any) {
+    setEditingSaleId(sale.id);
+    setSaleForm({
+      totalAmount: String(sale.totalAmount),
+      customerAddress: sale.customerAddress ?? "",
+      deliveryStatus: sale.deliveryStatus ?? "IN_PROCESS",
+    });
   }
+
+  async function handleSaveSale(saleId: string) {
+    setSavingSale(true);
+    await updateSaleDetails(saleId, {
+      totalAmount: parseFloat(saleForm.totalAmount) || 0,
+      customerAddress: saleForm.customerAddress,
+      deliveryStatus: saleForm.deliveryStatus as any,
+    });
+    await refresh();
+    setSavingSale(false);
+    setEditingSaleId(null);
+  }
+
+  if (!mounted) return (
+    <Skeleton name="customer-detail" loading={true} fixture={<CustomerDetailFixture />} fallback={<CustomerDetailFixture />}>
+      <CustomerDetailFixture />
+    </Skeleton>
+  );
 
   if (!customer) {
     return (
@@ -54,6 +104,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
   }
 
   return (
+    <Skeleton name="customer-detail" loading={false} fixture={<CustomerDetailFixture />} fallback={<CustomerDetailFixture />}>
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center gap-3">
         <Link href="/customers" className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-muted transition-colors cursor-pointer">
@@ -61,7 +112,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
         </Link>
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">{customer.name}</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""} · ${customer.totalSpent.toFixed(2)} total spent</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""} · {formatNPR(customer.totalSpent)} total spent</p>
         </div>
       </div>
 
@@ -118,7 +169,9 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
           <p className="text-xs text-muted-foreground mt-0.5">{customer.sales.length} invoice{customer.sales.length !== 1 ? "s" : ""}</p>
         </div>
         <div className="divide-y divide-border/40">
-          {customer.sales.map((sale: any) => (
+          {customer.sales.map((sale: any) => {
+            const isEditingSale = editingSaleId === sale.id;
+            return (
             <div key={sale.id} className="p-5 space-y-3">
               <div className="flex items-center gap-4">
                 <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -137,20 +190,78 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                 <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", sale.paymentStatus === "PAID" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400")}>
                   {sale.paymentStatus}
                 </span>
-                <p className="text-sm font-extrabold w-20 text-right">${sale.totalAmount.toFixed(2)}</p>
+                {!isEditingSale && (
+                  <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
+                    {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
+                  </span>
+                )}
+                {!isEditingSale && <p className="text-sm font-extrabold w-20 text-right">{formatNPR(sale.totalAmount)}</p>}
+                {!isEditingSale ? (
+                  <button onClick={() => startEditSale(sale)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer shrink-0">
+                    <Edit2 size={12} />
+                  </button>
+                ) : (
+                  <div className="flex gap-1.5 shrink-0">
+                    <button onClick={() => setEditingSaleId(null)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground hover:bg-muted/70 transition-colors cursor-pointer">
+                      <X size={12} />
+                    </button>
+                    <button onClick={() => handleSaveSale(sale.id)} disabled={savingSale} className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50">
+                      <Save size={12} />
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {isEditingSale && (
+                <div className="pl-[52px] grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><DollarSign size={12} />Price</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={saleForm.totalAmount}
+                      onChange={e => setSaleForm(f => ({ ...f, totalAmount: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><MapPin size={12} />Location</label>
+                    <input
+                      value={saleForm.customerAddress}
+                      onChange={e => setSaleForm(f => ({ ...f, customerAddress: e.target.value }))}
+                      placeholder="Delivery address"
+                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">Delivery Status</label>
+                    <select
+                      value={saleForm.deliveryStatus}
+                      onChange={e => setSaleForm(f => ({ ...f, deliveryStatus: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    >
+                      {DELIVERY_STATUSES.map(d => (
+                        <option key={d.value} value={d.value}>{d.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div className="pl-[52px] space-y-1">
                 {sale.items.map((item: any) => (
                   <div key={item.id} className="flex justify-between text-xs text-muted-foreground">
                     <span>{item.product?.name ?? "—"} × {item.quantity}</span>
-                    <span className="font-semibold">${(item.unitPrice * item.quantity).toFixed(2)}</span>
+                    <span className="font-semibold">{formatNPR(item.unitPrice * item.quantity)}</span>
                   </div>
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
+    </Skeleton>
   );
 }

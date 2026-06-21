@@ -2,14 +2,11 @@
 
 import { Skeleton } from "boneyard-js/react";
 import { SettingsFixture } from "@/components/skeletons/fixtures";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
-  Settings, Store, Users, Warehouse, Plus, Edit2, X,
-  ShieldCheck, Shield, User, Save, Check, Trash2, MapPin, Phone, Mail, Globe
+  Settings, Store, Users, Plus,
+  ShieldCheck, Shield, User, Save, Check, MapPin, Phone, Mail, Globe
 } from "lucide-react";
-import {
-  getWarehouses, saveWarehouse, deleteWarehouse,
-} from "@/app/actions";
 import { cn } from "@/lib/utils";
 
 const MOCK_TEAM = [
@@ -21,17 +18,11 @@ const MOCK_TEAM = [
 const TABS = [
   { key: "store", label: "Store Identity", icon: Store },
   { key: "team", label: "Team Members", icon: Users },
-  { key: "warehouses", label: "Warehouses", icon: Warehouse },
 ];
 
 export default function SettingsPage() {
-  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState("store");
   const [saved, setSaved] = useState(false);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [showWhModal, setShowWhModal] = useState(false);
-  const [editWhId, setEditWhId] = useState<string | null>(null);
-  const [whForm, setWhForm] = useState({ name: "", location: "", description: "" });
 
   const [storeForm, setStoreForm] = useState({
     name: "Karmify ERP Systems",
@@ -40,52 +31,20 @@ export default function SettingsPage() {
     phone: "+977 9851012345",
     email: "admin@karmify.com",
     website: "https://karmify.com",
-    currency: "USD",
+    currency: "NPR",
     taxId: "601-234-5678",
   });
-
-  useEffect(() => {
-    getWarehouses().then(whs => { setWarehouses(whs); setMounted(true); });
-  }, []);
 
   function handleSaveStore() {
     setSaved(true);
     setTimeout(() => setSaved(false), 2200);
   }
 
-  function openAddWh() {
-    setEditWhId(null);
-    setWhForm({ name: "", location: "", description: "" });
-    setShowWhModal(true);
-  }
-
-  function openEditWh(wh: any) {
-    setEditWhId(wh.id);
-    setWhForm({ name: wh.name, location: wh.location, description: wh.description ?? "" });
-    setShowWhModal(true);
-  }
-
-  async function handleSaveWh() {
-    if (!whForm.name || !whForm.location) return;
-    await saveWarehouse(whForm, editWhId);
-    setWarehouses(await getWarehouses());
-    setShowWhModal(false);
-  }
-
-  async function handleDeleteWh(id: string) {
-    await deleteWarehouse(id);
-    setWarehouses(await getWarehouses());
-  }
-
-  if (!mounted) return (
-    <Skeleton name="settings" loading={true} fixture={<SettingsFixture />}>
-      <SettingsFixture />
-    </Skeleton>
-  );
-
+  // No API request backs this page (store profile is local/mock state),
+  // so it renders immediately with no skeleton/loading gate.
   return (
-    <Skeleton name="settings" loading={false} fixture={<SettingsFixture />}>
-      <div className="space-y-6 animate-fade-in max-w-5xl">
+    <Skeleton name="settings" loading={false} fixture={<SettingsFixture />} fallback={<SettingsFixture />}>
+      <div className="space-y-5 animate-fade-in max-w-5xl">
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight">Settings</h1>
         <p className="text-xs text-muted-foreground mt-0.5">Manage your store profile, team and warehouse configuration</p>
@@ -107,7 +66,7 @@ export default function SettingsPage() {
             <h2 className="font-bold text-base">Store Identity</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Core information about your business entity</p>
           </div>
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
               { label: "Store Name", icon: Store, key: "name" },
               { label: "Tagline", icon: Settings, key: "tagline" },
@@ -141,7 +100,7 @@ export default function SettingsPage() {
 
       {/* Team Members Tab */}
       {activeTab === "team" && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
             <div className="p-6 border-b border-border/60 flex items-center justify-between">
               <div>
@@ -184,69 +143,8 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Warehouses Tab */}
-      {activeTab === "warehouses" && (
-        <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-border/60 flex items-center justify-between">
-            <div>
-              <h2 className="font-bold text-base">Warehouse Configuration</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">{warehouses.length} active nodes in your network</p>
-            </div>
-            <button onClick={openAddWh} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 shadow-md shadow-primary/10 cursor-pointer">
-              <Plus size={13} />
-              Add Warehouse
-            </button>
-          </div>
-
-          <div className="divide-y divide-border/40">
-            {warehouses.map(wh => (
-              <div key={wh.id} className="flex items-center gap-4 p-5 group hover:bg-muted/10 transition-colors">
-                <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950/30 border border-border/40 flex items-center justify-center shrink-0">
-                  <Warehouse size={18} className="text-indigo-600 dark:text-indigo-400" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold text-foreground">{wh.name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><MapPin size={10} />{wh.location}</p>
-                  {wh.description && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{wh.description}</p>}
-                </div>
-                <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => openEditWh(wh)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"><Edit2 size={13} /></button>
-                  <button onClick={() => handleDeleteWh(wh.id)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 text-muted-foreground hover:text-red-500 cursor-pointer"><Trash2 size={13} /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Warehouse Add/Edit Modal */}
-      {showWhModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <h2 className="font-bold text-lg">{editWhId ? "Edit Warehouse" : "Add New Warehouse"}</h2>
-              <button onClick={() => setShowWhModal(false)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-muted cursor-pointer"><X size={16} /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              {[
-                { label: "Warehouse Name", key: "name", placeholder: "e.g. Lalitpur Storage Hub" },
-                { label: "Location", key: "location", placeholder: "e.g. Patan, Lalitpur" },
-                { label: "Description", key: "description", placeholder: "Short description..." },
-              ].map(f => (
-                <div key={f.key} className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">{f.label}</label>
-                  <input value={(whForm as any)[f.key]} onChange={e => setWhForm(wf => ({ ...wf, [f.key]: e.target.value }))} placeholder={f.placeholder} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-3 p-6 border-t border-border">
-              <button onClick={() => setShowWhModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-muted cursor-pointer">Cancel</button>
-              <button onClick={handleSaveWh} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 cursor-pointer shadow-md shadow-primary/10">{editWhId ? "Save Changes" : "Add Warehouse"}</button>
-            </div>
-          </div>
-        </div>
-      )}
       </div>
     </Skeleton>
   );
 }
+

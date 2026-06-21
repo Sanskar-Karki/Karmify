@@ -53,12 +53,22 @@ export default function Home() {
             </span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-medium text-[#0a0a0a]/50 dark:text-white/40">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Kathmandu Central
-            </span>
-          </div>
+          <Show when="signed-out">
+            <SignInButton mode="modal">
+              <button className="text-xs font-semibold text-[#0a0a0a]/60 dark:text-white/50 hover:text-[#CB2957] dark:hover:text-[#CB2957] transition-colors cursor-pointer">
+                Sign in
+              </button>
+            </SignInButton>
+          </Show>
+
+          <Show when="signed-in">
+            <Link
+              href="/dashboard"
+              className="text-xs font-semibold text-[#CB2957] hover:underline"
+            >
+              Dashboard →
+            </Link>
+          </Show>
         </div>
       </header>
 

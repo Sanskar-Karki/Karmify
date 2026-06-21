@@ -10,7 +10,9 @@ import {
   getProducts, saveProduct, deleteProduct,
   getCategories, getSuppliers, getStocks,
 } from "@/app/actions";
-import { cn } from "@/lib/utils";
+import { cn, formatNPR } from "@/lib/utils";
+import { Pulse } from "@/components/shared/Pulse";
+import { getPageCache, setPageCache } from "@/lib/pageCache";
 
 type ProductForm = {
   name: string; sku: string; barcode: string; description: string; brand: string;
@@ -24,13 +26,22 @@ const emptyProduct: ProductForm = {
   minStockLevel: 5, status: "active"
 };
 
+type ProductsCache = { products: any[]; categories: any[]; suppliers: any[]; stocks: any[] };
+const CACHE_KEY = "products-page";
+
 export default function ProductsPage() {
-  const [mounted, setMounted] = useState(false);
-  const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [stocks, setStocks] = useState<any[]>([]);
+  const cached = getPageCache<ProductsCache>(CACHE_KEY);
+  const [loading, setLoading] = useState(!cached);
+  const [products, setProducts] = useState<any[]>(cached?.products ?? []);
+  const [categories, setCategories] = useState<any[]>(cached?.categories ?? []);
+  const [suppliers, setSuppliers] = useState<any[]>(cached?.suppliers ?? []);
+  const [stocks, setStocks] = useState<any[]>(cached?.stocks ?? []);
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearch(q);
+  }, []);
   const [activeTab, setActiveTab] = useState("all");
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -38,7 +49,7 @@ export default function ProductsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
-    refresh().then(() => setMounted(true));
+    refresh().then(() => setLoading(false));
   }, []);
 
   async function refresh() {
@@ -49,6 +60,7 @@ export default function ProductsPage() {
     setCategories(categories);
     setSuppliers(suppliers);
     setStocks(stocks);
+    setPageCache<ProductsCache>(CACHE_KEY, { products, categories, suppliers, stocks });
   }
 
   const getTotalStock = (productId: string) =>
@@ -91,19 +103,13 @@ export default function ProductsPage() {
 
   const margin = (p: any) => (((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(0);
 
-  if (!mounted) return (
-    <Skeleton name="products" loading={true} fixture={<ProductsFixture />}>
-      <ProductsFixture />
-    </Skeleton>
-  );
-
   return (
-    <Skeleton name="products" loading={false} fixture={<ProductsFixture />}>
+    <Skeleton name="products" loading={false} fixture={<ProductsFixture />} fallback={<ProductsFixture />}>
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Product Catalog</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">{products.length} total SKUs across all categories</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{loading ? "Loading catalog…" : `${products.length} total SKUs across all categories`}</p>
         </div>
         <button onClick={openAdd} className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/10 hover:shadow-lg hover:bg-primary/90 hover:scale-[1.02] transition-all cursor-pointer">
           <Plus size={16} />
@@ -112,20 +118,21 @@ export default function ProductsPage() {
       </div>
 
       {/* Search & Category Tabs */}
-      <div className="flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1">
+      <div className="flex flex-col md:flex-row gap-3 my-4  ">
+        <div className="relative flex-1 ">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, SKU, or brand..." className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 transition-all" />
         </div>
         <div className="flex gap-1.5 bg-muted/50 border border-border/60 rounded-xl p-1 overflow-x-auto shrink-0">
           <button onClick={() => setActiveTab("all")} className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all", activeTab === "all" ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}>All SKUs</button>
           {categories.map(c => (
-            <button key={c.id} onClick={() => setActiveTab(c.id)} className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all", activeTab === c.id ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}>
+            <button key={c.id} onClick={() => setActiveTab(c.id)} className={cn("px-3 py-1.5 cursor-pointer rounded-lg text-xs font-semibold whitespace-nowrap transition-all", activeTab === c.id ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}>
               {c.name}
             </button>
           ))}
         </div>
       </div>
+
 
       {/* Products Table */}
       <div className="bg-card border border-border/80 rounded-2xl overflow-hidden shadow-sm">
@@ -143,7 +150,14 @@ export default function ProductsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
-              {filtered.length === 0 && (
+              {loading && (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i}>
+                    <td colSpan={7} className="px-5 py-4"><Pulse className="h-8 w-full" /></td>
+                  </tr>
+                ))
+              )}
+              {!loading && filtered.length === 0 && (
                 <tr>
                   <td colSpan={7} className="text-center py-16 text-muted-foreground">
                     <Package size={32} className="mx-auto mb-3 opacity-40" />
@@ -152,7 +166,7 @@ export default function ProductsPage() {
                   </td>
                 </tr>
               )}
-              {filtered.map(p => {
+              {!loading && filtered.map(p => {
                 const cat = categories.find(c => c.id === p.categoryId);
                 const sup = suppliers.find(s => s.id === p.supplierId);
                 const totalStock = getTotalStock(p.id);
@@ -177,8 +191,8 @@ export default function ProductsPage() {
                       <p className="text-xs text-muted-foreground">{sup?.companyName ?? "—"}</p>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      <p className="font-bold text-foreground">${p.sellingPrice.toFixed(2)}</p>
-                      <p className="text-[10px] text-muted-foreground">cost ${p.costPrice.toFixed(2)} · <span className="text-emerald-500 font-semibold">{margin(p)}% margin</span></p>
+                      <p className="font-bold text-foreground">{formatNPR(p.sellingPrice)}</p>
+                      <p className="text-[10px] text-muted-foreground">cost {formatNPR(p.costPrice)} · <span className="text-emerald-500 font-semibold">{margin(p)}% margin</span></p>
                     </td>
                     <td className="px-4 py-4 text-right hidden md:table-cell">
                       <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold", isLow ? "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400" : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400")}>
@@ -211,22 +225,22 @@ export default function ProductsPage() {
 
       {/* Add/Edit Product Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <h2 className="text-lg font-bold">{editingId ? "Edit Product" : "Add New Product"}</h2>
-              <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground cursor-pointer">
-                <X size={16} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl my-auto">
+            <div className="sticky top-0 flex items-center justify-between p-6 border-b border-border bg-card rounded-t-2xl z-10">
+              <h2 className="text-lg font-bold text-foreground">{editingId ? "Edit Product" : "Add New Product"}</h2>
+              <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
+                <X size={18} />
               </button>
             </div>
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-y-auto max-h-[calc(90vh-200px)]">
               {[
                 { label: "Product Name", key: "name", type: "text", placeholder: "e.g. ProBook Laptop 14-inch" },
                 { label: "SKU", key: "sku", type: "text", placeholder: "e.g. PROBOOK-14-001" },
                 { label: "Brand", key: "brand", type: "text", placeholder: "e.g. HP" },
                 { label: "Barcode", key: "barcode", type: "text", placeholder: "EAN-13 barcode" },
-                { label: "Cost Price ($)", key: "costPrice", type: "number", placeholder: "0.00" },
-                { label: "Selling Price ($)", key: "sellingPrice", type: "number", placeholder: "0.00" },
+                { label: "Cost Price (Rs.)", key: "costPrice", type: "number", placeholder: "0.00" },
+                { label: "Selling Price (Rs.)", key: "sellingPrice", type: "number", placeholder: "0.00" },
                 { label: "Min. Stock Level", key: "minStockLevel", type: "number", placeholder: "5" },
               ].map(field => (
                 <div key={field.key} className="space-y-1.5">
@@ -236,14 +250,14 @@ export default function ProductsPage() {
                     placeholder={field.placeholder}
                     value={(form as any)[field.key] ?? ""}
                     onChange={e => setForm(f => ({ ...f, [field.key]: field.type === "number" ? parseFloat(e.target.value) || 0 : e.target.value }))}
-                    className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+                    className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
                   />
                 </div>
               ))}
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">Category</label>
-                <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+                <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 cursor-pointer transition-all hover:border-border/80">
                   <option value="">Select category...</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -251,7 +265,7 @@ export default function ProductsPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">Supplier</label>
-                <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+                <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 cursor-pointer transition-all hover:border-border/80">
                   <option value="">Select supplier...</option>
                   {suppliers.map(s => <option key={s.id} value={s.id}>{s.companyName}</option>)}
                 </select>
@@ -259,20 +273,28 @@ export default function ProductsPage() {
 
               <div className="space-y-1.5 md:col-span-2">
                 <label className="text-xs font-semibold text-muted-foreground">Description</label>
-                <textarea value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Product description..." className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none transition-all" />
+                <textarea value={form.description ?? ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} placeholder="Product description..." className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 resize-none transition-all hover:border-border/80" />
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">Status</label>
-                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as "active" | "inactive" }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+                <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value as "active" | "inactive" }))} className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 cursor-pointer transition-all hover:border-border/80">
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
             </div>
-            <div className="flex gap-3 p-6 border-t border-border">
-              <button onClick={() => setShowModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-colors cursor-pointer">Cancel</button>
-              <button onClick={handleSave} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors cursor-pointer shadow-md shadow-primary/10">
+            <div className="sticky bottom-0 flex gap-3 p-6 border-t border-border bg-card rounded-b-2xl z-10">
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 py-2.5 rounded-xl border border-border/60 text-foreground text-sm font-semibold hover:bg-muted hover:border-border/80 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 active:scale-95 transition-all cursor-pointer shadow-md shadow-primary/10 hover:shadow-lg hover:shadow-primary/20"
+              >
                 {editingId ? "Save Changes" : "Create Product"}
               </button>
             </div>
@@ -284,18 +306,28 @@ export default function ProductsPage() {
       {deleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-500">
-                <Trash2 size={18} />
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">
+                <Trash2 size={20} />
               </div>
-              <div>
-                <h3 className="font-bold text-base">Delete Product?</h3>
-                <p className="text-xs text-muted-foreground">This cannot be undone.</p>
+              <div className="flex-1">
+                <h3 className="font-bold text-base text-foreground">Delete Product?</h3>
+                <p className="text-sm text-muted-foreground mt-1">This action cannot be undone. The product will be permanently removed from your catalog.</p>
               </div>
             </div>
-            <div className="flex gap-3">
-              <button onClick={() => setDeleteId(null)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-colors cursor-pointer">Cancel</button>
-              <button onClick={() => handleDelete(deleteId)} className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 transition-colors cursor-pointer">Delete</button>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setDeleteId(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border/60 text-foreground text-sm font-semibold hover:bg-muted hover:border-border/80 transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDelete(deleteId)}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 text-white text-sm font-semibold hover:bg-red-600 active:scale-95 transition-all cursor-pointer shadow-md shadow-red-500/20 hover:shadow-lg hover:shadow-red-500/30"
+              >
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -303,3 +335,4 @@ export default function ProductsPage() {
     </Skeleton>
   );
 }
+

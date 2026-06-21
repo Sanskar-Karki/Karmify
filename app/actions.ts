@@ -2,7 +2,7 @@
 
 import { db } from "@/lib/db";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { Role, MovementType, OrderStatus, PaymentStatus, PaymentMethod, Prisma } from "@prisma/client";
+import { Role, MovementType, OrderStatus, PaymentStatus, PaymentMethod, DeliveryStatus, Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 
 // Sync Clerk user with database
@@ -119,6 +119,16 @@ export async function deleteSupplier(id: string) {
 }
 
 // Warehouses
+// The app only supports a single physical location for now — this resolves
+// to that one warehouse so callers never have to deal with warehouse selection.
+export async function getDefaultWarehouseId() {
+  const warehouse = await db.warehouse.findFirst({
+    orderBy: { createdAt: "asc" },
+  });
+  if (!warehouse) throw new Error("No warehouse configured.");
+  return warehouse.id;
+}
+
 export async function getWarehouses() {
   return db.warehouse.findMany({
     orderBy: { name: "asc" },
@@ -245,18 +255,18 @@ export async function getStocks() {
 
 export async function adjustStock(data: {
   productId: string;
-  warehouseId: string;
   quantity: number; // The new quantity target
   notes?: string;
 }) {
   const user = await syncUser();
-  
+  const warehouseId = await getDefaultWarehouseId();
+
   // Find current stock
   const currentStock = await db.stock.findUnique({
     where: {
       productId_warehouseId: {
         productId: data.productId,
-        warehouseId: data.warehouseId,
+        warehouseId,
       },
     },
   });
@@ -270,13 +280,13 @@ export async function adjustStock(data: {
     where: {
       productId_warehouseId: {
         productId: data.productId,
-        warehouseId: data.warehouseId,
+        warehouseId,
       },
     },
     update: { quantity: data.quantity },
     create: {
       productId: data.productId,
-      warehouseId: data.warehouseId,
+      warehouseId,
       quantity: data.quantity,
     },
     include: { product: true, warehouse: true },
@@ -288,8 +298,8 @@ export async function adjustStock(data: {
       productId: data.productId,
       quantity: Math.abs(difference),
       type: MovementType.ADJUSTMENT,
-      sourceWhId: difference < 0 ? data.warehouseId : null,
-      destWhId: difference > 0 ? data.warehouseId : null,
+      sourceWhId: difference < 0 ? warehouseId : null,
+      destWhId: difference > 0 ? warehouseId : null,
       notes: data.notes || `Stock adjustment from ${oldQty} to ${data.quantity}`,
       userId: user?.id || null,
     },
@@ -297,14 +307,14 @@ export async function adjustStock(data: {
 
   await addActivity(
     "Stock Adjusted",
-    `Adjusted stock of "${stock.product.name}" in "${stock.warehouse.name}" to ${data.quantity} (change of ${difference > 0 ? "+" : ""}${difference}).`
+    `Adjusted stock of "${stock.product.name}" to ${data.quantity} (change of ${difference > 0 ? "+" : ""}${difference}).`
   );
 
   // Check low stock
   if (data.quantity < stock.product.minStockLevel) {
     await addNotification(
       "Low Stock Alert",
-      `Stock of "${stock.product.name}" in "${stock.warehouse.name}" is low (${data.quantity} units left).`,
+      `Stock of "${stock.product.name}" is low (${data.quantity} units left).`,
       "warning"
     );
   }
@@ -314,52 +324,46 @@ export async function adjustStock(data: {
   return stock;
 }
 
-// Record a stock movement of any type (Stock In/Out, Damaged, Returned, Adjustment, Transfer)
+// Record a stock movement of any type (Stock In/Out, Damaged, Returned, Adjustment)
 export async function recordStockMovement(data: {
   productId: string;
-  type: MovementType;
-  sourceWhId?: string;
-  destWhId?: string;
+  type: "STOCK_IN" | "STOCK_OUT" | "DAMAGED" | "RETURNED" | "ADJUSTMENT";
   quantity: number;
   notes?: string;
 }) {
   const user = await syncUser();
+  const warehouseId = await getDefaultWarehouseId();
 
-  async function applyDelta(tx: Prisma.TransactionClient, warehouseId: string, delta: number) {
+  async function applyDelta(tx: Prisma.TransactionClient, delta: number) {
     const stock = await tx.stock.upsert({
       where: { productId_warehouseId: { productId: data.productId, warehouseId } },
       update: { quantity: { increment: delta } },
       create: { productId: data.productId, warehouseId, quantity: Math.max(0, delta) },
-      include: { product: true, warehouse: true },
+      include: { product: true },
     });
     if (stock.quantity < stock.product.minStockLevel) {
       await addNotification(
         "Low Stock Alert",
-        `Stock of "${stock.product.name}" in "${stock.warehouse.name}" is low (${stock.quantity} units left).`,
+        `Stock of "${stock.product.name}" is low (${stock.quantity} units left).`,
         "warning"
       );
     }
     return stock;
   }
 
+  const outgoing = data.type === MovementType.STOCK_OUT || data.type === MovementType.DAMAGED;
+  const delta = outgoing ? -data.quantity : data.quantity;
+
   await db.$transaction(async (tx) => {
-    if (data.type === MovementType.STOCK_IN && data.destWhId) await applyDelta(tx, data.destWhId, data.quantity);
-    if (data.type === MovementType.STOCK_OUT && data.sourceWhId) await applyDelta(tx, data.sourceWhId, -data.quantity);
-    if (data.type === MovementType.DAMAGED && data.sourceWhId) await applyDelta(tx, data.sourceWhId, -data.quantity);
-    if (data.type === MovementType.RETURNED && data.destWhId) await applyDelta(tx, data.destWhId, data.quantity);
-    if (data.type === MovementType.ADJUSTMENT && data.destWhId) await applyDelta(tx, data.destWhId, data.quantity);
-    if (data.type === MovementType.TRANSFER && data.sourceWhId && data.destWhId) {
-      await applyDelta(tx, data.sourceWhId, -data.quantity);
-      await applyDelta(tx, data.destWhId, data.quantity);
-    }
+    await applyDelta(tx, delta);
 
     await tx.stockMovement.create({
       data: {
         productId: data.productId,
         quantity: data.quantity,
         type: data.type,
-        sourceWhId: data.sourceWhId || null,
-        destWhId: data.destWhId || null,
+        sourceWhId: outgoing ? warehouseId : null,
+        destWhId: outgoing ? null : warehouseId,
         notes: data.notes || null,
         userId: user?.id || null,
       },
@@ -368,84 +372,6 @@ export async function recordStockMovement(data: {
 
   const product = await db.product.findUnique({ where: { id: data.productId } });
   await addActivity("Stock Movement Recorded", `${data.type.replace("_", " ")} — ${data.quantity}x "${product?.name}" logged.`);
-
-  revalidatePath("/inventory");
-  revalidatePath("/dashboard");
-}
-
-export async function transferStock(data: {
-  productId: string;
-  sourceWhId: string;
-  destWhId: string;
-  quantity: number;
-  notes?: string;
-}) {
-  const user = await syncUser();
-
-  // Deduct from source
-  const sourceStock = await db.stock.findUnique({
-    where: {
-      productId_warehouseId: {
-        productId: data.productId,
-        warehouseId: data.sourceWhId,
-      },
-    },
-    include: { product: true, warehouse: true },
-  });
-
-  if (!sourceStock || sourceStock.quantity < data.quantity) {
-    throw new Error("Insufficient stock in source warehouse.");
-  }
-
-  await db.stock.update({
-    where: { id: sourceStock.id },
-    data: { quantity: { decrement: data.quantity } },
-  });
-
-  // Add to destination
-  const destStock = await db.stock.upsert({
-    where: {
-      productId_warehouseId: {
-        productId: data.productId,
-        warehouseId: data.destWhId,
-      },
-    },
-    update: { quantity: { increment: data.quantity } },
-    create: {
-      productId: data.productId,
-      warehouseId: data.destWhId,
-      quantity: data.quantity,
-    },
-    include: { warehouse: true },
-  });
-
-  // Record Stock Movement
-  await db.stockMovement.create({
-    data: {
-      productId: data.productId,
-      quantity: data.quantity,
-      type: MovementType.TRANSFER,
-      sourceWhId: data.sourceWhId,
-      destWhId: data.destWhId,
-      notes: data.notes || `Stock transfer of ${data.quantity} units.`,
-      userId: user?.id || null,
-    },
-  });
-
-  await addActivity(
-    "Stock Transferred",
-    `Transferred ${data.quantity} units of "${sourceStock.product.name}" from "${sourceStock.warehouse.name}" to "${destStock.warehouse.name}".`
-  );
-
-  // Check low stock on source
-  const updatedSourceQty = sourceStock.quantity - data.quantity;
-  if (updatedSourceQty < sourceStock.product.minStockLevel) {
-    await addNotification(
-      "Low Stock Alert",
-      `Stock of "${sourceStock.product.name}" in "${sourceStock.warehouse.name}" is low (${updatedSourceQty} units left).`,
-      "warning"
-    );
-  }
 
   revalidatePath("/inventory");
   revalidatePath("/dashboard");
@@ -533,17 +459,36 @@ export async function updateCustomerInfo(saleIds: string[], data: { name?: strin
   revalidatePath("/customers");
 }
 
+export async function updateSaleDetails(saleId: string, data: { totalAmount?: number; customerName?: string; customerPhone?: string; customerAddress?: string; deliveryStatus?: DeliveryStatus; deliveryAmount?: number; codAmount?: number }) {
+  await db.sale.update({
+    where: { id: saleId },
+    data: {
+      ...(data.totalAmount !== undefined && { totalAmount: data.totalAmount }),
+      ...(data.customerName !== undefined && { customerName: data.customerName || null }),
+      ...(data.customerPhone !== undefined && { customerPhone: data.customerPhone || null }),
+      ...(data.customerAddress !== undefined && { customerAddress: data.customerAddress || null }),
+      ...(data.deliveryStatus !== undefined && { deliveryStatus: data.deliveryStatus }),
+      ...(data.deliveryAmount !== undefined && { deliveryAmount: data.deliveryAmount }),
+      ...(data.codAmount !== undefined && { codAmount: data.codAmount }),
+    },
+  });
+  revalidatePath("/customers");
+  revalidatePath("/sales");
+}
+
 export async function createSale(data: {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
-  warehouseId: string;
   items: { productId: string; quantity: number; unitPrice: number }[];
   discount: number;
+  deliveryAmount: number;
+  codAmount: number;
   totalAmount: number;
   paymentMethod: PaymentMethod;
 }) {
   const user = await syncUser();
+  const warehouseId = await getDefaultWarehouseId();
   const paymentStatus: PaymentStatus = data.paymentMethod === PaymentMethod.QR ? "PAID" : "UNPAID";
 
   // Create Sale transaction
@@ -566,8 +511,10 @@ export async function createSale(data: {
         customerName: data.customerName,
         customerPhone: data.customerPhone,
         customerAddress: data.customerAddress,
-        warehouseId: data.warehouseId,
+        warehouseId,
         discount: data.discount,
+        deliveryAmount: data.deliveryAmount,
+        codAmount: data.codAmount,
         totalAmount: data.totalAmount,
         paymentStatus,
         paymentMethod: data.paymentMethod,
@@ -595,7 +542,7 @@ export async function createSale(data: {
         where: {
           productId_warehouseId: {
             productId: item.productId,
-            warehouseId: data.warehouseId,
+            warehouseId,
           },
         },
         include: { product: true },
@@ -616,7 +563,7 @@ export async function createSale(data: {
           productId: item.productId,
           quantity: item.quantity,
           type: MovementType.STOCK_OUT,
-          sourceWhId: data.warehouseId,
+          sourceWhId: warehouseId,
           referenceId: newSale.id,
           notes: `POS Sale invoice ${invoiceNumber}`,
           userId: user?.id || null,
@@ -629,7 +576,7 @@ export async function createSale(data: {
         await tx.notification.create({
           data: {
             title: "Low Stock Alert",
-            message: `Stock of "${stock.product.name}" in "${newSale.warehouse.name}" is low (${updatedQty} units left).`,
+            message: `Stock of "${stock.product.name}" is low (${updatedQty} units left).`,
             type: "warning",
           },
         });
@@ -641,7 +588,7 @@ export async function createSale(data: {
 
   await addActivity(
     "POS Sale Created",
-    `Completed sale ${sale.invoiceNumber} ($${data.totalAmount.toFixed(2)}) from "${sale.warehouse.name}".`
+    `Completed sale ${sale.invoiceNumber} ($${data.totalAmount.toFixed(2)}).`
   );
 
   revalidatePath("/sales");
@@ -668,11 +615,11 @@ export async function getPurchaseOrders() {
 
 export async function createPurchaseOrder(data: {
   supplierId: string;
-  warehouseId: string;
   items: { productId: string; quantity: number; unitCost: number }[];
   totalAmount: number;
   notes?: string;
 }) {
+  const warehouseId = await getDefaultWarehouseId();
   const order = await db.$transaction(async (tx) => {
     // Generate order number PO-YYYYMMDD-XXXX
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -690,7 +637,7 @@ export async function createPurchaseOrder(data: {
       data: {
         orderNumber,
         supplierId: data.supplierId,
-        warehouseId: data.warehouseId,
+        warehouseId,
         status: OrderStatus.PENDING,
         paymentStatus: PaymentStatus.UNPAID,
         totalAmount: data.totalAmount,
@@ -904,7 +851,6 @@ export async function getDashboardData() {
       productId: s.productId,
       name: s.product.name,
       sku: s.product.sku,
-      warehouseName: s.warehouse.name,
       quantity: s.quantity,
       minStockLevel: s.product.minStockLevel,
     }))

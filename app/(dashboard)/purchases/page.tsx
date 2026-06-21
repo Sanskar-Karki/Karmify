@@ -5,13 +5,15 @@ import { PurchasesFixture } from "@/components/skeletons/fixtures";
 import React, { useState, useEffect } from "react";
 import {
   Plus, X, CheckCircle, Clock, XCircle, Truck,
-  ChevronDown, AlertTriangle, Package
+  ChevronDown, AlertTriangle, Package, Search,
 } from "lucide-react";
 import {
-  getProducts, getSuppliers, getWarehouses,
+  getProducts, getSuppliers,
   getPurchaseOrders, createPurchaseOrder, receivePurchaseOrder, cancelPurchaseOrder,
 } from "@/app/actions";
-import { cn } from "@/lib/utils";
+import { cn, formatNPR } from "@/lib/utils";
+import { Pulse } from "@/components/shared/Pulse";
+import { getPageCache, setPageCache } from "@/lib/pageCache";
 
 type PurchaseItem = { productId: string; quantity: number; unitCost: number };
 
@@ -27,36 +29,46 @@ const PAYMENT_STYLES: Record<string, string> = {
   PAID: "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600",
 };
 
+type PurchasesCache = { products: any[]; suppliers: any[]; orders: any[] };
+const CACHE_KEY = "purchases-page";
+
 export default function PurchasesPage() {
-  const [mounted, setMounted] = useState(false);
-  const [products, setProducts] = useState<any[]>([]);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
+  const cached = getPageCache<PurchasesCache>(CACHE_KEY);
+  const [loading, setLoading] = useState(!cached);
+  const [products, setProducts] = useState<any[]>(cached?.products ?? []);
+  const [suppliers, setSuppliers] = useState<any[]>(cached?.suppliers ?? []);
+  const [orders, setOrders] = useState<any[]>(cached?.orders ?? []);
   const [showModal, setShowModal] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
   const [form, setForm] = useState({
     supplierId: "",
-    warehouseId: "",
     notes: "",
     items: [{ productId: "", quantity: 1, unitCost: 0 }] as PurchaseItem[]
   });
 
   useEffect(() => {
-    refresh().then(() => setMounted(true));
+    refresh().then(() => setLoading(false));
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setSearch(q);
   }, []);
 
   async function refresh() {
-    const [products, suppliers, whs, orders] = await Promise.all([
-      getProducts(), getSuppliers(), getWarehouses(), getPurchaseOrders(),
+    const [products, suppliers, orders] = await Promise.all([
+      getProducts(), getSuppliers(), getPurchaseOrders(),
     ]);
     setProducts(products);
     setSuppliers(suppliers);
-    setWarehouses(whs);
     setOrders(orders);
-    setForm(f => ({ ...f, warehouseId: whs[0]?.id ?? "", supplierId: "" }));
+    setForm(f => ({ ...f, supplierId: "" }));
+    setPageCache<PurchasesCache>(CACHE_KEY, { products, suppliers, orders });
   }
+
+  const filteredOrders = orders.filter(po =>
+    po.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
+    po.supplier?.companyName?.toLowerCase().includes(search.toLowerCase())
+  );
 
   function addItem() {
     setForm(f => ({ ...f, items: [...f.items, { productId: "", quantity: 1, unitCost: 0 }] }));
@@ -79,11 +91,10 @@ export default function PurchasesPage() {
   }
 
   async function handleCreate() {
-    if (!form.supplierId || !form.warehouseId || form.items.some(i => !i.productId || i.quantity <= 0)) return;
+    if (!form.supplierId || form.items.some(i => !i.productId || i.quantity <= 0)) return;
     const total = form.items.reduce((s, i) => s + i.quantity * i.unitCost, 0);
     await createPurchaseOrder({
       supplierId: form.supplierId,
-      warehouseId: form.warehouseId,
       items: form.items,
       totalAmount: total,
       notes: form.notes || undefined,
@@ -103,24 +114,29 @@ export default function PurchasesPage() {
 
   const formTotal = form.items.reduce((s, i) => s + i.quantity * i.unitCost, 0);
 
-  if (!mounted) return (
-    <Skeleton name="purchases" loading={true} fixture={<PurchasesFixture />}>
-      <PurchasesFixture />
-    </Skeleton>
-  );
-
   return (
-    <Skeleton name="purchases" loading={false} fixture={<PurchasesFixture />}>
-      <div className="space-y-6 animate-fade-in">
+    <Skeleton name="purchases" loading={false} fixture={<PurchasesFixture />} fallback={<PurchasesFixture />}>
+      <div className="space-y-5 animate-fade-in">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">Purchase Orders</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Manage supplier restocking orders & receiving</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/10 hover:bg-primary/90 hover:scale-[1.02] transition-all cursor-pointer">
-          <Plus size={16} />
-          New Purchase Order
-        </button>
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search order # or supplier..."
+              className="w-full pl-8 pr-3 py-2.5 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+          <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/10 hover:bg-primary/90 hover:scale-[1.02] transition-all cursor-pointer shrink-0">
+            <Plus size={16} />
+            New Purchase Order
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards */}
@@ -133,7 +149,7 @@ export default function PurchasesPage() {
           <div key={s.label} className="bg-card border border-border/80 p-5 rounded-2xl shadow-sm flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-muted-foreground">{s.label}</p>
-              <p className="text-3xl font-black mt-1">{s.val}</p>
+              {loading ? <Pulse className="h-8 w-12 mt-1" /> : <p className="text-3xl font-black mt-1">{s.val}</p>}
             </div>
             <Truck size={32} className={cn("opacity-10", s.color === "amber" ? "text-amber-500" : s.color === "emerald" ? "text-emerald-500" : "text-blue-500")} />
           </div>
@@ -142,9 +158,15 @@ export default function PurchasesPage() {
 
       {/* Orders List */}
       <div className="space-y-3">
-        {orders.map(po => {
+        {loading && Array.from({ length: 4 }).map((_, i) => <Pulse key={i} className="h-20 w-full rounded-2xl" />)}
+        {!loading && filteredOrders.length === 0 && (
+          <div className="flex flex-col items-center py-16 text-center text-muted-foreground gap-2 bg-card border border-border/80 rounded-2xl">
+            <Truck size={36} className="opacity-30" />
+            <p className="font-semibold text-sm">No purchase orders found</p>
+          </div>
+        )}
+        {!loading && filteredOrders.map(po => {
           const supplier = suppliers.find(s => s.id === po.supplierId);
-          const warehouse = warehouses.find(w => w.id === po.warehouseId);
           const isExpanded = expandedId === po.id;
 
           return (
@@ -163,12 +185,12 @@ export default function PurchasesPage() {
                       <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", STATUS_STYLES[po.status])}>{po.status}</span>
                       <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", PAYMENT_STYLES[po.paymentStatus])}>{po.paymentStatus}</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">{supplier?.companyName} · {warehouse?.name} · {new Date(po.createdAt).toLocaleDateString()}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{supplier?.companyName} · {new Date(po.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-3 md:gap-4 shrink-0">
-                  <p className="text-lg font-extrabold">${po.totalAmount.toFixed(2)}</p>
+                  <p className="text-lg font-extrabold">{formatNPR(po.totalAmount)}</p>
 
                   {po.status === "PENDING" && (
                     <div className="flex gap-2">
@@ -210,8 +232,8 @@ export default function PurchasesPage() {
                             <tr key={item.id}>
                               <td className="py-2.5 font-medium">{prod?.name ?? "—"}</td>
                               <td className="py-2.5 text-right">{item.quantity}</td>
-                              <td className="py-2.5 text-right">${item.unitCost.toFixed(2)}</td>
-                              <td className="py-2.5 text-right font-bold">${(item.quantity * item.unitCost).toFixed(2)}</td>
+                              <td className="py-2.5 text-right">{formatNPR(item.unitCost)}</td>
+                              <td className="py-2.5 text-right font-bold">{formatNPR(item.quantity * item.unitCost)}</td>
                             </tr>
                           );
                         })}
@@ -219,14 +241,14 @@ export default function PurchasesPage() {
                       <tfoot>
                         <tr className="border-t border-border/60">
                           <td colSpan={3} className="pt-3 font-bold text-right pr-4">Total</td>
-                          <td className="pt-3 font-extrabold text-right">${po.totalAmount.toFixed(2)}</td>
+                          <td className="pt-3 font-extrabold text-right">{formatNPR(po.totalAmount)}</td>
                         </tr>
                       </tfoot>
                     </table>
                     {po.notes && <p className="mt-3 text-[10px] text-muted-foreground italic">Notes: {po.notes}</p>}
                     {po.status === "COMPLETED" && (
                       <div className="mt-3 flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
-                        <CheckCircle size={11} /> Stock was automatically received into {warehouse?.name} upon completion.
+                        <CheckCircle size={11} /> Stock was automatically received into inventory upon completion.
                       </div>
                     )}
                   </div>
@@ -236,7 +258,7 @@ export default function PurchasesPage() {
           );
         })}
 
-        {orders.length === 0 && (
+        {!loading && orders.length === 0 && (
           <div className="flex flex-col items-center py-16 text-center text-muted-foreground gap-2 bg-card border border-border/80 rounded-2xl">
             <Truck size={36} className="opacity-30" />
             <p className="font-semibold text-sm">No purchase orders yet</p>
@@ -260,12 +282,6 @@ export default function PurchasesPage() {
                   <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
                     <option value="">Select supplier...</option>
                     {suppliers.map(s => <option key={s.id} value={s.id}>{s.companyName}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground">Destination Warehouse</label>
-                  <select value={form.warehouseId} onChange={e => setForm(f => ({ ...f, warehouseId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-                    {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -308,7 +324,7 @@ export default function PurchasesPage() {
 
               <div className="flex justify-between items-center pt-2 border-t border-border/60">
                 <span className="text-xs text-muted-foreground font-semibold">Order Total</span>
-                <span className="text-lg font-extrabold">${formTotal.toFixed(2)}</span>
+                <span className="text-lg font-extrabold">{formatNPR(formTotal)}</span>
               </div>
             </div>
             <div className="flex gap-3 p-6 border-t border-border">
@@ -322,3 +338,4 @@ export default function PurchasesPage() {
     </Skeleton>
   );
 }
+

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { ClerkProvider, SignInButton, SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import { ClerkProvider, SignInButton, SignUpButton, Show } from "@clerk/nextjs";
 import "./globals.css";
 import "../bones/registry";
 
@@ -31,15 +31,12 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <ClerkProvider>
-          <header className="p-4 flex justify-end gap-4 border-b border-border">
-            <Show when="signed-out">
+          <Show when="signed-out">
+            <header className="p-4 flex justify-end gap-4 border-b border-border">
               <SignInButton />
               <SignUpButton />
-            </Show>
-            <Show when="signed-in">
-              <UserButton />
-            </Show>
-          </header>
+            </header>
+          </Show>
           {children}
         </ClerkProvider>
       </body>

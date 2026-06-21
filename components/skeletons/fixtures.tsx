@@ -218,6 +218,49 @@ export function CustomersFixture() {
   );
 }
 
+export function CustomerDetailFixture() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-muted shrink-0" />
+        <div className="space-y-1.5">
+          <div className="h-5 w-48 rounded bg-muted" />
+          <div className="h-3 w-32 rounded bg-muted/60" />
+        </div>
+      </div>
+      {/* Customer Info Card */}
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="h-16 border-b border-border bg-muted/10" />
+        <div className="p-6 grid grid-cols-3 gap-5">
+          {[1,2,3].map(i => (
+            <div key={i} className="space-y-2">
+              <div className="h-3 w-20 rounded bg-muted" />
+              <div className="h-9 rounded-xl bg-muted/40 border border-border" />
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Sales History */}
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="h-16 border-b border-border bg-muted/10" />
+        {[1,2,3].map(i => (
+          <div key={i} className="h-20 border-b border-border/40 flex items-center gap-4 px-5">
+            <div className="w-9 h-9 rounded-xl bg-muted shrink-0" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-3 w-32 rounded bg-muted" />
+              <div className="h-2.5 w-44 rounded bg-muted/60" />
+            </div>
+            <div className="h-5 w-16 rounded-full bg-muted hidden md:block" />
+            <div className="h-5 w-16 rounded-full bg-muted" />
+            <div className="h-4 w-14 rounded bg-muted" />
+            <div className="h-8 w-8 rounded-lg bg-muted" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsFixture() {
   return (
     <div className="space-y-6 max-w-5xl">
