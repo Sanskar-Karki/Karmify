@@ -96,7 +96,7 @@ export default function DashboardLayout({
       </header>
 
       {/* Page content */}
-      <main className="flex-1 overflow-y-auto px-3 md:px-4 py-3 md:py-4 pb-40">
+      <main className="flex-1 overflow-y-auto px-3 md:px-4 pt-3 md:pt-4 pb-44">
         <div className="w-full animate-fade-in">
           {children}
         </div>
