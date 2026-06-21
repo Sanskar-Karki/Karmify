@@ -48,10 +48,10 @@ export function Dock() {
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
-    <nav className="fixed bottom-5 left-1/2 -translate-x-1/2 z-30 pt-16">
+    <nav className="fixed bottom-2 left-1/2 -translate-x-1/2 z-30 pt-16">
       <div
         onMouseLeave={() => setHovered(null)}
-        className="relative flex items-center gap-3 px-5 py-3.5 rounded-full bg-black/10 backdrop-blur-xs border border-black "
+        className="relative flex items-center gap-3 px-5 py-3.5 rounded-full bg-black/10 backdrop-blur-xs border border-black"
       >
         {/* Glass sheen */}
         <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/20 via-white/0 to-black/20 pointer-events-none" />
