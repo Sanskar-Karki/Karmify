@@ -360,7 +360,7 @@ export default function ProductsPage() {
                 placeholder="0.00"
                 value={form.costPrice || ""}
                 onChange={e => setForm(f => ({ ...f, costPrice: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
+                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40  focus:border-primary/30 transition-all hover:border-border/80"
               />
             </div>
 
