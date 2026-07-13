@@ -216,7 +216,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
               {showPicker && (
                 <div
                   ref={pickerRef}
-                  className="absolute top-full left-0 mt-2 bg-card border border-border rounded-lg shadow-2xl p-4 z-50 w-72"
+                  className="absolute top-full right-0 sm:right-auto sm:left-0 mt-2 bg-card border border-border rounded-lg shadow-2xl p-4 z-50 w-[calc(100vw-2rem)] max-w-72"
                 >
                   <div className="space-y-3">
                     <div className="text-center">
@@ -549,7 +549,7 @@ export default function Dashboard() {
       </div>
 
       {/* Unified Trend Filter */}
-      <div className="flex items-center justify-between bg-card border border-border/60 p-4 rounded-xl">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card border border-border/60 p-4 rounded-xl">
         <div>
           <h3 className="text-sm font-bold text-foreground">Analytics Period</h3>
           <p className="text-[10px] text-muted-foreground mt-1">

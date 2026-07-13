@@ -175,47 +175,55 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
             const isEditingSale = editingSaleId === sale.id;
             return (
             <div key={sale.id} className="p-5 space-y-3">
-              <div className="flex items-center gap-4">
-                <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <Receipt size={16} className="text-primary/70" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-bold">{sale.invoiceNumber}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                    <ShoppingBag size={10} />
-                    {sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.warehouse?.name} · {new Date(sale.createdAt).toLocaleString()}
-                  </p>
-                </div>
-                <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                  {sale.paymentMethod === "QR" ? "QR Payment" : "Cash on Delivery"}
-                </span>
-                <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", sale.paymentStatus === "PAID" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400")}>
-                  {sale.paymentStatus}
-                </span>
-                {!isEditingSale && (
-                  <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
-                    {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
-                  </span>
-                )}
-                {!isEditingSale && <p className="text-sm font-extrabold w-20 text-right">{formatNPR(sale.totalAmount)}</p>}
-                {!isEditingSale ? (
-                  <button onClick={() => startEditSale(sale)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer shrink-0">
-                    <Edit2 size={12} />
-                  </button>
-                ) : (
-                  <div className="flex gap-1.5 shrink-0">
-                    <button onClick={() => setEditingSaleId(null)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground hover:bg-muted/70 transition-colors cursor-pointer">
-                      <X size={12} />
-                    </button>
-                    <button onClick={() => handleSaveSale(sale.id)} disabled={savingSale} className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50">
-                      <Save size={12} />
-                    </button>
+              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                <div className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-0">
+                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <Receipt size={16} className="text-primary/70" />
                   </div>
-                )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold">{sale.invoiceNumber}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                      <ShoppingBag size={10} />
+                      {sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.warehouse?.name} · {new Date(sale.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                    {sale.paymentMethod === "QR" ? "QR Payment" : "Cash on Delivery"}
+                  </span>
+                  <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", sale.paymentStatus === "PAID" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400")}>
+                    {sale.paymentStatus}
+                  </span>
+                  {!isEditingSale && (
+                    <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
+                      {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 ml-auto shrink-0">
+                  {!isEditingSale && <p className="text-sm font-extrabold text-right">{formatNPR(sale.totalAmount)}</p>}
+                  {!isEditingSale ? (
+                    <button onClick={() => startEditSale(sale)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer shrink-0">
+                      <Edit2 size={12} />
+                    </button>
+                  ) : (
+                    <div className="flex gap-1.5 shrink-0">
+                      <button onClick={() => setEditingSaleId(null)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground hover:bg-muted/70 transition-colors cursor-pointer">
+                        <X size={12} />
+                      </button>
+                      <button onClick={() => handleSaveSale(sale.id)} disabled={savingSale} className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50">
+                        <Save size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {isEditingSale && (
-                <div className="pl-[52px] grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="pl-0 sm:pl-[52px] grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><DollarSign size={12} />Price</label>
                     <input
@@ -250,7 +258,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                 </div>
               )}
 
-              <div className="pl-[52px] space-y-1">
+              <div className="pl-0 sm:pl-[52px] space-y-1">
                 {sale.items.map((item: any) => (
                   <div key={item.id} className="flex justify-between text-xs text-muted-foreground">
                     <span>{item.product?.name ?? "—"} × {item.quantity}</span>

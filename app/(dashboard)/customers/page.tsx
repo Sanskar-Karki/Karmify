@@ -251,14 +251,14 @@ export default function CustomersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
-                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">SN</th>
-                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Date</th>
+                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden sm:table-cell">SN</th>
+                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden md:table-cell">Date</th>
                 <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Order ID</th>
-                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Customer Name</th>
-                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Phone</th>
+                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Customer</th>
+                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden lg:table-cell">Phone</th>
                 <th className="text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">COD Amount</th>
-                <th className="text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Delivery Amount</th>
-                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Status</th>
+                <th className="text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden lg:table-cell">Delivery Amount</th>
+                <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden sm:table-cell">Status</th>
                 <th className="text-right text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 w-28">Action</th>
               </tr>
             </thead>
@@ -271,12 +271,13 @@ export default function CustomersPage() {
                 const key = customerKey(sale);
                 return (
                   <tr key={sale.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium">{i + 1}</td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap">{new Date(sale.createdAt).toLocaleDateString()}</td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium hidden sm:table-cell">{i + 1}</td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">{new Date(sale.createdAt).toLocaleDateString()}</td>
                     <td className="px-5 py-3.5">
                       <Link href={`/customers/${encodeURIComponent(key)}`} className="font-bold text-xs font-mono hover:text-primary transition-colors cursor-pointer">
                         {sale.invoiceNumber}
                       </Link>
+                      <p className="text-[10px] text-muted-foreground/70 mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()}</p>
                     </td>
                     <td className="px-5 py-3.5 font-semibold text-xs">
                       {isEditing ? (
@@ -287,10 +288,13 @@ export default function CustomersPage() {
                           className="w-32 px-2 py-1.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
                         />
                       ) : (
-                        sale.customerName || "Walk-in Customer"
+                        <>
+                          {sale.customerName || "Walk-in Customer"}
+                          <p className="text-[10px] text-muted-foreground/70 mt-0.5 font-normal lg:hidden">{sale.customerPhone || "—"}</p>
+                        </>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-xs">
+                    <td className="px-5 py-3.5 text-xs hidden lg:table-cell">
                       {isEditing ? (
                         <div className="space-y-1.5">
                           <input
@@ -331,7 +335,7 @@ export default function CustomersPage() {
                         <span className="font-bold text-xs">{formatNPR(sale.codAmount ?? sale.totalAmount)}</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 text-right">
+                    <td className="px-5 py-3.5 text-right hidden lg:table-cell">
                       {isEditing ? (
                         <input
                           type="number"
@@ -344,7 +348,7 @@ export default function CustomersPage() {
                         <span className="font-extrabold text-xs">{formatNPR(sale.deliveryAmount ?? 0)}</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3.5 hidden sm:table-cell">
                       {isEditing ? (
                         <select
                           value={editForm.deliveryStatus}
@@ -365,19 +369,19 @@ export default function CustomersPage() {
                       <div className="flex items-center justify-end gap-1.5">
                         {isEditing ? (
                           <>
-                            <button onClick={cancelEdit} className="w-7 h-7 flex items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground hover:bg-muted/70 transition-colors cursor-pointer">
+                            <button onClick={cancelEdit} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border bg-muted text-muted-foreground hover:bg-muted/70 transition-colors cursor-pointer">
                               <X size={12} />
                             </button>
-                            <button onClick={() => saveEdit(sale)} disabled={saving} className="w-7 h-7 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50">
+                            <button onClick={() => saveEdit(sale)} disabled={saving} className="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer disabled:opacity-50">
                               <Save size={12} />
                             </button>
                           </>
                         ) : (
                           <>
-                            <button onClick={() => startEdit(sale)} className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer">
+                            <button onClick={() => startEdit(sale)} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer">
                               <Edit2 size={12} />
                             </button>
-                            <Link href={`/customers/${encodeURIComponent(key)}`} className="w-7 h-7 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer">
+                            <Link href={`/customers/${encodeURIComponent(key)}`} className="w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors cursor-pointer">
                               <ChevronRight size={14} />
                             </Link>
                           </>

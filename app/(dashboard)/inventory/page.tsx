@@ -210,7 +210,7 @@ export default function InventoryPage() {
               {/* Movement Type Picker */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-muted-foreground">Movement Type</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {MOVEMENT_TYPES.map(t => (
                     <button key={t.value} onClick={() => setForm(f => ({ ...f, type: t.value as any }))} className={cn("flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer", form.type === t.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:text-foreground")}>
                       <t.icon size={15} />

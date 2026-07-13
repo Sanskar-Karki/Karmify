@@ -191,20 +191,20 @@ export default function PurchasesPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3 md:gap-4 shrink-0">
+                <div className="flex flex-wrap items-center gap-3 md:gap-4 shrink-0">
                   <p className="text-lg font-extrabold">{formatNPR(po.totalAmount)}</p>
 
                   {po.status === "PENDING" && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         onClick={e => { e.stopPropagation(); changeStatus(po.id, "COMPLETED"); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors cursor-pointer"
+                        className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold bg-emerald-500 text-white rounded-xl hover:bg-emerald-600 transition-colors cursor-pointer"
                       >
                         <CheckCircle size={11} /> Mark Received
                       </button>
                       <button
                         onClick={e => { e.stopPropagation(); changeStatus(po.id, "CANCELLED"); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold bg-muted text-muted-foreground border border-border rounded-xl hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 transition-colors cursor-pointer"
+                        className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold bg-muted text-muted-foreground border border-border rounded-xl hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/20 transition-colors cursor-pointer"
                       >
                         <XCircle size={11} /> Cancel
                       </button>
@@ -299,25 +299,25 @@ export default function PurchasesPage() {
                   <button onClick={addItem} className="flex items-center gap-1 text-[10px] font-bold text-primary hover:underline cursor-pointer"><Plus size={11} />Add Item</button>
                 </div>
                 {form.items.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 items-end">
-                    <div className="col-span-6 space-y-1">
+                  <div key={idx} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end p-2.5 sm:p-0 rounded-xl border border-border/40 sm:border-0 bg-muted/10 sm:bg-transparent">
+                    <div className="col-span-2 sm:col-span-6 space-y-1">
                       <label className="text-[10px] font-semibold text-muted-foreground">Product</label>
-                      <select value={item.productId} onChange={e => updateItem(idx, "productId", e.target.value)} className="w-full px-2.5 py-2 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+                      <select value={item.productId} onChange={e => updateItem(idx, "productId", e.target.value)} className="w-full px-2.5 py-2.5 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
                         <option value="">Select...</option>
                         {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                       </select>
                     </div>
-                    <div className="col-span-2 space-y-1">
+                    <div className="col-span-1 sm:col-span-2 space-y-1">
                       <label className="text-[10px] font-semibold text-muted-foreground">Qty</label>
-                      <input type="number" min={1} value={item.quantity} onChange={e => updateItem(idx, "quantity", parseInt(e.target.value) || 1)} className="w-full px-2.5 py-2 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      <input type="number" min={1} value={item.quantity} onChange={e => updateItem(idx, "quantity", parseInt(e.target.value) || 1)} className="w-full px-2.5 py-2.5 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
-                    <div className="col-span-3 space-y-1">
+                    <div className="col-span-1 sm:col-span-3 space-y-1">
                       <label className="text-[10px] font-semibold text-muted-foreground">Unit Cost</label>
-                      <input type="number" min={0} step={0.01} value={item.unitCost} onChange={e => updateItem(idx, "unitCost", parseFloat(e.target.value) || 0)} className="w-full px-2.5 py-2 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      <input type="number" min={0} step={0.01} value={item.unitCost} onChange={e => updateItem(idx, "unitCost", parseFloat(e.target.value) || 0)} className="w-full px-2.5 py-2.5 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </div>
-                    <div className="col-span-1">
+                    <div className="col-span-2 sm:col-span-1 flex justify-end">
                       {form.items.length > 1 && (
-                        <button onClick={() => removeItem(idx)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 text-muted-foreground hover:text-red-500 cursor-pointer"><X size={13} /></button>
+                        <button onClick={() => removeItem(idx)} className="w-9 h-9 sm:w-8 sm:h-8 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20 text-muted-foreground hover:text-red-500 cursor-pointer"><X size={13} /></button>
                       )}
                     </div>
                   </div>

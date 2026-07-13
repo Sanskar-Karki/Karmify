@@ -49,10 +49,13 @@ export function Dock() {
   const [hovered, setHovered] = useState<number | null>(null);
 
   return (
-    <nav className="fixed bottom-2 left-1/2 -translate-x-1/2 z-30 pt-16">
+    <nav
+      className="fixed left-1/2 -translate-x-1/2 z-30 pt-16 max-w-[calc(100vw-1rem)]"
+      style={{ bottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+    >
       <div
         onMouseLeave={() => setHovered(null)}
-        className="relative flex items-center gap-3 px-5 py-3.5 rounded-full bg-card/70 backdrop-blur-md border border-border/60 shadow-lg shadow-black/10"
+        className="relative flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-5 py-2.5 sm:py-3.5 rounded-full bg-card/70 backdrop-blur-md border border-border/60 shadow-lg shadow-black/10"
       >
         {/* Glass sheen */}
         <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-black/5 pointer-events-none" />
@@ -69,6 +72,7 @@ export function Dock() {
             <Link
               key={item.href}
               href={item.href}
+              aria-label={item.name}
               onMouseEnter={() => { setHovered(i); prefetchRoute(item.href); }}
               onTouchStart={() => prefetchRoute(item.href)}
               className="group relative flex flex-col items-center justify-center"
@@ -77,15 +81,15 @@ export function Dock() {
                 transition: "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
               }}
             >
-              {/* Tooltip */}
-              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50">
+              {/* Tooltip (pointer devices only — hover never fires on touch) */}
+              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50 hidden sm:block">
                 {item.name}
               </span>
 
-              {/* Icon chip */}
+              {/* Icon chip — 44px min touch target on mobile */}
               <div
                 className={cn(
-                  "relative flex items-center justify-center w-10 h-10 rounded-xl border transition-all duration-300 cursor-pointer",
+                  "relative flex items-center justify-center w-11 h-11 sm:w-10 sm:h-10 rounded-xl border transition-all duration-300 cursor-pointer",
                   isActive
                     ? "bg-primary border-primary/30 text-primary-foreground shadow-lg shadow-primary/30"
                     : "bg-foreground/5 border-foreground/10 text-muted-foreground hover:bg-foreground/10 hover:border-foreground/20 hover:text-foreground"

@@ -50,9 +50,9 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground mt-0.5">Manage your store profile, team and warehouse configuration</p>
       </div>
 
-      <div className="flex gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl w-fit">
+      <div className="flex flex-wrap gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl w-fit max-w-full">
         {TABS.map(tab => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={cn("flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer", activeTab === tab.key ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}>
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)} className={cn("flex items-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer", activeTab === tab.key ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}>
             <tab.icon size={14} />
             {tab.label}
           </button>
@@ -102,30 +102,30 @@ export default function SettingsPage() {
       {activeTab === "team" && (
         <div className="space-y-3">
           <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-border/60 flex items-center justify-between">
+            <div className="p-6 border-b border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="font-bold text-base">Team Members</h2>
                 <p className="text-xs text-muted-foreground mt-0.5">View user roster and manage role assignments (Backend auth will activate these)</p>
               </div>
-              <button className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary/10 text-primary border border-primary/20 rounded-xl hover:bg-primary/20 transition-colors cursor-pointer">
+              <button className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 text-xs font-semibold bg-primary/10 text-primary border border-primary/20 rounded-xl hover:bg-primary/20 transition-colors cursor-pointer shrink-0">
                 <Plus size={13} />
                 Invite Member
               </button>
             </div>
             <div className="divide-y divide-border/40">
               {MOCK_TEAM.map(member => (
-                <div key={member.id} className="flex items-center gap-4 p-5 group hover:bg-muted/10 transition-colors">
+                <div key={member.id} className="flex flex-wrap items-center gap-4 p-5 group hover:bg-muted/10 transition-colors">
                   <div className={cn("w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0", member.role === "ADMIN" ? "bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300" : member.role === "MANAGER" ? "bg-indigo-100 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300" : "bg-muted text-muted-foreground")}>
                     {member.avatar}
                   </div>
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-[160px]">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-bold text-foreground">{member.name}</p>
                       {member.role === "ADMIN" && <ShieldCheck size={14} className="text-blue-600 dark:text-blue-400 shrink-0" />}
                     </div>
-                    <p className="text-xs text-muted-foreground">{member.email}</p>
+                    <p className="text-xs text-muted-foreground truncate">{member.email}</p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto sm:ml-0">
                     <span className={cn("text-[10px] font-bold uppercase px-2.5 py-1 rounded-full", member.role === "ADMIN" ? "bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400" : member.role === "MANAGER" ? "bg-indigo-100 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400" : "bg-muted text-muted-foreground")}>
                       {member.role}
                     </span>

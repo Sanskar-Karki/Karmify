@@ -425,7 +425,7 @@ export default function ProductsPage() {
                     <div className="space-y-2">
                       {group.options.map(option => (
                         <div key={option.id} className="rounded-xl border border-border/40 bg-background/70 p-2.5 space-y-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                             <input
                               value={option.name}
                               onChange={e => updateGroup(group.id, current => ({
@@ -433,20 +433,22 @@ export default function ProductsPage() {
                                 options: current.options.map(item => item.id === option.id ? { ...item, name: e.target.value } : item),
                               }))}
                               placeholder="Variant option (e.g. Black, S, Velvet)"
-                              className="flex-1 px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
+                              className="flex-1 min-w-[140px] px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
                             />
-                            <input
-                              type="number"
-                              min="0"
-                              value={option.quantity}
-                              onChange={e => updateGroup(group.id, current => ({
-                                ...current,
-                                options: current.options.map(item => item.id === option.id ? { ...item, quantity: Number(e.target.value) || 0 } : item),
-                              }))}
-                              placeholder="Qty"
-                              className="w-24 px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
-                            />
-                            <button type="button" onClick={() => removeVariantOption(group.id, option.id)} className="text-xs text-red-500 hover:text-red-600">Delete</button>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <input
+                                type="number"
+                                min="0"
+                                value={option.quantity}
+                                onChange={e => updateGroup(group.id, current => ({
+                                  ...current,
+                                  options: current.options.map(item => item.id === option.id ? { ...item, quantity: Number(e.target.value) || 0 } : item),
+                                }))}
+                                placeholder="Qty"
+                                className="w-20 px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
+                              />
+                              <button type="button" onClick={() => removeVariantOption(group.id, option.id)} className="text-xs text-red-500 hover:text-red-600 shrink-0">Delete</button>
+                            </div>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <button type="button" onClick={() => addVariantOption(group.id)} className="text-[11px] font-semibold text-muted-foreground hover:text-foreground">+ Add Option</button>
@@ -475,7 +477,7 @@ export default function ProductsPage() {
                                     </div>
                                     <div className="space-y-2">
                                       {childGroup.options.map(childOption => (
-                                        <div key={childOption.id} className="flex items-center gap-2">
+                                        <div key={childOption.id} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
                                           <input
                                             value={childOption.name}
                                             onChange={e => updateGroup(group.id, current => ({
@@ -483,7 +485,7 @@ export default function ProductsPage() {
                                               options: current.options.map(item => item.id === option.id ? { ...item, childGroups: item.childGroups.map(child => child.id === childGroup.id ? { ...child, options: child.options.map(childItem => childItem.id === childOption.id ? { ...childItem, name: e.target.value } : childItem) } : child) } : item),
                                             }))}
                                             placeholder="Child option"
-                                            className="flex-1 px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
+                                            className="flex-1 min-w-[120px] px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
                                           />
                                           <input
                                             type="number"
@@ -494,7 +496,7 @@ export default function ProductsPage() {
                                               options: current.options.map(item => item.id === option.id ? { ...item, childGroups: item.childGroups.map(child => child.id === childGroup.id ? { ...child, options: child.options.map(childItem => childItem.id === childOption.id ? { ...childItem, quantity: Number(e.target.value) || 0 } : childItem) } : child) } : item),
                                             }))}
                                             placeholder="Qty"
-                                            className="w-24 px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
+                                            className="w-20 shrink-0 px-2.5 py-2 rounded-lg border border-border/60 bg-background text-sm"
                                           />
                                         </div>
                                       ))}
@@ -655,6 +657,14 @@ export default function ProductsPage() {
                         <div className="min-w-0">
                           <p className="font-semibold text-foreground truncate max-w-[180px]">{p.name}</p>
                           <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{p.sku}</p>
+                          {/* Category + stock surfaced here on mobile, where their dedicated columns are hidden */}
+                          <div className="flex items-center gap-1.5 mt-1 md:hidden">
+                            <span className="text-[9px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded font-medium">{cat?.name ?? "—"}</span>
+                            <span className={cn("inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded", isLow ? "bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400" : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400")}>
+                              {isLow ? <AlertTriangle size={9} /> : <CheckCircle2 size={9} />}
+                              {totalStock} units
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -687,11 +697,11 @@ export default function ProductsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
-                        <button onClick={() => openEdit(p)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
+                      <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity justify-end">
+                        <button onClick={() => openEdit(p)} className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                           <Edit2 size={13} />
                         </button>
-                        <button onClick={() => setDeleteId(p.id)} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors cursor-pointer">
+                        <button onClick={() => setDeleteId(p.id)} className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors cursor-pointer">
                           <Trash2 size={13} />
                         </button>
                       </div>

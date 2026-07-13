@@ -174,7 +174,7 @@ export default function SalesPage() {
         </div>
 
         {/* RIGHT: Cart & Checkout */}
-        <div className="lg:col-span-5 sticky top-6 space-y-3">
+        <div className="lg:col-span-5 lg:sticky lg:top-6 space-y-3">
           <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
             {/* Cart Header */}
             <div className="p-4 border-b border-border/60 flex items-center justify-between">
@@ -197,13 +197,13 @@ export default function SalesPage() {
                       <p className="text-xs font-semibold truncate">{item.name}</p>
                       <p className="text-[10px] text-muted-foreground">{formatNPR(item.unitPrice)} ea.</p>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button onClick={() => updateQty(item.productId, -1)} className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70 cursor-pointer"><Minus size={10} /></button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => updateQty(item.productId, -1)} className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70 cursor-pointer"><Minus size={11} /></button>
                       <span className="w-6 text-center text-xs font-bold">{item.quantity}</span>
-                      <button onClick={() => updateQty(item.productId, 1)} className="w-6 h-6 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70 cursor-pointer"><Plus size={10} /></button>
+                      <button onClick={() => updateQty(item.productId, 1)} className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70 cursor-pointer"><Plus size={11} /></button>
                     </div>
                     <span className="text-xs font-bold w-16 text-right">{formatNPR(item.unitPrice * item.quantity)}</span>
-                    <button onClick={() => removeFromCart(item.productId)} className="w-5 h-5 rounded flex items-center justify-center text-muted-foreground hover:text-red-500 cursor-pointer"><X size={12} /></button>
+                    <button onClick={() => removeFromCart(item.productId)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-500/10 cursor-pointer shrink-0"><X size={14} /></button>
                   </div>
                 ))
               )}
@@ -224,14 +224,14 @@ export default function SalesPage() {
                 ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <div className="relative">
                   <Percent size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input type="number" min={0} max={100} value={discount} onChange={e => setDiscount(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} placeholder="Discount %" className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  <input type="number" min={0} max={100} value={discount} onChange={e => setDiscount(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))} placeholder="Discount %" className="w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="relative">
                   <Truck size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input type="number" min={0} step="0.01" value={deliveryAmount} onChange={e => setDeliveryAmount(Math.max(0, parseFloat(e.target.value) || 0))} placeholder="Delivery Amt" className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  <input type="number" min={0} step="0.01" value={deliveryAmount} onChange={e => setDeliveryAmount(Math.max(0, parseFloat(e.target.value) || 0))} placeholder="Delivery Amt" className="w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="relative">
                   <Receipt size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -243,17 +243,17 @@ export default function SalesPage() {
                     onChange={e => { setCodTouched(true); setCodAmount(e.target.value); }}
                     placeholder="COD Amount"
                     title="Cash the customer pays on delivery — defaults to total + delivery, but can be overridden"
-                    className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
               </div>
 
               {/* Payment Method */}
               <div className="flex items-center gap-2">
-                <button onClick={() => setPaymentMethod("COD")} className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer", paymentMethod === "COD" ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted border-border text-muted-foreground")}>
+                <button onClick={() => setPaymentMethod("COD")} className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer", paymentMethod === "COD" ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted border-border text-muted-foreground")}>
                   <Truck size={12} /> Cash on Delivery
                 </button>
-                <button onClick={() => setPaymentMethod("QR")} className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer", paymentMethod === "QR" ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted border-border text-muted-foreground")}>
+                <button onClick={() => setPaymentMethod("QR")} className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all cursor-pointer", paymentMethod === "QR" ? "bg-primary/10 border-primary/30 text-primary" : "bg-muted border-border text-muted-foreground")}>
                   <QrCode size={12} /> QR Payment
                 </button>
               </div>
