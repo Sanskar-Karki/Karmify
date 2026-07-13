@@ -4,8 +4,10 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { Dock } from "@/components/shared/Dock";
 import { GlobalSearch } from "@/components/shared/GlobalSearch";
-import { Bell, Moon, Sun, Settings } from "lucide-react";
+import { Moon, Sun, Settings } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
+import { Toaster } from "sonner";
+import { prefetchAllRoutesOnce } from "@/lib/prefetch";
 
 export default function DashboardLayout({
   children,
@@ -15,15 +17,14 @@ export default function DashboardLayout({
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem("theme") as "light" | "dark" | null;
-    const initialTheme = savedTheme || "light";
-    setTheme(initialTheme);
+    setTheme(document.documentElement.classList.contains("dark") ? "dark" : "light");
+  }, []);
 
-    if (initialTheme === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
+  // Warm every dockable route's data in the background shortly after the
+  // shell mounts, so clicking a nav item usually finds a resolved cache
+  // entry instead of triggering a fresh fetch.
+  useEffect(() => {
+    prefetchAllRoutesOnce();
   }, []);
 
   const toggleTheme = () => {
@@ -57,12 +58,6 @@ export default function DashboardLayout({
 
         {/* Right actions */}
         <div className="flex items-center gap-2 ml-auto">
-          {/* System status */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted border border-border text-[10px] font-medium text-muted-foreground">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Kathmandu Central
-          </div>
-
           {/* Theme toggle */}
           <button
             onClick={toggleTheme}
@@ -70,15 +65,6 @@ export default function DashboardLayout({
             aria-label="Toggle theme"
           >
             {theme === "light" ? <Moon size={15} /> : <Sun size={15} />}
-          </button>
-
-          {/* Notifications */}
-          <button
-            className="relative flex items-center justify-center w-8 h-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors border border-border"
-            aria-label="Notifications"
-          >
-            <Bell size={15} />
-            <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-primary" />
           </button>
 
           {/* Settings */}
@@ -103,6 +89,7 @@ export default function DashboardLayout({
       </main>
 
       <Dock />
+      <Toaster position="top-center" richColors theme={theme} />
     </div>
   );
 }

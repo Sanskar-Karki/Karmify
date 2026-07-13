@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log("Starting database seeding...");
 
-  // 1. Create a Default Admin User (using a placeholder Clerk ID for testing)
+  // 1. Create a Default Admin User with their own demo Store (tenant)
   const defaultAdmin = await prisma.user.upsert({
     where: { email: "admin@karmify.com" },
     update: {},
@@ -16,31 +16,42 @@ async function main() {
       role: Role.ADMIN,
     },
   });
-  console.log("✅ Seeded Admin User:", defaultAdmin.name);
+
+  const store = await prisma.store.upsert({
+    where: { ownerId: defaultAdmin.id },
+    update: {},
+    create: { name: "Karmify Demo Store", ownerId: defaultAdmin.id },
+  });
+  await prisma.user.update({ where: { id: defaultAdmin.id }, data: { storeId: store.id } });
+  const storeId = store.id;
+  console.log("✅ Seeded Admin User + Store:", defaultAdmin.name, "/", store.name);
 
   // 2. Create Categories
   const categoryElectronics = await prisma.category.upsert({
-    where: { name: "Electronics" },
+    where: { storeId_name: { storeId, name: "Electronics" } },
     update: {},
     create: {
+      storeId,
       name: "Electronics",
       description: "Smartphones, Laptops, Accessories, and gadgets",
     },
   });
 
   const categoryOffice = await prisma.category.upsert({
-    where: { name: "Office Supplies" },
+    where: { storeId_name: { storeId, name: "Office Supplies" } },
     update: {},
     create: {
+      storeId,
       name: "Office Supplies",
       description: "Chairs, Desks, Pens, Notebooks, and stationary items",
     },
   });
 
   const categoryApparel = await prisma.category.upsert({
-    where: { name: "Apparel" },
+    where: { storeId_name: { storeId, name: "Apparel" } },
     update: {},
     create: {
+      storeId,
       name: "Apparel",
       description: "Corporate hoodies, T-Shirts, and apparel",
     },
@@ -49,9 +60,10 @@ async function main() {
 
   // 3. Create Suppliers
   const supplierTech = await prisma.supplier.upsert({
-    where: { companyName: "TechDistributors Ltd." },
+    where: { storeId_companyName: { storeId, companyName: "TechDistributors Ltd." } },
     update: {},
     create: {
+      storeId,
       companyName: "TechDistributors Ltd.",
       contactPerson: "Ram Prasad",
       phone: "+977 9851012345",
@@ -62,9 +74,10 @@ async function main() {
   });
 
   const supplierFurniture = await prisma.supplier.upsert({
-    where: { companyName: "Nepal Office Furniture" },
+    where: { storeId_companyName: { storeId, companyName: "Nepal Office Furniture" } },
     update: {},
     create: {
+      storeId,
       companyName: "Nepal Office Furniture",
       contactPerson: "Rita Shrestha",
       phone: "+977 9801234567",
@@ -77,9 +90,10 @@ async function main() {
 
   // 4. Create Warehouses
   const warehouseMain = await prisma.warehouse.upsert({
-    where: { name: "Kathmandu Central Depot" },
+    where: { storeId_name: { storeId, name: "Kathmandu Central Depot" } },
     update: {},
     create: {
+      storeId,
       name: "Kathmandu Central Depot",
       location: "Koteshwor, Kathmandu",
       description: "Main hub for central distribution and storage.",
@@ -87,9 +101,10 @@ async function main() {
   });
 
   const warehouseSub = await prisma.warehouse.upsert({
-    where: { name: "Pokhara Branch Outlet" },
+    where: { storeId_name: { storeId, name: "Pokhara Branch Outlet" } },
     update: {},
     create: {
+      storeId,
       name: "Pokhara Branch Outlet",
       location: "Lake Side, Pokhara",
       description: "Branch retail distribution and showroom outlet.",
@@ -145,9 +160,10 @@ async function main() {
 
   for (const prod of productsToSeed) {
     const product = await prisma.product.upsert({
-      where: { sku: prod.sku },
+      where: { storeId_sku: { storeId, sku: prod.sku } },
       update: {},
       create: {
+        storeId,
         name: prod.name,
         sku: prod.sku,
         barcode: prod.barcode,
@@ -161,61 +177,38 @@ async function main() {
       },
     });
 
-    // Allocate stock for Kathmandu Depot
-    await prisma.stock.upsert({
-      where: {
-        productId_warehouseId: {
-          productId: product.id,
-          warehouseId: warehouseMain.id,
+    for (const { warehouse, qty } of [
+      { warehouse: warehouseMain, qty: prod.initialQtyMain },
+      { warehouse: warehouseSub, qty: prod.initialQtySub },
+    ]) {
+      await prisma.stock.upsert({
+        where: {
+          productId_warehouseId: {
+            productId: product.id,
+            warehouseId: warehouse.id,
+          },
         },
-      },
-      update: {},
-      create: {
-        productId: product.id,
-        warehouseId: warehouseMain.id,
-        quantity: prod.initialQtyMain,
-      },
-    });
-
-    // Record Stock Movement for Kathmandu Depot
-    await prisma.stockMovement.create({
-      data: {
-        productId: product.id,
-        quantity: prod.initialQtyMain,
-        type: MovementType.STOCK_IN,
-        destWhId: warehouseMain.id,
-        notes: "Initial balance loading during system seed",
-        userId: defaultAdmin.id,
-      },
-    });
-
-    // Allocate stock for Pokhara Depot
-    await prisma.stock.upsert({
-      where: {
-        productId_warehouseId: {
+        update: {},
+        create: {
+          storeId,
           productId: product.id,
-          warehouseId: warehouseSub.id,
+          warehouseId: warehouse.id,
+          quantity: qty,
         },
-      },
-      update: {},
-      create: {
-        productId: product.id,
-        warehouseId: warehouseSub.id,
-        quantity: prod.initialQtySub,
-      },
-    });
+      });
 
-    // Record Stock Movement for Pokhara Depot
-    await prisma.stockMovement.create({
-      data: {
-        productId: product.id,
-        quantity: prod.initialQtySub,
-        type: MovementType.STOCK_IN,
-        destWhId: warehouseSub.id,
-        notes: "Initial balance loading during system seed",
-        userId: defaultAdmin.id,
-      },
-    });
+      await prisma.stockMovement.create({
+        data: {
+          storeId,
+          productId: product.id,
+          quantity: qty,
+          type: MovementType.STOCK_IN,
+          destWhId: warehouse.id,
+          notes: "Initial balance loading during system seed",
+          userId: defaultAdmin.id,
+        },
+      });
+    }
 
     console.log(`✅ Seeded Product: ${product.name} with stock in main & sub warehouses.`);
   }

@@ -10,9 +10,9 @@ import {
 } from "lucide-react";
 import { getCustomers, updateCustomerInfo, updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
-import { getPageCache, setPageCache } from "@/lib/pageCache";
+import { fetchResource, getCached, invalidate } from "@/lib/resourceCache";
 
-const CACHE_KEY = "customers-detail-list";
+const CACHE_KEY = "customers";
 
 const DELIVERY_STATUSES = [
   { value: "IN_PROCESS", label: "In Process" },
@@ -32,7 +32,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
   const { key: rawKey } = use(params);
   const key = decodeURIComponent(rawKey);
 
-  const cachedCustomers = getPageCache<any[]>(CACHE_KEY);
+  const cachedCustomers = getCached<any[]>(CACHE_KEY);
   const cachedFound = cachedCustomers?.find(c => c.key === key) ?? null;
 
   const [mounted, setMounted] = useState(!!cachedCustomers);
@@ -49,9 +49,9 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     refresh().then(() => setMounted(true));
   }, []);
 
-  async function refresh() {
-    const customers = await getCustomers();
-    setPageCache(CACHE_KEY, customers);
+  async function refresh(force = false) {
+    if (force) invalidate(CACHE_KEY);
+    const customers = await fetchResource<any[]>(CACHE_KEY, getCustomers, { force });
     const found = customers.find(c => c.key === key) ?? null;
     setCustomer(found);
     if (found) setForm({ name: found.name, phone: found.phone ?? "", address: found.address ?? "" });
@@ -61,7 +61,8 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     if (!customer) return;
     setSaving(true);
     await updateCustomerInfo(customer.sales.map((s: any) => s.id), form);
-    await refresh();
+    invalidate("sales");
+    await refresh(true);
     setSaving(false);
     setEditing(false);
   }
@@ -82,7 +83,8 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
       customerAddress: saleForm.customerAddress,
       deliveryStatus: saleForm.deliveryStatus as any,
     });
-    await refresh();
+    invalidate("sales");
+    await refresh(true);
     setSavingSale(false);
     setEditingSaleId(null);
   }

@@ -8,11 +8,12 @@ import {
   CheckCircle, User, Phone, MapPin, Percent, Receipt, Package, QrCode, Truck
 } from "lucide-react";
 import {
-  getProducts, getStocks, getSales, createSale, getCategories,
+  createSale,
 } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
-import { getPageCache, setPageCache } from "@/lib/pageCache";
+import { useResources } from "@/lib/useResources";
+import { resources } from "@/lib/resources";
 
 interface CartItem {
   productId: string;
@@ -23,16 +24,13 @@ interface CartItem {
   maxQty: number;
 }
 
-type SalesCache = { products: any[]; categories: any[]; stocks: any[]; sales: any[] };
-const CACHE_KEY = "sales-page";
-
 export default function SalesPage() {
-  const cached = getPageCache<SalesCache>(CACHE_KEY);
-  const [loading, setLoading] = useState(!cached);
-  const [products, setProducts] = useState<any[]>(cached?.products ?? []);
-  const [categories, setCategories] = useState<any[]>(cached?.categories ?? []);
-  const [stocks, setStocks] = useState<any[]>(cached?.stocks ?? []);
-  const [sales, setSales] = useState<any[]>(cached?.sales ?? []);
+  const { products, categories, stocks, sales, loading, refetch } = useResources({
+    products: resources.activeProducts,
+    categories: resources.categories,
+    stocks: resources.stocks,
+    sales: resources.sales,
+  });
 
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("all");
@@ -47,22 +45,6 @@ export default function SalesPage() {
 
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastSale, setLastSale] = useState<any | null>(null);
-
-  useEffect(() => {
-    refresh().then(() => setLoading(false));
-  }, []);
-
-  async function refresh() {
-    const [products, categories, stocks, sales] = await Promise.all([
-      getProducts(), getCategories(), getStocks(), getSales(),
-    ]);
-    const activeProducts = products.filter((p: any) => p.status === "active");
-    setProducts(activeProducts);
-    setCategories(categories);
-    setStocks(stocks);
-    setSales(sales);
-    setPageCache<SalesCache>(CACHE_KEY, { products: activeProducts, categories, stocks, sales });
-  }
 
   function getStock(productId: string) {
     return stocks.filter(s => s.productId === productId).reduce((a, s) => a + s.quantity, 0);
@@ -134,7 +116,7 @@ export default function SalesPage() {
     setCodAmount("0");
     setCodTouched(false);
     setPaymentMethod("COD");
-    await refresh();
+    await refetch();
   }
 
   return (

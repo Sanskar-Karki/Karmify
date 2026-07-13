@@ -2,14 +2,14 @@
 
 import { Skeleton } from "boneyard-js/react";
 import { InventoryFixture } from "@/components/skeletons/fixtures";
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { ArrowLeftRight, Plus, X, AlertTriangle, CheckCircle2, Package, ArrowRight, ArrowLeft, Wrench, RefreshCw } from "lucide-react";
-import {
-  getProducts, getStocks, getStockMovements, recordStockMovement,
-} from "@/app/actions";
+import { recordStockMovement } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
-import { getPageCache, setPageCache } from "@/lib/pageCache";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { useResources } from "@/lib/useResources";
+import { resources } from "@/lib/resources";
 
 type MovementType = "STOCK_IN" | "STOCK_OUT" | "DAMAGED" | "RETURNED" | "ADJUSTMENT";
 
@@ -29,15 +29,12 @@ const TYPE_STYLES: Record<string, string> = {
   RETURNED: "bg-violet-100 dark:bg-violet-950/30 text-violet-700 dark:text-violet-400",
 };
 
-type InventoryCache = { products: any[]; stocks: any[]; movements: any[] };
-const CACHE_KEY = "inventory-page";
-
 export default function InventoryPage() {
-  const cached = getPageCache<InventoryCache>(CACHE_KEY);
-  const [loading, setLoading] = useState(!cached);
-  const [products, setProducts] = useState<any[]>(cached?.products ?? []);
-  const [stocks, setStocks] = useState<any[]>(cached?.stocks ?? []);
-  const [movements, setMovements] = useState<any[]>(cached?.movements ?? []);
+  const { products, stocks, movements, loading, refetch } = useResources({
+    products: resources.products,
+    stocks: resources.stocks,
+    movements: resources.movements,
+  });
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
@@ -46,20 +43,6 @@ export default function InventoryPage() {
     quantity: 1,
     notes: ""
   });
-
-  useEffect(() => {
-    refresh().then(() => setLoading(false));
-  }, []);
-
-  async function refresh() {
-    const [products, stocks, movements] = await Promise.all([
-      getProducts(), getStocks(), getStockMovements(),
-    ]);
-    setProducts(products);
-    setStocks(stocks);
-    setMovements(movements);
-    setPageCache<InventoryCache>(CACHE_KEY, { products, stocks, movements });
-  }
 
   function getTotalStock(productId: string) {
     return stocks.filter(s => s.productId === productId).reduce((a, s) => a + s.quantity, 0);
@@ -84,7 +67,7 @@ export default function InventoryPage() {
 
     setShowModal(false);
     setForm({ productId: "", type: "STOCK_IN", quantity: 1, notes: "" });
-    await refresh();
+    await refetch();
   }
 
   return (
@@ -123,7 +106,7 @@ export default function InventoryPage() {
                 <tr key={i}><td colSpan={4} className="px-5 py-4"><Pulse className="h-6 w-full" /></td></tr>
               ))}
               {!loading && products.length === 0 && (
-                <tr><td colSpan={4} className="text-center py-12 text-muted-foreground text-sm">No products yet.</td></tr>
+                <EmptyState colSpan={4} icon={Package} title="No products yet" description="Add products in the catalog to start tracking their stock levels here." />
               )}
               {!loading && products.map(prod => {
                 const total = getTotalStock(prod.id);
@@ -183,7 +166,7 @@ export default function InventoryPage() {
                 <tr key={i}><td colSpan={5} className="px-5 py-3.5"><Pulse className="h-5 w-full" /></td></tr>
               ))}
               {!loading && movements.length === 0 && (
-                <tr><td colSpan={5} className="text-center py-12 text-muted-foreground text-sm">No movements recorded yet.</td></tr>
+                <EmptyState colSpan={5} icon={ArrowLeftRight} title="No stock movements yet" description="Record a stock-in, stock-out, or adjustment and it will appear in this ledger." />
               )}
               {!loading && movements.slice(0, 30).map(mov => {
                 const prod = products.find(p => p.id === mov.productId);

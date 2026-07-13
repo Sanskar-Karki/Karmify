@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { prefetchRoute } from "@/lib/prefetch";
 import {
   LayoutDashboard,
   Package,
@@ -51,11 +52,11 @@ export function Dock() {
     <nav className="fixed bottom-2 left-1/2 -translate-x-1/2 z-30 pt-16">
       <div
         onMouseLeave={() => setHovered(null)}
-        className="relative flex items-center gap-3 px-5 py-3.5 rounded-full bg-black/10 backdrop-blur-xs border border-black"
+        className="relative flex items-center gap-3 px-5 py-3.5 rounded-full bg-card/70 backdrop-blur-md border border-border/60 shadow-lg shadow-black/10"
       >
         {/* Glass sheen */}
-        <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/20 via-white/0 to-black/20 pointer-events-none" />
-        <div className="absolute inset-x-4 top-0.5 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent pointer-events-none" />
+        <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-black/5 pointer-events-none" />
+        <div className="absolute inset-x-4 top-0.5 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent pointer-events-none" />
 
         {dockItems.map((item, i) => {
           const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -68,7 +69,8 @@ export function Dock() {
             <Link
               key={item.href}
               href={item.href}
-              onMouseEnter={() => setHovered(i)}
+              onMouseEnter={() => { setHovered(i); prefetchRoute(item.href); }}
+              onTouchStart={() => prefetchRoute(item.href)}
               className="group relative flex flex-col items-center justify-center"
               style={{
                 transform: `translateY(${-lift}px) scale(${scale})`,
@@ -76,7 +78,7 @@ export function Dock() {
               }}
             >
               {/* Tooltip */}
-              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-white/95 backdrop-blur-sm text-zinc-900 text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50">
+              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50">
                 {item.name}
               </span>
 
@@ -85,8 +87,8 @@ export function Dock() {
                 className={cn(
                   "relative flex items-center justify-center w-10 h-10 rounded-xl border transition-all duration-300 cursor-pointer",
                   isActive
-                    ? "bg-white border border-red-800/20! text-black shadow-lg shadow-red-700/20"
-                    : "bg-white/15 border-white/20 text-black/50 hover:bg-white/25 hover:border-white/30"
+                    ? "bg-primary border-primary/30 text-primary-foreground shadow-lg shadow-primary/30"
+                    : "bg-foreground/5 border-foreground/10 text-muted-foreground hover:bg-foreground/10 hover:border-foreground/20 hover:text-foreground"
                 )}
               >
                 <Icon size={18} strokeWidth={2} />

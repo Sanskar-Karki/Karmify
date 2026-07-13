@@ -47,19 +47,46 @@ enum DeliveryStatus {
   RETURNED
 }
 
+// A tenant. Every business/store using the app gets its own Store, and all
+// data rows below carry a storeId so tenants never see each other's data.
+model Store {
+  id             String          @id @default(uuid())
+  name           String
+  ownerId        String          @unique // Clerk user ID of the store owner
+  users          User[]
+  categories     Category[]
+  suppliers      Supplier[]
+  warehouses     Warehouse[]
+  products       Product[]
+  stocks         Stock[]
+  movements      StockMovement[]
+  purchaseOrders PurchaseOrder[]
+  sales          Sale[]
+  activities     ActivityLog[]
+  notifications  Notification[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
 model User {
   id         String        @id // Stores Clerk user ID directly (e.g., "user_2...")
   email      String        @unique
   name       String
   role       Role          @default(STAFF)
+  storeId    String?
+  store      Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
   activities ActivityLog[]
+
+  @@index([storeId])
 }
 
 model Category {
   id             String     @id @default(uuid())
-  name           String     @unique
+  storeId        String
+  store          Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name           String
   description    String?
   parentId       String?
   parentCategory Category?  @relation("NestedCategories", fields: [parentId], references: [id], onDelete: SetNull)
@@ -67,11 +94,16 @@ model Category {
   products       Product[]
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
+
+  @@unique([storeId, name])
+  @@index([storeId])
 }
 
 model Supplier {
   id             String          @id @default(uuid())
-  companyName    String          @unique
+  storeId        String
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  companyName    String
   contactPerson  String
   phone          String
   email          String
@@ -81,11 +113,16 @@ model Supplier {
   products       Product[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+
+  @@unique([storeId, companyName])
+  @@index([storeId])
 }
 
 model Warehouse {
   id             String          @id @default(uuid())
-  name           String          @unique
+  storeId        String
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name           String
   location       String
   description    String?
   stocks         Stock[]
@@ -95,38 +132,47 @@ model Warehouse {
   sales          Sale[]
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+
+  @@unique([storeId, name])
+  @@index([storeId])
 }
 
 model Product {
-  id              String          @id @default(uuid())
-  name            String
-  sku             String          @unique
-  barcode         String?         @unique
-  description     String?
-  brand           String?
-  categoryId      String
-  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  supplierId      String
-  supplier        Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  costPrice       Float
-  sellingPrice    Float
-  minStockLevel   Int             @default(5)
-  imageUrl        String?
-  expiryDate      DateTime?
-  status          String          @default("active") // "active" | "inactive"
-  stocks          Stock[]
-  movements       StockMovement[]
-  purchaseItems   PurchaseItem[]
-  saleItems       SaleItem[]
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id            String          @id @default(uuid())
+  storeId       String
+  store         Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name          String
+  sku           String
+  barcode       String?
+  description   String?
+  brand         String?
+  categoryId    String
+  category      Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplierId    String
+  supplier      Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  costPrice     Float
+  sellingPrice  Float
+  minStockLevel Int             @default(5)
+  imageUrl      String?
+  expiryDate    DateTime?
+  status        String          @default("active") // "active" | "inactive"
+  stocks        Stock[]
+  movements     StockMovement[]
+  purchaseItems PurchaseItem[]
+  saleItems     SaleItem[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
-  @@index([sku])
+  @@unique([storeId, sku])
+  @@unique([storeId, barcode])
+  @@index([storeId])
   @@index([categoryId])
 }
 
 model Stock {
   id          String    @id @default(uuid())
+  storeId     String
+  store       Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
   productId   String
   product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
   warehouseId String
@@ -135,10 +181,13 @@ model Stock {
   updatedAt   DateTime  @updatedAt
 
   @@unique([productId, warehouseId])
+  @@index([storeId])
 }
 
 model StockMovement {
   id              String       @id @default(uuid())
+  storeId         String
+  store           Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
   productId       String
   product         Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
   quantity        Int
@@ -147,18 +196,20 @@ model StockMovement {
   sourceWarehouse Warehouse?   @relation("SourceWarehouse", fields: [sourceWhId], references: [id], onDelete: SetNull)
   destWhId        String?
   destWarehouse   Warehouse?   @relation("DestWarehouse", fields: [destWhId], references: [id], onDelete: SetNull)
-  referenceId     String?      // e.g. PurchaseOrderId or SaleId / Invoice number
+  referenceId     String? // e.g. PurchaseOrderId or SaleId / Invoice number
   notes           String?
   userId          String?
   createdAt       DateTime     @default(now())
 
+  @@index([storeId, createdAt])
   @@index([productId])
-  @@index([createdAt])
 }
 
 model PurchaseOrder {
   id            String         @id @default(uuid())
-  orderNumber   String         @unique // e.g. PO-XXXX
+  storeId       String
+  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderNumber   String // e.g. PO-XXXX
   supplierId    String
   supplier      Supplier       @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   warehouseId   String
@@ -171,6 +222,8 @@ model PurchaseOrder {
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
+  @@unique([storeId, orderNumber])
+  @@index([storeId, createdAt])
   @@index([supplierId])
 }
 
@@ -186,54 +239,65 @@ model PurchaseItem {
 }
 
 model Sale {
-  id            String        @id @default(uuid())
-  invoiceNumber String        @unique // e.g. INV-XXXX
+  id              String         @id @default(uuid())
+  storeId         String
+  store           Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  invoiceNumber   String // e.g. INV-XXXX
   customerName    String?
   customerEmail   String?
   customerPhone   String?
   customerAddress String?
-  warehouseId   String
-  warehouse     Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  items         SaleItem[]
-  taxAmount     Float         @default(0.0)
-  discount      Float         @default(0.0)
-  deliveryAmount Float        @default(0.0)
-  codAmount     Float         @default(0.0)
-  totalAmount   Float
-  paymentStatus PaymentStatus @default(PAID)
-  paymentMethod PaymentMethod @default(COD)
-  deliveryStatus DeliveryStatus @default(IN_PROCESS)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  warehouseId     String
+  warehouse       Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items           SaleItem[]
+  taxAmount       Float          @default(0.0)
+  discount        Float          @default(0.0)
+  deliveryAmount  Float          @default(0.0)
+  codAmount       Float          @default(0.0)
+  totalAmount     Float
+  paymentStatus   PaymentStatus  @default(PAID)
+  paymentMethod   PaymentMethod  @default(COD)
+  deliveryStatus  DeliveryStatus @default(IN_PROCESS)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([storeId, invoiceNumber])
+  @@index([storeId, createdAt])
 }
 
 model SaleItem {
-  id          String   @id @default(uuid())
-  saleId      String
-  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  productId   String
-  product     Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
-  quantity    Int
-  unitPrice   Float
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  saleId    String
+  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int
+  unitPrice Float
+  createdAt DateTime @default(now())
 }
 
 model ActivityLog {
   id        String   @id @default(uuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   action    String
   details   String
   userId    String?
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
 
-  @@index([createdAt])
+  @@index([storeId, createdAt])
 }
 
 model Notification {
   id        String   @id @default(uuid())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
   title     String
   message   String
-  type      String   // "info" | "warning" | "error"
+  type      String // "info" | "warning" | "error"
   isRead    Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([storeId, createdAt])
 }

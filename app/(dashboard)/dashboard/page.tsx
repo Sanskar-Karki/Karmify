@@ -39,24 +39,10 @@ import {
   Line,
   Legend,
 } from "recharts";
-import {
-  getProducts,
-  getSales,
-  getStocks,
-  getStockMovements,
-  getCategories,
-  getActivityLogs,
-  getNotifications
-} from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
-import { getPageCache, setPageCache } from "@/lib/pageCache";
-
-type DashboardCache = {
-  products: any[]; sales: any[]; stocks: any[]; movements: any[];
-  categories: any[]; activities: any[]; notifications: any[];
-};
-const CACHE_KEY = "dashboard-page";
+import { useResources } from "@/lib/useResources";
+import { resources } from "@/lib/resources";
 
 type RangeKey = "today" | "week" | "month" | "year" | "custom";
 
@@ -337,42 +323,17 @@ const DELIVERY_STATUS_META: Record<string, { label: string; color: string }> = {
 };
 
 export default function Dashboard() {
-  const cached = getPageCache<DashboardCache>(CACHE_KEY);
-  const [loading, setLoading] = useState(!cached);
-  const [products, setProducts] = useState<any[]>(cached?.products ?? []);
-  const [sales, setSales] = useState<any[]>(cached?.sales ?? []);
-  const [stocks, setStocks] = useState<any[]>(cached?.stocks ?? []);
-  const [movements, setMovements] = useState<any[]>(cached?.movements ?? []);
-  const [categories, setCategories] = useState<any[]>(cached?.categories ?? []);
-  const [activities, setActivities] = useState<any[]>(cached?.activities ?? []);
-  const [notifications, setNotifications] = useState<any[]>(cached?.notifications ?? []);
+  const { products, sales, stocks, movements, categories, activities, loading } = useResources({
+    products: resources.products,
+    sales: resources.sales,
+    stocks: resources.stocks,
+    movements: resources.movements,
+    categories: resources.categories,
+    activities: resources.activities,
+  });
   const [trendRange, setTrendRange] = useState<RangeKey>("week");
   const [customTrendStart, setCustomTrendStart] = useState<Date | null>(null);
   const [customTrendEnd, setCustomTrendEnd] = useState<Date | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      const [products, sales, stocks, movements, categories, activities, notifications] =
-        await Promise.all([
-          getProducts(),
-          getSales(),
-          getStocks(),
-          getStockMovements(),
-          getCategories(),
-          getActivityLogs(),
-          getNotifications(),
-        ]);
-      setProducts(products);
-      setSales(sales);
-      setStocks(stocks);
-      setMovements(movements);
-      setCategories(categories);
-      setActivities(activities);
-      setNotifications(notifications);
-      setLoading(false);
-      setPageCache<DashboardCache>(CACHE_KEY, { products, sales, stocks, movements, categories, activities, notifications });
-    })();
-  }, []);
 
   // --- Calculations ---
   
@@ -395,13 +356,10 @@ export default function Dashboard() {
   });
 
   // 4. Low stock products alert board
-  const lowStockAlerts = stocks.map(stock => {
+  const lowStockAlerts = stocks.flatMap(stock => {
     const product = products.find(p => p.id === stock.productId);
-    return {
-      stock,
-      product,
-    };
-  }).filter(item => item.product && item.stock.quantity < item.product.minStockLevel);
+    return product && stock.quantity < product.minStockLevel ? [{ stock, product }] : [];
+  });
 
   // 5. Revenue Trend (using unified trend range)
   const revenueTrendData = buildBuckets(trendRange, customTrendStart ?? undefined, customTrendEnd ?? undefined).map(b => ({

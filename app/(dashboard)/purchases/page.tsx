@@ -8,12 +8,14 @@ import {
   ChevronDown, AlertTriangle, Package, Search,
 } from "lucide-react";
 import {
-  getProducts, getSuppliers,
-  getPurchaseOrders, createPurchaseOrder, receivePurchaseOrder, cancelPurchaseOrder,
+  createPurchaseOrder, receivePurchaseOrder, cancelPurchaseOrder,
 } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
-import { getPageCache, setPageCache } from "@/lib/pageCache";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { useResources } from "@/lib/useResources";
+import { resources } from "@/lib/resources";
+import { invalidate } from "@/lib/resourceCache";
 
 type PurchaseItem = { productId: string; quantity: number; unitCost: number };
 
@@ -29,15 +31,12 @@ const PAYMENT_STYLES: Record<string, string> = {
   PAID: "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600",
 };
 
-type PurchasesCache = { products: any[]; suppliers: any[]; orders: any[] };
-const CACHE_KEY = "purchases-page";
-
 export default function PurchasesPage() {
-  const cached = getPageCache<PurchasesCache>(CACHE_KEY);
-  const [loading, setLoading] = useState(!cached);
-  const [products, setProducts] = useState<any[]>(cached?.products ?? []);
-  const [suppliers, setSuppliers] = useState<any[]>(cached?.suppliers ?? []);
-  const [orders, setOrders] = useState<any[]>(cached?.orders ?? []);
+  const { products, suppliers, orders, loading, refetch } = useResources({
+    products: resources.products,
+    suppliers: resources.suppliers,
+    orders: resources.orders,
+  });
   const [showModal, setShowModal] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -49,21 +48,9 @@ export default function PurchasesPage() {
   });
 
   useEffect(() => {
-    refresh().then(() => setLoading(false));
     const q = new URLSearchParams(window.location.search).get("q");
     if (q) setSearch(q);
   }, []);
-
-  async function refresh() {
-    const [products, suppliers, orders] = await Promise.all([
-      getProducts(), getSuppliers(), getPurchaseOrders(),
-    ]);
-    setProducts(products);
-    setSuppliers(suppliers);
-    setOrders(orders);
-    setForm(f => ({ ...f, supplierId: "" }));
-    setPageCache<PurchasesCache>(CACHE_KEY, { products, suppliers, orders });
-  }
 
   const filteredOrders = orders.filter(po =>
     po.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
@@ -100,7 +87,8 @@ export default function PurchasesPage() {
       notes: form.notes || undefined,
     });
     setShowModal(false);
-    await refresh();
+    setForm(f => ({ ...f, supplierId: "" }));
+    await refetch();
   }
 
   async function changeStatus(poId: string, status: "COMPLETED" | "CANCELLED") {
@@ -109,7 +97,9 @@ export default function PurchasesPage() {
     } else {
       await cancelPurchaseOrder(poId);
     }
-    await refresh();
+    // Receiving an order changes stock, which other pages cache.
+    invalidate("stocks", "movements");
+    await refetch();
   }
 
   const formTotal = form.items.reduce((s, i) => s + i.quantity * i.unitCost, 0);
@@ -160,9 +150,21 @@ export default function PurchasesPage() {
       <div className="space-y-3">
         {loading && Array.from({ length: 4 }).map((_, i) => <Pulse key={i} className="h-20 w-full rounded-2xl" />)}
         {!loading && filteredOrders.length === 0 && (
-          <div className="flex flex-col items-center py-16 text-center text-muted-foreground gap-2 bg-card border border-border/80 rounded-2xl">
-            <Truck size={36} className="opacity-30" />
-            <p className="font-semibold text-sm">No purchase orders found</p>
+          <div className="bg-card border border-border/80 rounded-2xl">
+            {orders.length === 0 ? (
+              <EmptyState
+                icon={Truck}
+                title="No purchase orders yet"
+                description="Create a purchase order to restock from your suppliers."
+                action={
+                  <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary text-primary-foreground rounded-xl hover:bg-primary/90 transition-colors cursor-pointer">
+                    <Plus size={15} /> New Purchase Order
+                  </button>
+                }
+              />
+            ) : (
+              <EmptyState icon={Search} title="No matching orders" description="Try a different search term." />
+            )}
           </div>
         )}
         {!loading && filteredOrders.map(po => {

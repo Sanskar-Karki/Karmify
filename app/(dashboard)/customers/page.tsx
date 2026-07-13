@@ -7,12 +7,12 @@ import Link from "next/link";
 import {
   Search, Users, ChevronRight, Plus, Edit2, Save, X, Calendar,
 } from "lucide-react";
-import { getSales, updateSaleDetails } from "@/app/actions";
+import { updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
-import { getPageCache, setPageCache } from "@/lib/pageCache";
-
-const CACHE_KEY = "customers-page";
+import { EmptyState } from "@/components/shared/EmptyState";
+import { useResources } from "@/lib/useResources";
+import { resources } from "@/lib/resources";
 
 const DELIVERY_STATUSES = [
   { value: "IN_PROCESS", label: "In Process" },
@@ -48,7 +48,7 @@ function startOfDay(d: Date) {
   return x;
 }
 
-function isWithinDateFilter(dateStr: string, filter: string, customStart: string, customEnd: string) {
+function isWithinDateFilter(dateStr: string | Date, filter: string, customStart: string, customEnd: string) {
   if (filter === "all") return true;
   const date = new Date(dateStr);
   const now = new Date();
@@ -90,9 +90,7 @@ function isWithinDateFilter(dateStr: string, filter: string, customStart: string
 }
 
 export default function CustomersPage() {
-  const cached = getPageCache<any[]>(CACHE_KEY);
-  const [loading, setLoading] = useState(!cached);
-  const [sales, setSales] = useState<any[]>(cached ?? []);
+  const { sales, loading, refetch } = useResources({ sales: resources.sales });
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -111,16 +109,6 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ customerName: "", customerPhone: "", customerAddress: "", codAmount: "", deliveryAmount: "", deliveryStatus: "IN_PROCESS" });
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    refresh().then(() => setLoading(false));
-  }, []);
-
-  async function refresh() {
-    const sales = await getSales();
-    setSales(sales);
-    setPageCache(CACHE_KEY, sales);
-  }
 
   const filtered = sales.filter(s =>
     ((s.customerName ?? "").toLowerCase().includes(search.toLowerCase()) ||
@@ -159,7 +147,7 @@ export default function CustomersPage() {
       deliveryAmount: parseFloat(editForm.deliveryAmount) || 0,
       deliveryStatus: editForm.deliveryStatus as any,
     });
-    await refresh();
+    await refetch();
     setSaving(false);
     setEditingId(null);
   }
@@ -404,11 +392,11 @@ export default function CustomersPage() {
         </div>
 
         {!loading && filtered.length === 0 && (
-          <div className="flex flex-col items-center py-16 text-center text-muted-foreground gap-2">
-            <Users size={36} className="opacity-30" />
-            <p className="font-semibold text-sm">No orders found</p>
-            <p className="text-xs">Orders appear here automatically once a sale is recorded.</p>
-          </div>
+          sales.length === 0 ? (
+            <EmptyState icon={Users} title="No customers yet" description="Orders appear here automatically once a sale is recorded in the POS." />
+          ) : (
+            <EmptyState icon={Search} title="No matching orders" description="Try adjusting your search or date filter." />
+          )
         )}
       </div>
       </div>
