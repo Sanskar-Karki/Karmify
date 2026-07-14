@@ -284,7 +284,14 @@ export default function SalesPage() {
               {!loading && sales.slice(0, 8).map(s => (
                 <div key={s.id} className="flex items-center justify-between px-4 py-3">
                   <div className="min-w-0">
-                    <p className="text-xs font-bold text-foreground">{s.invoiceNumber}</p>
+                    <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                      {s.invoiceNumber}
+                      {s.source === "website" && (
+                        <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+                          Website
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[10px] text-muted-foreground">{s.customerName ?? "Walk-in"} · {new Date(s.createdAt).toLocaleDateString()}</p>
                   </div>
                   <div className="text-right shrink-0">

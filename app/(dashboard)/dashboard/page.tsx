@@ -41,6 +41,7 @@ import {
 } from "recharts";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
+import { Popover } from "@/components/shared/Popover";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 
@@ -83,7 +84,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
   const [showPicker, setShowPicker] = useState(false);
   const [displayMonth, setDisplayMonth] = useState(new Date().getMonth());
   const [displayYear, setDisplayYear] = useState(new Date().getFullYear());
-  const pickerRef = useRef<HTMLDivElement>(null);
+  const customButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleDateSelect = (dateStr: string) => {
     if (!customStart) {
@@ -122,18 +123,6 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
     setDisplayMonth(now.getMonth());
     setDisplayYear(now.getFullYear());
   };
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        handlePickerClose();
-      }
-    };
-    if (showPicker) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [showPicker, customStart, customEnd]);
 
   const generateCalendarDays = () => {
     const firstDay = new Date(displayYear, displayMonth, 1);
@@ -191,6 +180,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
       {showCustom && (
         <>
           <button
+            ref={customButtonRef}
             onClick={() => {
               onChange("custom");
               setShowPicker(!showPicker);
@@ -204,21 +194,24 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
           </button>
 
           {value === "custom" && (
-            <>
-              <div className="text-[10px] text-muted-foreground px-2 py-1 bg-card rounded-md">
-                {customStart && customEnd
-                  ? `${new Date(customStart).toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${new Date(customEnd).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-                  : customStart
-                    ? `From ${new Date(customStart).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-                    : "Pick dates"}
-              </div>
+            <div className="text-[10px] text-muted-foreground px-2 py-1 bg-card rounded-md">
+              {customStart && customEnd
+                ? `${new Date(customStart).toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${new Date(customEnd).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                : customStart
+                  ? `From ${new Date(customStart).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                  : "Pick dates"}
+            </div>
+          )}
 
-              {showPicker && (
-                <div
-                  ref={pickerRef}
-                  className="absolute top-full right-0 sm:right-auto sm:left-0 mt-2 bg-card border border-border rounded-lg shadow-2xl p-4 z-50 w-[calc(100vw-2rem)] max-w-72"
-                >
-                  <div className="space-y-3">
+          {value === "custom" && (
+            <Popover
+              open={showPicker}
+              onClose={handlePickerClose}
+              anchorRef={customButtonRef}
+              align="end"
+              className="bg-card border border-border rounded-lg shadow-2xl p-4 z-[100] w-[calc(100vw-2rem)] max-w-72"
+            >
+              <div className="space-y-3">
                     <div className="text-center">
                       <div className="flex items-center justify-between gap-2">
                         <button
@@ -305,9 +298,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
                       </button>
                     </div>
                   </div>
-                </div>
-              )}
-            </>
+            </Popover>
           )}
         </>
       )}

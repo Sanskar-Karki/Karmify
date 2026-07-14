@@ -258,10 +258,13 @@ model Sale {
   paymentStatus   PaymentStatus  @default(PAID)
   paymentMethod   PaymentMethod  @default(COD)
   deliveryStatus  DeliveryStatus @default(IN_PROCESS)
+  source          String         @default("pos") // "pos" | "website"
+  externalOrderId String? // website orders.order_id (e.g. "KRM-20260714-0001"), used to dedupe repeat syncs
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@unique([storeId, invoiceNumber])
+  @@unique([storeId, externalOrderId])
   @@index([storeId, createdAt])
 }
 

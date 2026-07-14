@@ -8,4 +8,4 @@ export * from "@/lib/actions/catalog";
 export * from "@/lib/actions/inventory";
 export * from "@/lib/actions/sales";
 export * from "@/lib/actions/purchases";
-export * from "@/lib/actions/dashboard";
+export * from "@/lib/actions/websiteSync";

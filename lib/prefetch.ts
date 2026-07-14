@@ -10,7 +10,7 @@ import { resources } from "@/lib/resources";
 const ROUTE_RESOURCES: Record<string, (keyof typeof resources)[]> = {
   "/dashboard": ["products", "sales", "stocks", "movements", "categories", "activities"],
   "/customers": ["sales"],
-  "/products": ["products", "categories", "suppliers"],
+  "/products": ["products", "categories", "suppliers", "stocks"],
   "/inventory": ["products", "stocks", "movements"],
   "/purchases": ["products", "suppliers", "orders"],
   "/sales": ["activeProducts", "categories", "stocks", "sales"],

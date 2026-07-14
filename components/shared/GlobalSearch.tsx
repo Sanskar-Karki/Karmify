@@ -6,8 +6,10 @@ import {
   Search, Package, Receipt, Truck, LayoutDashboard, ArrowLeftRight,
   ShoppingCart, TrendingUp, Settings, Users, CornerDownLeft, X,
 } from "lucide-react";
-import { getProducts, getSales, getPurchaseOrders } from "@/app/actions";
 import { formatNPR } from "@/lib/utils";
+import { Popover } from "@/components/shared/Popover";
+import { fetchResource } from "@/lib/resourceCache";
+import { resources } from "@/lib/resources";
 
 interface SearchResult {
   id: string;
@@ -43,10 +45,18 @@ function useSearchIndex() {
   async function loadIndex() {
     if (loaded) return;
     setLoaded(true);
-    const [p, s, po] = await Promise.all([getProducts(), getSales(), getPurchaseOrders()]);
-    setProducts(p);
-    setSales(s);
-    setPurchaseOrders(po);
+    // Reuse the shared resource cache — these are usually already warm from
+    // prefetchAllRoutesOnce, so this is often an instant cache hit rather
+    // than a fresh network round-trip, and never duplicates a fetch that
+    // another page already made for the same data.
+    const [p, s, po] = await Promise.all([
+      fetchResource(resources.products.key, resources.products.fetcher),
+      fetchResource(resources.sales.key, resources.sales.fetcher),
+      fetchResource(resources.orders.key, resources.orders.fetcher),
+    ]);
+    setProducts(p as any[]);
+    setSales(s as any[]);
+    setPurchaseOrders(po as any[]);
   }
 
   function useResults(query: string) {
@@ -162,16 +172,6 @@ export function GlobalSearch() {
   const [mobileActiveIdx, setMobileActiveIdx] = useState(0);
   const mobileResults = useResults(mobileQuery);
 
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
-
   useEffect(() => { setActiveIdx(0); }, [results]);
   useEffect(() => { setMobileActiveIdx(0); }, [mobileResults]);
 
@@ -286,17 +286,21 @@ export function GlobalSearch() {
           ⌘K
         </div>
 
-        {open && (
-          <div className="absolute top-full left-0 mt-3 w-full max-h-96 overflow-y-auto bg-gradient-to-b from-white to-white/95 dark:from-black/50 dark:to-black/30 border border-primary/20 rounded-2xl shadow-2xl z-50 backdrop-blur-lg">
-            <ResultsList
-              results={results}
-              activeIdx={activeIdx}
-              setActiveIdx={setActiveIdx}
-              onSelect={select}
-              emptyQuery={query}
-            />
-          </div>
-        )}
+        <Popover
+          open={open}
+          onClose={() => setOpen(false)}
+          anchorRef={containerRef}
+          matchAnchorWidth
+          className="mt-3 max-h-96 overflow-y-auto bg-gradient-to-b from-white to-white/95 dark:from-black/50 dark:to-black/30 border border-primary/20 rounded-2xl shadow-2xl z-[100] backdrop-blur-lg"
+        >
+          <ResultsList
+            results={results}
+            activeIdx={activeIdx}
+            setActiveIdx={setActiveIdx}
+            onSelect={select}
+            emptyQuery={query}
+          />
+        </Popover>
       </div>
     </>
   );

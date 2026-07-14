@@ -96,7 +96,32 @@ export async function updateCustomerInfo(saleIds: string[], data: { name?: strin
   revalidatePath("/customers");
 }
 
-export async function updateSaleDetails(saleId: string, data: { totalAmount?: number; customerName?: string; customerPhone?: string; customerAddress?: string; deliveryStatus?: DeliveryStatus; deliveryAmount?: number; codAmount?: number }) {
+export async function deleteSales(saleIds: string[]) {
+  const tenant = await requireTenant();
+  if (saleIds.length === 0) return { deleted: 0 };
+
+  const result = await db.$transaction(async (tx) => {
+    await tx.saleItem.deleteMany({
+      where: { saleId: { in: saleIds }, sale: { storeId: tenant.storeId } },
+    });
+    return tx.sale.deleteMany({
+      where: { id: { in: saleIds }, storeId: tenant.storeId },
+    });
+  });
+
+  await logActivity(
+    tenant,
+    "Orders Deleted",
+    `Deleted ${result.count} order(s).`
+  );
+
+  revalidatePath("/customers");
+  revalidatePath("/sales");
+  revalidatePath("/dashboard");
+  return { deleted: result.count };
+}
+
+export async function updateSaleDetails(saleId: string, data: { totalAmount?: number; customerName?: string; customerPhone?: string; customerAddress?: string; deliveryStatus?: DeliveryStatus; deliveryAmount?: number; codAmount?: number; paymentMethod?: PaymentMethod }) {
   const tenant = await requireTenant();
   await db.sale.update({
     where: { id: saleId, storeId: tenant.storeId },
@@ -107,6 +132,7 @@ export async function updateSaleDetails(saleId: string, data: { totalAmount?: nu
       ...(data.customerAddress !== undefined && { customerAddress: data.customerAddress || null }),
       ...(data.deliveryStatus !== undefined && { deliveryStatus: data.deliveryStatus }),
       ...(data.deliveryAmount !== undefined && { deliveryAmount: data.deliveryAmount }),
+      ...(data.paymentMethod !== undefined && { paymentMethod: data.paymentMethod }),
       ...(data.codAmount !== undefined && { codAmount: data.codAmount }),
     },
   });

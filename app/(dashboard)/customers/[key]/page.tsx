@@ -6,13 +6,16 @@ import React, { useState, useEffect, use } from "react";
 import Link from "next/link";
 import {
   ArrowLeft, User, Phone, MapPin, Edit2, Save, X,
-  Receipt, ShoppingBag, Users, DollarSign,
+  Receipt, ShoppingBag, Users, DollarSign, Globe,
 } from "lucide-react";
-import { getCustomers, updateCustomerInfo, updateSaleDetails } from "@/app/actions";
+import { updateCustomerInfo, updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { fetchResource, getCached, invalidate } from "@/lib/resourceCache";
+import { resources } from "@/lib/resources";
 
-const CACHE_KEY = "customers";
+// Same resource/key the customers list page's future use would share — one
+// cached aggregation instead of two pages each fetching their own copy.
+const CACHE_KEY = resources.customers.key;
 
 const DELIVERY_STATUSES = [
   { value: "IN_PROCESS", label: "In Process" },
@@ -42,7 +45,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
   const [saving, setSaving] = useState(false);
 
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
-  const [saleForm, setSaleForm] = useState({ totalAmount: "", customerAddress: "", deliveryStatus: "IN_PROCESS" });
+  const [saleForm, setSaleForm] = useState({ totalAmount: "", customerAddress: "", deliveryStatus: "IN_PROCESS", paymentMethod: "COD" });
   const [savingSale, setSavingSale] = useState(false);
 
   useEffect(() => {
@@ -51,7 +54,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
 
   async function refresh(force = false) {
     if (force) invalidate(CACHE_KEY);
-    const customers = await fetchResource<any[]>(CACHE_KEY, getCustomers, { force });
+    const customers = await fetchResource<any[]>(CACHE_KEY, resources.customers.fetcher, { force });
     const found = customers.find(c => c.key === key) ?? null;
     setCustomer(found);
     if (found) setForm({ name: found.name, phone: found.phone ?? "", address: found.address ?? "" });
@@ -61,7 +64,10 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     if (!customer) return;
     setSaving(true);
     await updateCustomerInfo(customer.sales.map((s: any) => s.id), form);
-    invalidate("sales");
+    // Sales rows changed underneath both the raw "sales" list and this
+    // "customers" aggregation — invalidate both so either page's next visit
+    // refetches instead of serving stale data.
+    invalidate("sales", CACHE_KEY);
     await refresh(true);
     setSaving(false);
     setEditing(false);
@@ -73,6 +79,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
       totalAmount: String(sale.totalAmount),
       customerAddress: sale.customerAddress ?? "",
       deliveryStatus: sale.deliveryStatus ?? "IN_PROCESS",
+      paymentMethod: sale.paymentMethod ?? "COD",
     });
   }
 
@@ -82,8 +89,9 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
       totalAmount: parseFloat(saleForm.totalAmount) || 0,
       customerAddress: saleForm.customerAddress,
       deliveryStatus: saleForm.deliveryStatus as any,
+      paymentMethod: saleForm.paymentMethod as any,
     });
-    invalidate("sales");
+    invalidate("sales", CACHE_KEY);
     await refresh(true);
     setSavingSale(false);
     setEditingSaleId(null);
@@ -181,7 +189,14 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                     <Receipt size={16} className="text-primary/70" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold">{sale.invoiceNumber}</p>
+                    <p className="text-sm font-bold flex items-center gap-1.5">
+                      {sale.invoiceNumber}
+                      {sale.source === "website" && (
+                        <span className="flex items-center gap-1 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+                          <Globe size={9} /> Website
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
                       <ShoppingBag size={10} />
                       {sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.warehouse?.name} · {new Date(sale.createdAt).toLocaleString()}
@@ -192,9 +207,6 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                   <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
                     {sale.paymentMethod === "QR" ? "QR Payment" : "Cash on Delivery"}
-                  </span>
-                  <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", sale.paymentStatus === "PAID" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400")}>
-                    {sale.paymentStatus}
                   </span>
                   {!isEditingSale && (
                     <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
@@ -253,6 +265,17 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                       {DELIVERY_STATUSES.map(d => (
                         <option key={d.value} value={d.value}>{d.label}</option>
                       ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">Payment Method</label>
+                    <select
+                      value={saleForm.paymentMethod}
+                      onChange={e => setSaleForm(f => ({ ...f, paymentMethod: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option value="COD">Cash on Delivery</option>
+                      <option value="QR">QR Payment</option>
                     </select>
                   </div>
                 </div>

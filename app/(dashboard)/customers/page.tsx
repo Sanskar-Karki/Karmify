@@ -5,14 +5,17 @@ import { CustomersFixture } from "@/components/skeletons/fixtures";
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import {
-  Search, Users, ChevronRight, Plus, Edit2, Save, X, Calendar,
+  Search, Users, ChevronRight, Plus, Edit2, Save, X, Calendar, RefreshCw, Globe, Trash2,
+  ShoppingBag, Wallet, Truck,
 } from "lucide-react";
-import { updateSaleDetails } from "@/app/actions";
+import { updateSaleDetails, syncWebsiteOrders, deleteSales } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { invalidate } from "@/lib/resourceCache";
+import { toast } from "sonner";
 
 const DELIVERY_STATUSES = [
   { value: "IN_PROCESS", label: "In Process" },
@@ -109,17 +112,84 @@ export default function CustomersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ customerName: "", customerPhone: "", customerAddress: "", codAmount: "", deliveryAmount: "", deliveryStatus: "IN_PROCESS" });
   const [saving, setSaving] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<"all" | "pos" | "website">("all");
+  const [syncing, setSyncing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   const filtered = sales.filter(s =>
     ((s.customerName ?? "").toLowerCase().includes(search.toLowerCase()) ||
       (s.customerPhone ?? "").toLowerCase().includes(search.toLowerCase()) ||
       s.invoiceNumber.toLowerCase().includes(search.toLowerCase())) &&
-    isWithinDateFilter(s.createdAt, dateFilter, customStart, customEnd)
+    isWithinDateFilter(s.createdAt, dateFilter, customStart, customEnd) &&
+    (sourceFilter === "all" || (s.source ?? "pos") === sourceFilter)
   );
 
-  const totalCustomers = new Set(sales.map(customerKey)).size;
-  const totalOrders = sales.length;
-  const totalRevenue = sales.reduce((s, c) => s + c.totalAmount, 0);
+  async function handleSyncWebsiteOrders() {
+    setSyncing(true);
+    try {
+      const result = await syncWebsiteOrders();
+      if (result.imported > 0) {
+        invalidate("customers");
+        invalidate("sales");
+        await refetch();
+      }
+      if (result.errors.length > 0) {
+        toast.error(`Synced ${result.imported} order(s), ${result.errors.length} failed. See console for details.`);
+        console.error("Website order sync errors:", result.errors);
+      } else if (result.imported === 0) {
+        toast.info("No new website orders to import.");
+      } else {
+        toast.success(`Imported ${result.imported} website order(s)${result.unmatchedItems ? ` (${result.unmatchedItems} item(s) unmatched)` : ""}.`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to sync website orders.");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds(prev =>
+      prev.size === filtered.length ? new Set() : new Set(filtered.map(s => s.id))
+    );
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    const count = selectedIds.size;
+    if (!window.confirm(`Delete ${count} selected order${count > 1 ? "s" : ""}? This cannot be undone.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const result = await deleteSales(Array.from(selectedIds));
+      invalidate("customers");
+      invalidate("sales");
+      await refetch();
+      setSelectedIds(new Set());
+      toast.success(`Deleted ${result.deleted} order(s).`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete orders.");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const totalOrders = filtered.length;
+  const totalRevenue = filtered.reduce((s, c) => s + c.totalAmount, 0);
+  const pendingDeliveries = filtered.filter(
+    s => s.deliveryStatus === "IN_PROCESS" || s.deliveryStatus === "RETURN_PROCESS"
+  ).length;
 
   function startEdit(sale: any) {
     setEditingId(sale.id);
@@ -147,6 +217,10 @@ export default function CustomersPage() {
       deliveryAmount: parseFloat(editForm.deliveryAmount) || 0,
       deliveryStatus: editForm.deliveryStatus as any,
     });
+    // The customer detail page caches its own per-customer aggregation under
+    // the "customers" key — invalidate it too so an edit here doesn't leave
+    // stale data behind when the user drills into a customer next.
+    invalidate("customers");
     await refetch();
     setSaving(false);
     setEditingId(null);
@@ -170,6 +244,13 @@ export default function CustomersPage() {
               className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
+          <button
+            onClick={handleSyncWebsiteOrders}
+            disabled={syncing}
+            className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold bg-card border border-border rounded-xl hover:bg-muted transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+          >
+            <RefreshCw size={15} className={cn(syncing && "animate-spin")} /> {syncing ? "Syncing..." : "Sync Website Orders"}
+          </button>
           <Link
             href="/sales"
             className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-xl shadow-sm shadow-primary/20 hover:bg-primary/90 transition-colors cursor-pointer shrink-0"
@@ -192,6 +273,29 @@ export default function CustomersPage() {
               className={cn(
                 "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer",
                 dateFilter === f.value
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20"
+                  : "bg-background text-muted-foreground border-border hover:bg-muted"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mr-1">
+            <Globe size={13} /> Filter by source:
+          </span>
+          {[
+            { value: "all", label: "All Orders" },
+            { value: "pos", label: "POS Sales" },
+            { value: "website", label: "Website Orders" },
+          ].map(f => (
+            <button
+              key={f.value}
+              onClick={() => setSourceFilter(f.value as typeof sourceFilter)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors cursor-pointer",
+                sourceFilter === f.value
                   ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20"
                   : "bg-background text-muted-foreground border-border hover:bg-muted"
               )}
@@ -231,19 +335,43 @@ export default function CustomersPage() {
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
-          { label: "Total Customers", val: totalCustomers, color: "blue" },
-          { label: "Total Orders", val: totalOrders, color: "amber" },
-          { label: "Total Revenue", val: formatNPR(totalRevenue), color: "emerald" },
+          { label: "Total Orders", val: totalOrders, color: "amber", icon: ShoppingBag },
+          { label: "Total Revenue", val: formatNPR(totalRevenue), color: "emerald", icon: Wallet },
+          { label: "Pending Deliveries", val: pendingDeliveries, color: "blue", icon: Truck },
         ].map(s => (
           <div key={s.label} className="bg-card border border-border/80 p-5 rounded-2xl shadow-sm flex items-center justify-between">
             <div>
               <p className="text-xs font-semibold text-muted-foreground">{s.label}</p>
               {loading ? <Pulse className="h-8 w-16 mt-1" /> : <p className="text-3xl font-black mt-1">{s.val}</p>}
             </div>
-            <Users size={32} className={cn("opacity-10", s.color === "amber" ? "text-amber-500" : s.color === "emerald" ? "text-emerald-500" : "text-blue-500")} />
+            <s.icon size={32} className={cn("opacity-10", s.color === "amber" ? "text-amber-500" : s.color === "emerald" ? "text-emerald-500" : "text-blue-500")} />
           </div>
         ))}
       </div>
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between gap-3 bg-card border border-border/80 rounded-2xl shadow-sm px-5 py-3">
+          <span className="text-xs font-semibold text-muted-foreground">
+            {selectedIds.size} order{selectedIds.size > 1 ? "s" : ""} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-border hover:bg-muted transition-colors cursor-pointer"
+            >
+              Clear
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={deleting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Trash2 size={13} /> {deleting ? "Deleting..." : "Delete Selected"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Orders Table */}
       <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
@@ -251,6 +379,15 @@ export default function CustomersPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
+                <th className="px-5 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all orders"
+                    className="w-4 h-4 rounded border-border cursor-pointer accent-primary"
+                  />
+                </th>
                 <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden sm:table-cell">SN</th>
                 <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3 hidden md:table-cell">Date</th>
                 <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3">Order ID</th>
@@ -264,19 +401,35 @@ export default function CustomersPage() {
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && Array.from({ length: 6 }).map((_, i) => (
-                <tr key={i}><td colSpan={9} className="px-5 py-3.5"><Pulse className="h-5 w-full" /></td></tr>
+                <tr key={i}><td colSpan={10} className="px-5 py-3.5"><Pulse className="h-5 w-full" /></td></tr>
               ))}
               {!loading && filtered.map((sale, i) => {
                 const isEditing = editingId === sale.id;
                 const key = customerKey(sale);
                 return (
-                  <tr key={sale.id} className="hover:bg-muted/20 transition-colors">
+                  <tr key={sale.id} className={cn("hover:bg-muted/20 transition-colors", selectedIds.has(sale.id) && "bg-primary/5")}>
+                    <td className="px-5 py-3.5">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(sale.id)}
+                        onChange={() => toggleSelected(sale.id)}
+                        aria-label={`Select order ${sale.invoiceNumber}`}
+                        className="w-4 h-4 rounded border-border cursor-pointer accent-primary"
+                      />
+                    </td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium hidden sm:table-cell">{i + 1}</td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">{new Date(sale.createdAt).toLocaleDateString()}</td>
                     <td className="px-5 py-3.5">
-                      <Link href={`/customers/${encodeURIComponent(key)}`} className="font-bold text-xs font-mono hover:text-primary transition-colors cursor-pointer">
-                        {sale.invoiceNumber}
-                      </Link>
+                      <div className="flex items-center gap-1.5">
+                        <Link href={`/customers/${encodeURIComponent(key)}`} className="font-bold text-xs font-mono hover:text-primary transition-colors cursor-pointer">
+                          {sale.invoiceNumber}
+                        </Link>
+                        {sale.source === "website" && (
+                          <span className="flex items-center gap-1 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+                            <Globe size={9} /> Website
+                          </span>
+                        )}
+                      </div>
                       <p className="text-[10px] text-muted-foreground/70 mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()}</p>
                     </td>
                     <td className="px-5 py-3.5 font-semibold text-xs">
