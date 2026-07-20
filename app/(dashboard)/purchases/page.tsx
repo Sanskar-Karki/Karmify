@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { invalidate } from "@/lib/resourceCache";
+import { Dropdown } from "@/components/shared/Dropdown";
 
 type PurchaseItem = { productId: string; quantity: number; unitCost: number };
 
@@ -281,10 +282,12 @@ export default function PurchasesPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Supplier</label>
-                  <select value={form.supplierId} onChange={e => setForm(f => ({ ...f, supplierId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-                    <option value="">Select supplier...</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.companyName}</option>)}
-                  </select>
+                  <Dropdown
+                    value={form.supplierId}
+                    onChange={v => setForm(f => ({ ...f, supplierId: v }))}
+                    placeholder="Select supplier..."
+                    options={suppliers.map(s => ({ value: s.id, label: s.companyName }))}
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground">Notes (optional)</label>
@@ -302,10 +305,13 @@ export default function PurchasesPage() {
                   <div key={idx} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end p-2.5 sm:p-0 rounded-xl border border-border/40 sm:border-0 bg-muted/10 sm:bg-transparent">
                     <div className="col-span-2 sm:col-span-6 space-y-1">
                       <label className="text-[10px] font-semibold text-muted-foreground">Product</label>
-                      <select value={item.productId} onChange={e => updateItem(idx, "productId", e.target.value)} className="w-full px-2.5 py-2.5 rounded-xl border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-                        <option value="">Select...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
+                      <Dropdown
+                        value={item.productId}
+                        onChange={v => updateItem(idx, "productId", v)}
+                        placeholder="Select..."
+                        options={products.map(p => ({ value: p.id, label: p.name }))}
+                        triggerClassName="px-2.5 py-2.5 text-xs"
+                      />
                     </div>
                     <div className="col-span-1 sm:col-span-2 space-y-1">
                       <label className="text-[10px] font-semibold text-muted-foreground">Qty</label>

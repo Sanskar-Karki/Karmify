@@ -16,6 +16,7 @@ import { Pulse } from "@/components/shared/Pulse";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { Dropdown } from "@/components/shared/Dropdown";
 
 type ProductForm = {
   name: string; sku: string; barcode: string; description: string; brand: string;
@@ -340,17 +341,13 @@ export default function ProductsPage() {
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground">Category <span className="text-primary">*</span></label>
-              <select
+              <Dropdown
                 value={form.categoryId}
-                onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
+                onChange={v => setForm(f => ({ ...f, categoryId: v }))}
                 disabled={categories.length === 0}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 cursor-pointer transition-all hover:border-border/80"
-              >
-                <option value="">{categories.length === 0 ? "Loading categories..." : "Select category..."}</option>
-                {categoryOptions.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                placeholder={categories.length === 0 ? "Loading categories..." : "Select category..."}
+                options={categoryOptions.map(c => ({ value: c.id, label: c.name }))}
+              />
             </div>
 
             <div className="space-y-1.5">

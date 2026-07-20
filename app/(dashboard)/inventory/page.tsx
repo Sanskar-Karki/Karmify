@@ -10,6 +10,7 @@ import { Pulse } from "@/components/shared/Pulse";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { Dropdown } from "@/components/shared/Dropdown";
 
 type MovementType = "STOCK_IN" | "STOCK_OUT" | "DAMAGED" | "RETURNED" | "ADJUSTMENT";
 
@@ -222,10 +223,12 @@ export default function InventoryPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">Product</label>
-                <select value={form.productId} onChange={e => setForm(f => ({ ...f, productId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-                  <option value="">Select product...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                </select>
+                <Dropdown
+                  value={form.productId}
+                  onChange={v => setForm(f => ({ ...f, productId: v }))}
+                  placeholder="Select product..."
+                  options={products.map(p => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+                />
               </div>
 
               <div className="space-y-1.5">

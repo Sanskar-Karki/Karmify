@@ -12,6 +12,7 @@ import { updateCustomerInfo, updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { fetchResource, getCached, invalidate } from "@/lib/resourceCache";
 import { resources } from "@/lib/resources";
+import { Dropdown } from "@/components/shared/Dropdown";
 
 // Same resource/key the customers list page's future use would share — one
 // cached aggregation instead of two pages each fetching their own copy.
@@ -257,26 +258,22 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">Delivery Status</label>
-                    <select
+                    <Dropdown
                       value={saleForm.deliveryStatus}
-                      onChange={e => setSaleForm(f => ({ ...f, deliveryStatus: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    >
-                      {DELIVERY_STATUSES.map(d => (
-                        <option key={d.value} value={d.value}>{d.label}</option>
-                      ))}
-                    </select>
+                      onChange={v => setSaleForm(f => ({ ...f, deliveryStatus: v }))}
+                      options={DELIVERY_STATUSES}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">Payment Method</label>
-                    <select
+                    <Dropdown
                       value={saleForm.paymentMethod}
-                      onChange={e => setSaleForm(f => ({ ...f, paymentMethod: e.target.value }))}
-                      className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    >
-                      <option value="COD">Cash on Delivery</option>
-                      <option value="QR">QR Payment</option>
-                    </select>
+                      onChange={v => setSaleForm(f => ({ ...f, paymentMethod: v }))}
+                      options={[
+                        { value: "COD", label: "Cash on Delivery" },
+                        { value: "QR", label: "QR Payment" },
+                      ]}
+                    />
                   </div>
                 </div>
               )}

@@ -14,6 +14,8 @@ import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { Dropdown } from "@/components/shared/Dropdown";
+import { toast } from "sonner";
 
 interface CartItem {
   productId: string;
@@ -95,6 +97,12 @@ export default function SalesPage() {
   async function handleCheckout() {
     if (cart.length === 0) return;
 
+    if (!customer.name.trim()) return toast.error("Customer name is required.");
+    if (!customer.phone.trim()) return toast.error("Phone number is required.");
+    if (!customer.address.trim()) return toast.error("Delivery address is required.");
+    if (!deliveryAmount || deliveryAmount <= 0) return toast.error("Delivery amount is required.");
+    if (!codAmount || (parseFloat(codAmount) || 0) <= 0) return toast.error("COD amount is required.");
+
     const newSale = await createSale({
       customerName: customer.name || undefined,
       customerPhone: customer.phone || undefined,
@@ -137,10 +145,13 @@ export default function SalesPage() {
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." className="w-full pl-8 pr-3 py-2.5 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20" />
             </div>
-            <select value={catFilter} onChange={e => setCatFilter(e.target.value)} className="px-3 py-2.5 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-              <option value="all">All</option>
-              {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+            <Dropdown
+              value={catFilter}
+              onChange={setCatFilter}
+              options={[{ value: "all", label: "All" }, ...categories.map(c => ({ value: c.id, label: c.name }))]}
+              className="w-40 shrink-0"
+              triggerClassName="bg-card py-2.5"
+            />
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -219,7 +230,7 @@ export default function SalesPage() {
                 ].map(field => (
                   <div key={field.key} className="relative">
                     <field.icon size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                    <input value={(customer as any)[field.key]} onChange={e => setCustomer(c => ({ ...c, [field.key]: e.target.value }))} placeholder={field.placeholder} className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                    <input required value={(customer as any)[field.key]} onChange={e => setCustomer(c => ({ ...c, [field.key]: e.target.value }))} placeholder={`${field.placeholder} *`} className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
                   </div>
                 ))}
               </div>
@@ -231,17 +242,18 @@ export default function SalesPage() {
                 </div>
                 <div className="relative">
                   <Truck size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <input type="number" min={0} step="0.01" value={deliveryAmount} onChange={e => setDeliveryAmount(Math.max(0, parseFloat(e.target.value) || 0))} placeholder="Delivery Amt" className="w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                  <input required type="number" min={0} step="0.01" value={deliveryAmount} onChange={e => setDeliveryAmount(Math.max(0, parseFloat(e.target.value) || 0))} placeholder="Delivery Amt *" className="w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
                 </div>
                 <div className="relative">
                   <Receipt size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                   <input
+                    required
                     type="number"
                     min={0}
                     step="0.01"
                     value={codAmount}
                     onChange={e => { setCodTouched(true); setCodAmount(e.target.value); }}
-                    placeholder="COD Amount"
+                    placeholder="COD Amount *"
                     title="Cash the customer pays on delivery — defaults to total + delivery, but can be overridden"
                     className="w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
@@ -267,7 +279,18 @@ export default function SalesPage() {
                 <div className="flex justify-between font-bold text-primary"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>
               </div>
 
-              <button onClick={handleCheckout} disabled={cart.length === 0} className="w-full py-3 bg-primary text-primary-foreground text-sm font-bold rounded-xl shadow-md shadow-primary/20 hover:bg-primary/90 hover:scale-[1.01] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2">
+              <button
+                onClick={handleCheckout}
+                disabled={
+                  cart.length === 0 ||
+                  !customer.name.trim() ||
+                  !customer.phone.trim() ||
+                  !customer.address.trim() ||
+                  !deliveryAmount ||
+                  !(parseFloat(codAmount) > 0)
+                }
+                className="w-full py-3 bg-primary text-primary-foreground text-sm font-bold rounded-xl shadow-md shadow-primary/20 hover:bg-primary/90 hover:scale-[1.01] transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-2"
+              >
                 <Receipt size={15} />
                 Complete Sale & Generate Invoice
               </button>

@@ -16,6 +16,7 @@ import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { invalidate } from "@/lib/resourceCache";
 import { toast } from "sonner";
+import { Dropdown } from "@/components/shared/Dropdown";
 
 const DELIVERY_STATUSES = [
   { value: "IN_PROCESS", label: "In Process" },
@@ -503,15 +504,13 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-5 py-3.5 hidden sm:table-cell">
                       {isEditing ? (
-                        <select
+                        <Dropdown
                           value={editForm.deliveryStatus}
-                          onChange={e => setEditForm(f => ({ ...f, deliveryStatus: e.target.value }))}
-                          className="px-2 py-1.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        >
-                          {DELIVERY_STATUSES.map(d => (
-                            <option key={d.value} value={d.value}>{d.label}</option>
-                          ))}
-                        </select>
+                          onChange={v => setEditForm(f => ({ ...f, deliveryStatus: v }))}
+                          options={DELIVERY_STATUSES}
+                          className="w-32"
+                          triggerClassName="px-2 py-1.5 text-xs"
+                        />
                       ) : (
                         <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
                           {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
