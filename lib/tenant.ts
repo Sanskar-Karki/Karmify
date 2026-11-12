@@ -12,12 +12,22 @@ export type Tenant = {
   storeName: string;
 };
 
+// Running locally (`next dev`) signs in through Clerk's development instance,
+// whose user IDs differ from production's. KARMIFY_DEV_USER_ID maps that login
+// to a production user so a local copy opens the same store. Never applies to
+// a production build.
+function localUserId(clerkUserId: string) {
+  const mapped = process.env.KARMIFY_DEV_USER_ID?.trim();
+  return process.env.NODE_ENV === "development" && mapped ? mapped : clerkUserId;
+}
+
 // Resolve the current Clerk user to their tenant (user row + store), creating
 // both on first login. `cache()` dedupes this per request, so a server action
 // that logs activity, adjusts stock, and notifies only hits auth + DB once.
 export const getTenant = cache(async (): Promise<Tenant | null> => {
-  const { userId } = await auth();
-  if (!userId) return null;
+  const { userId: clerkUserId } = await auth();
+  if (!clerkUserId) return null;
+  const userId = localUserId(clerkUserId);
 
   const existing = await db.user.findUnique({
     where: { id: userId },
