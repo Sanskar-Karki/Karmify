@@ -108,7 +108,8 @@ export default function SalesPage() {
   // this delivery, whether to book on "Complete Sale", and how the last booking went.
   const [upayaEnabled, setUpayaEnabled] = useState(false);
   const [hub, setHub] = useState<CourierArea | null>(null);
-  const [bookUpaya, setBookUpaya] = useState(true);
+  // Off until staff tick it: a booking sends a real Upaya pickup.
+  const [bookUpaya, setBookUpaya] = useState(false);
   const [courierBooking, setCourierBooking] = useState<{ state: "booking" | "booked" | "failed"; text: string } | null>(null);
   // Upaya's delivery charge for the chosen hub, filled into the Delivery field.
   const [hubRate, setHubRate] = useState<{ state: "loading" | "set" | "none"; charge?: number } | null>(null);
@@ -547,7 +548,7 @@ export default function SalesPage() {
                     <p className="text-[10px] font-medium text-amber-600">Upaya needs a 10-digit mobile number (98…) to book.</p>
                   )}
                   {!bookUpaya && (
-                    <p className="text-[10px] text-muted-foreground">Not booked now. Book it later from Customers → the order.</p>
+                    <p className="text-[10px] text-muted-foreground">Not booked now. Send it later from Customers & Orders (Send to Upaya).</p>
                   )}
                 </div>
               )}
