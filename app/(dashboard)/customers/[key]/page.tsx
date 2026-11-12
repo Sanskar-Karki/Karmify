@@ -27,7 +27,7 @@ type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED"
 
 const CUSTOMER_FIELDS = [
   { label: "Name", icon: User, key: "name", placeholder: "Customer name" },
-  { label: "Phone", icon: Phone, key: "phone", placeholder: "+977 9841..." },
+  { label: "Phone", icon: Phone, key: "phone", placeholder: "Phone number" },
   { label: "Address", icon: MapPin, key: "address", placeholder: "Delivery address" },
 ] as const;
 

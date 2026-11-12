@@ -6,7 +6,7 @@ import {
   Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote,
 } from "lucide-react";
 import { toast } from "sonner";
-import { bookSaleWithUpaya, createSale, getCourierStatus } from "@/app/actions";
+import { bookSaleWithUpaya, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
 import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
 import { courierMobile, type CourierArea } from "@/lib/courier";
 import { cn, formatNPR } from "@/lib/utils";
@@ -110,6 +110,25 @@ export default function SalesPage() {
   const [hub, setHub] = useState<CourierArea | null>(null);
   const [bookUpaya, setBookUpaya] = useState(true);
   const [courierBooking, setCourierBooking] = useState<{ state: "booking" | "booked" | "failed"; text: string } | null>(null);
+  // Upaya's delivery charge for the chosen hub, filled into the Delivery field.
+  const [hubRate, setHubRate] = useState<{ state: "loading" | "set" | "none"; charge?: number } | null>(null);
+  const rateRequest = useRef(0);
+
+  /** Chooses the hub and fills in Upaya's delivery charge for it (1 kg, door to door, as booked). */
+  async function chooseHub(area: CourierArea | null) {
+    setHub(area);
+    const id = ++rateRequest.current;
+    if (!area) return setHubRate(null);
+    setHubRate({ state: "loading" });
+    const result = await estimateCourierRate(area.locationId, 1, 3).catch(() => null);
+    if (id !== rateRequest.current) return; // a newer hub was chosen meanwhile
+    if (result?.ok && typeof result.data === "number" && result.data > 0) {
+      setDeliveryAmount(result.data);
+      setHubRate({ state: "set", charge: result.data });
+    } else {
+      setHubRate({ state: "none" });
+    }
+  }
   useEffect(() => {
     getCourierStatus().then(result => { if (result.ok) setUpayaEnabled(result.data.enabled); }).catch(() => {});
   }, []);
@@ -406,6 +425,7 @@ export default function SalesPage() {
     setCodOverride(null);
     setPaymentMethod("COD");
     setHub(null);
+    setHubRate(null);
 
     // The sale is saved; now book it with Upaya. A failure leaves the sale as it
     // is, and it can be booked later from the customer's order.
@@ -515,7 +535,14 @@ export default function SalesPage() {
                       Book on complete
                     </label>
                   </div>
-                  <UpayaHubPicker value={hub} onChange={setHub} address={customer.address} />
+                  <UpayaHubPicker value={hub} onChange={chooseHub} address={customer.address} />
+                  {hub && hubRate?.state === "loading" && <p className="text-[10px] text-muted-foreground">Getting Upaya&apos;s delivery charge…</p>}
+                  {hub && hubRate?.state === "set" && (
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400">Upaya charge {formatNPR(hubRate.charge ?? 0)} filled in as Delivery. You can still change it.</p>
+                  )}
+                  {hub && hubRate?.state === "none" && (
+                    <p className="text-[10px] text-amber-600">Upaya has no price for this hub right now. Enter the delivery charge yourself.</p>
+                  )}
                   {bookUpaya && customer.phone.trim() && !courierMobile(customer.phone) && (
                     <p className="text-[10px] font-medium text-amber-600">Upaya needs a 10-digit mobile number (98…) to book.</p>
                   )}
