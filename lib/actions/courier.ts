@@ -214,7 +214,7 @@ export async function bookSaleWithUpaya(saleId: string) {
       where: { id: saleId, storeId: tenant.storeId },
       select: {
         customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, notes: true,
-        paymentMethod: true, codAmount: true, discount: true, brand: true,
+        paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true,
         items: { select: { quantity: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
       },
     });
@@ -233,8 +233,9 @@ export async function bookSaleWithUpaya(saleId: string) {
       categoryId: sale.brand === "decor" ? UPAYA_CATEGORY.household : UPAYA_CATEGORY.clothing,
       description: sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join(", ").slice(0, 2500),
       declaredValue: Math.max(1, Math.round(goods)),
-      // Paid in full (recorded as QR) means nothing to collect; otherwise what's left to pay.
-      codAmount: sale.paymentMethod === "QR" ? 0 : sale.codAmount,
+      // Paid (QR or marked paid): nothing to collect. Otherwise what's left to pay; website
+      // imports don't record a COD amount, and their total already includes delivery.
+      codAmount: sale.paymentMethod === "QR" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount,
       weight: 1,
       note: (sale.notes ?? "").slice(0, 250),
     });

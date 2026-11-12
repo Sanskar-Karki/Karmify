@@ -8,7 +8,7 @@ import {
   ShoppingBag, Wallet, Truck, Download, Tag, Receipt,
 } from "lucide-react";
 import { toast } from "sonner";
-import { updateDeliveryStatuses, updateSaleDetails, syncWebsiteOrders, deleteSales, refreshCourierShipments } from "@/app/actions";
+import { updateDeliveryStatuses, updateSaleDetails, syncWebsiteOrders, deleteSales, refreshCourierShipments, bookSaleWithUpaya } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -28,7 +28,7 @@ import { customerKey, DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
-import { COURIER_FINAL_STATUSES, courierStatusLabel, courierStatusStyle } from "@/lib/courier";
+import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatusStyle } from "@/lib/courier";
 import { useStoreProfile } from "@/lib/storeProfile";
 import type { Sale } from "@/lib/types";
 
@@ -151,6 +151,9 @@ export default function CustomersPage() {
   // Receipts to print: one order's (row button) or the ticked ones (bulk).
   const [receiptSales, setReceiptSales] = useState<Sale[]>([]);
   const [restock, setRestock] = useState(false);
+  // Bulk "Send to Upaya": the ticked orders that can go, and the rest with why not.
+  const [upayaBatch, setUpayaBatch] = useState<{ ready: Sale[]; skipped: { sale: Sale; reason: string }[] } | null>(null);
+  const [sendingUpaya, setSendingUpaya] = useState(false);
 
   const filtered = useMemo(() => {
     const q = (parseCustomerCode(search) ?? search.trim()).toLowerCase();
@@ -242,6 +245,57 @@ export default function CustomersPage() {
     });
     setBulkUpdating(false);
     if (!result.ok) return;
+    setSelectedIds(new Set());
+    await refetch();
+  }
+
+  /** Sorts the ticked orders into ones Upaya can take now and ones it can't (with the reason). */
+  function askBulkUpaya() {
+    const ready: Sale[] = [];
+    const skipped: { sale: Sale; reason: string }[] = [];
+    for (const sale of selectedVisible) {
+      const withUpaya = Boolean(sale.courierTrackingCode) && sale.courierStatus !== "cancelled";
+      const reason = withUpaya
+        ? "already with Upaya"
+        : sale.deliveryStatus !== "IN_PROCESS"
+          ? "not in process"
+          : !sale.courierAreaId
+            ? "no hub location: choose one with its truck button"
+            : !courierMobile(sale.customerPhone)
+              ? "phone isn't a 10-digit mobile"
+              : null;
+      if (reason) skipped.push({ sale, reason });
+      else ready.push(sale);
+    }
+    setUpayaBatch({ ready, skipped });
+  }
+
+  /** Books the ready orders one after another, so Upaya isn't flooded and each gets its own answer. */
+  async function sendBatchToUpaya() {
+    const batch = upayaBatch;
+    if (!batch || batch.ready.length === 0) return;
+    setUpayaBatch(null);
+    setSendingUpaya(true);
+    const total = batch.ready.length;
+    const toastId = toast.loading(`Sending 1 of ${total} to Upaya…`);
+    let booked = 0;
+    const failed: string[] = [];
+    for (const [i, sale] of batch.ready.entries()) {
+      toast.loading(`Sending ${i + 1} of ${total} to Upaya…`, { id: toastId });
+      const result = await bookSaleWithUpaya(sale.id).catch(() => null);
+      if (result?.ok) booked += 1;
+      else failed.push(`${sale.invoiceNumber} (${result && !result.ok ? result.message : "no connection"})`);
+      if (i < total - 1) await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    if (failed.length) {
+      toast.error(
+        `Booked ${booked} of ${total} with Upaya. Not booked: ${failed.slice(0, 3).join("; ")}${failed.length > 3 ? ` and ${failed.length - 3} more` : ""}.`,
+        { id: toastId, duration: 12000 }
+      );
+    } else {
+      toast.success(`Booked ${booked} order${booked === 1 ? "" : "s"} with Upaya.`, { id: toastId });
+    }
+    setSendingUpaya(false);
     setSelectedIds(new Set());
     await refetch();
   }
@@ -444,6 +498,9 @@ export default function CustomersPage() {
             <Button variant="secondary" onClick={() => setReceiptSales(selectedVisible)} className="px-3 py-1.5 text-xs rounded-lg">
               <Receipt size={13} /> Print receipts
             </Button>
+            <Button variant="secondary" onClick={askBulkUpaya} disabled={sendingUpaya} className="px-3 py-1.5 text-xs rounded-lg">
+              <Truck size={13} /> {sendingUpaya ? "Sending…" : "Send to Upaya"}
+            </Button>
             <Button variant="secondary" onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 text-xs rounded-lg">Clear</Button>
             <Button variant="danger" onClick={askBulkDelete} className="px-3 py-1.5 text-xs rounded-lg">
               <Trash2 size={13} /> Delete Selected
@@ -633,6 +690,46 @@ export default function CustomersPage() {
       {courierSale && (
         <CourierDialog key={courierSale.id} open={showCourier} onClose={() => setShowCourier(false)} sale={courierSale} onChanged={() => refetch({ quiet: true })} />
       )}
+
+      <Modal
+        open={upayaBatch !== null}
+        onClose={() => setUpayaBatch(null)}
+        title={upayaBatch && upayaBatch.ready.length > 0 ? `Send ${upayaBatch.ready.length} order${upayaBatch.ready.length === 1 ? "" : "s"} to Upaya?` : "Nothing to send to Upaya"}
+        size="sm"
+      >
+        {upayaBatch && (
+          <div className="p-5 space-y-4 text-sm">
+            {upayaBatch.ready.length > 0 && (
+              <p className="text-muted-foreground">
+                Each is booked door to door with its hub location, COD amount and items, and Upaya will come to collect it.
+              </p>
+            )}
+            {upayaBatch.skipped.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground">Not sent ({upayaBatch.skipped.length})</p>
+                <ul className="mt-1.5 max-h-48 overflow-y-auto space-y-1 text-xs">
+                  {upayaBatch.skipped.map(({ sale, reason }) => (
+                    <li key={sale.id} className="flex gap-2">
+                      <span className="font-mono shrink-0">{sale.invoiceNumber}</span>
+                      <span className="text-muted-foreground min-w-0">{sale.customerName ?? "Walk-in"}: {reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <Button variant="secondary" onClick={() => setUpayaBatch(null)} className="flex-1">
+                {upayaBatch.ready.length > 0 ? "Cancel" : "Close"}
+              </Button>
+              {upayaBatch.ready.length > 0 && (
+                <Button onClick={sendBatchToUpaya} className="flex-1">
+                  <Truck size={14} /> Send {upayaBatch.ready.length}
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {receiptSales.length > 0 && (
         <ReceiptDialog open onClose={() => setReceiptSales([])} sales={receiptSales} store={store} />
