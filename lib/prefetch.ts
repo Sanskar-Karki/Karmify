@@ -3,10 +3,8 @@
 import { fetchResource } from "@/lib/resourceCache";
 import { resources } from "@/lib/resources";
 
-// Which cached resources each route's page needs, mirroring each page's own
-// `useResources({...})` call. Used to warm the cache before navigation so the
-// click lands on data that's already in flight (or already resolved) instead
-// of starting a fresh fetch on mount.
+// Which cached resources each route needs, mirroring each page's own
+// `useResources({...})` call, so a click lands on data already loaded.
 const ROUTE_RESOURCES: Record<string, (keyof typeof resources)[]> = {
   "/dashboard": ["products", "sales", "stocks", "movements", "categories", "activities"],
   "/customers": ["sales"],
@@ -16,29 +14,21 @@ const ROUTE_RESOURCES: Record<string, (keyof typeof resources)[]> = {
   "/sales": ["activeProducts", "categories", "stocks", "sales"],
 };
 
-const prefetched = new Set<string>();
-
-// Kick off the fetchers for a route's resources. Safe to call repeatedly —
-// fetchResource already dedupes in-flight requests and skips fresh cache hits,
-// so this only ever causes a network call the first time or after the TTL
-// expires.
+// Safe to call repeatedly: fetchResource skips fresh entries and shares any
+// request already running.
 export function prefetchRoute(href: string) {
-  const keys = ROUTE_RESOURCES[href];
-  if (!keys) return;
-  for (const key of keys) {
+  for (const key of ROUTE_RESOURCES[href] ?? []) {
     const def = resources[key];
     fetchResource(def.key, def.fetcher).catch(() => {});
   }
 }
 
-// Warm every dockable route once, staggered slightly so the burst of
-// concurrent requests on first load doesn't compete with the current page's
-// own fetch. Called once from the dashboard layout.
+let warmed = false;
+
+// Warm every route once, shortly after the current page's own load has gone
+// out. Everything requested here shares a single batched request.
 export function prefetchAllRoutesOnce() {
-  if (prefetched.has("__all__")) return;
-  prefetched.add("__all__");
-  const routes = Object.keys(ROUTE_RESOURCES);
-  routes.forEach((href, i) => {
-    setTimeout(() => prefetchRoute(href), 150 * (i + 1));
-  });
+  if (warmed) return;
+  warmed = true;
+  setTimeout(() => Object.keys(ROUTE_RESOURCES).forEach(prefetchRoute), 300);
 }

@@ -304,7 +304,7 @@ function getLocalStorageItem<T>(key: string, defaultValue: T): T {
   }
   try {
     return JSON.parse(item);
-  } catch (e) {
+  } catch {
     return defaultValue;
   }
 }

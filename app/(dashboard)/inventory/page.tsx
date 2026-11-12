@@ -1,15 +1,18 @@
 "use client";
 
-import { Skeleton } from "boneyard-js/react";
-import { InventoryFixture } from "@/components/skeletons/fixtures";
-import React, { useState } from "react";
-import { ArrowLeftRight, Plus, X, AlertTriangle, CheckCircle2, Package, ArrowRight, ArrowLeft, Wrench, RefreshCw } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { ArrowLeftRight, Plus, AlertTriangle, CheckCircle2, Package, ArrowRight, ArrowLeft, Wrench, RefreshCw, Search } from "lucide-react";
 import { recordStockMovement } from "@/app/actions";
 import { cn } from "@/lib/utils";
-import { Pulse } from "@/components/shared/Pulse";
+import { MOVEMENT_COLUMNS, PlaceholderRows, STOCK_COLUMNS } from "@/components/skeletons/placeholders";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { Dropdown } from "@/components/shared/Dropdown";
+import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
+import { Modal } from "@/components/shared/Modal";
+import { Button } from "@/components/shared/Button";
+import { mutate } from "@/lib/mutate";
 
 type MovementType = "STOCK_IN" | "STOCK_OUT" | "DAMAGED" | "RETURNED" | "ADJUSTMENT";
 
@@ -20,6 +23,9 @@ const MOVEMENT_TYPES = [
   { value: "ADJUSTMENT", label: "Adjustment", color: "amber", icon: Wrench },
   { value: "RETURNED", label: "Returned", color: "violet", icon: RefreshCw },
 ] as const;
+
+const BLANK_FORM = { productId: "", type: "STOCK_IN" as MovementType, quantity: 1, notes: "" };
+const BLANK_FORM_JSON = JSON.stringify(BLANK_FORM);
 
 const TYPE_STYLES: Record<string, string> = {
   STOCK_IN: "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400",
@@ -37,16 +43,35 @@ export default function InventoryPage() {
   });
   const [showModal, setShowModal] = useState(false);
   const [error, setError] = useState("");
-  const [form, setForm] = useState({
-    productId: "",
-    type: "STOCK_IN" as MovementType,
-    quantity: 1,
-    notes: ""
-  });
+  const [form, setForm] = useState(BLANK_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [search, setSearch] = useState("");
+  const [lowOnly, setLowOnly] = useState(false);
 
-  function getTotalStock(productId: string) {
-    return stocks.filter(s => s.productId === productId).reduce((a, s) => a + s.quantity, 0);
-  }
+  const stockByProduct = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const s of stocks) totals.set(s.productId, (totals.get(s.productId) ?? 0) + s.quantity);
+    return totals;
+  }, [stocks]);
+
+  const productById = useMemo(() => new Map(products.map(p => [p.id, p])), [products]);
+
+  const getTotalStock = (productId: string) => stockByProduct.get(productId) ?? 0;
+
+  const visibleProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter(p => {
+      if (lowOnly && (stockByProduct.get(p.id) ?? 0) >= p.minStockLevel) return false;
+      return !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
+    });
+  }, [products, search, lowOnly, stockByProduct]);
+
+  const { visible: displayedProducts, remaining, step, showMore } = useShowMore(visibleProducts);
+
+  const lowCount = useMemo(
+    () => products.filter(p => (stockByProduct.get(p.id) ?? 0) < p.minStockLevel).length,
+    [products, stockByProduct]
+  );
 
   async function handleSubmit() {
     setError("");
@@ -58,20 +83,21 @@ export default function InventoryPage() {
       if (quantity > available) return setError(`Insufficient stock. Only ${available} units available.`);
     }
 
-    await recordStockMovement({
-      productId,
-      type,
-      quantity,
-      notes: notes || undefined,
-    });
-
-    setShowModal(false);
-    setForm({ productId: "", type: "STOCK_IN", quantity: 1, notes: "" });
-    await refetch();
+    setSubmitting(true);
+    const result = await mutate(
+      () => recordStockMovement({ productId, type, quantity, notes: notes.trim() || undefined }),
+      { success: `${MOVEMENT_TYPES.find(t => t.value === type)?.label} of ${quantity} recorded for ${productById.get(productId)?.name ?? "product"}.` }
+    );
+    if (result.ok) {
+      setShowModal(false);
+      setForm(BLANK_FORM);
+      await refetch();
+    }
+    setSubmitting(false);
   }
 
   return (
-    <Skeleton name="inventory" loading={false} fixture={<InventoryFixture />} fallback={<InventoryFixture />}>
+<>
       <div className="space-y-5 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -79,17 +105,28 @@ export default function InventoryPage() {
           <h1 className="text-2xl font-extrabold tracking-tight">Inventory & Stock Hub</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Track and audit stock for your store</p>
         </div>
-        <button onClick={() => { setShowModal(true); setError(""); }} className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-xl shadow-md shadow-primary/10 hover:bg-primary/90 hover:scale-[1.02] transition-all cursor-pointer">
+        <Button onClick={() => { setShowModal(true); setError(""); }} className="shrink-0">
           <Plus size={16} />
           Record Movement
-        </button>
+        </Button>
       </div>
 
       {/* Stock Levels */}
       <div className="bg-card border border-border/80 rounded-2xl overflow-hidden shadow-sm">
-        <div className="p-5 border-b border-border/60">
-          <h2 className="font-bold text-base">Stock Levels</h2>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Current physical unit counts</p>
+        <div className="p-5 border-b border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-base">Stock Levels</h2>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Current physical unit counts</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 sm:w-56">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or SKU..." aria-label="Search stock levels" className="w-full pl-8 pr-3 py-2 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            </div>
+            <button type="button" aria-pressed={lowOnly} onClick={() => setLowOnly(v => !v)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border whitespace-nowrap transition-colors", lowOnly ? "bg-red-600 text-white border-red-600" : "bg-background text-muted-foreground border-border hover:bg-muted")}>
+              <AlertTriangle size={12} /> Low{!loading && ` (${lowCount})`}
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -102,13 +139,14 @@ export default function InventoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
-              {loading && Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={4} className="px-5 py-4"><Pulse className="h-6 w-full" /></td></tr>
-              ))}
+              {loading && <PlaceholderRows columns={STOCK_COLUMNS} rows={8} cellClassName="px-5 py-4" />}
               {!loading && products.length === 0 && (
                 <EmptyState colSpan={4} icon={Package} title="No products yet" description="Add products in the catalog to start tracking their stock levels here." />
               )}
-              {!loading && products.map(prod => {
+              {!loading && products.length > 0 && visibleProducts.length === 0 && (
+                <EmptyState colSpan={4} icon={Search} title="No matching products" description="Try a different search or turn off the low stock filter." />
+              )}
+              {!loading && displayedProducts.map(prod => {
                 const total = getTotalStock(prod.id);
                 const isLow = total < prod.minStockLevel;
                 return (
@@ -131,7 +169,7 @@ export default function InventoryPage() {
                       <span className={cn("text-sm font-extrabold", isLow ? "text-red-500" : "text-foreground")}>{total}</span>
                     </td>
                     <td className="px-4 py-4 text-center">
-                      <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full", isLow ? "bg-red-100 dark:bg-red-950/30 text-red-600" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-600")}>
+                      <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full", isLow ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
                         {isLow ? <AlertTriangle size={9} /> : <CheckCircle2 size={9} />}
                         {isLow ? "Low" : "OK"}
                       </span>
@@ -142,6 +180,7 @@ export default function InventoryPage() {
             </tbody>
           </table>
         </div>
+        {!loading && <ShowMoreButton remaining={remaining} step={step} onClick={showMore} />}
       </div>
 
       {/* Movement Log */}
@@ -162,14 +201,12 @@ export default function InventoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
-              {loading && Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}><td colSpan={5} className="px-5 py-3.5"><Pulse className="h-5 w-full" /></td></tr>
-              ))}
+              {loading && <PlaceholderRows columns={MOVEMENT_COLUMNS} rows={5} />}
               {!loading && movements.length === 0 && (
                 <EmptyState colSpan={5} icon={ArrowLeftRight} title="No stock movements yet" description="Record a stock-in, stock-out, or adjustment and it will appear in this ledger." />
               )}
               {!loading && movements.slice(0, 30).map(mov => {
-                const prod = products.find(p => p.id === mov.productId);
+                const prod = productById.get(mov.productId);
                 return (
                   <tr key={mov.id} className="hover:bg-muted/10 transition-colors">
                     <td className="px-5 py-3.5">
@@ -199,20 +236,27 @@ export default function InventoryPage() {
       </div>
 
       {/* Stock Movement Modal */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <h2 className="text-lg font-bold flex items-center gap-2"><ArrowLeftRight size={18} className="text-primary" /> Record Stock Movement</h2>
-              <button onClick={() => setShowModal(false)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-muted cursor-pointer"><X size={16} /></button>
-            </div>
-            <div className="p-6 space-y-3">
+      <Modal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        title="Record Stock Movement"
+        icon={ArrowLeftRight}
+        busy={submitting}
+        dirty={JSON.stringify(form) !== BLANK_FORM_JSON}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowModal(false)} disabled={submitting} className="flex-1">Cancel</Button>
+            <Button onClick={handleSubmit} loading={submitting} className="flex-1">{submitting ? "Applying…" : "Apply Movement"}</Button>
+          </>
+        }
+      >
+            <div className="p-5 sm:p-6 space-y-3">
               {/* Movement Type Picker */}
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-muted-foreground">Movement Type</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {MOVEMENT_TYPES.map(t => (
-                    <button key={t.value} onClick={() => setForm(f => ({ ...f, type: t.value as any }))} className={cn("flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer", form.type === t.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:text-foreground")}>
+                    <button key={t.value} type="button" aria-pressed={form.type === t.value} onClick={() => setForm(f => ({ ...f, type: t.value }))} className={cn("flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-semibold transition-all", form.type === t.value ? "border-primary bg-primary/5 text-primary" : "border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:text-foreground")}>
                       <t.icon size={15} />
                       {t.label}
                     </button>
@@ -222,15 +266,18 @@ export default function InventoryPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">Product</label>
-                <select value={form.productId} onChange={e => setForm(f => ({ ...f, productId: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
-                  <option value="">Select product...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.sku})</option>)}
-                </select>
+                <Dropdown
+                  aria-label="Product"
+                  value={form.productId}
+                  onChange={v => setForm(f => ({ ...f, productId: v }))}
+                  placeholder="Select product..."
+                  options={products.map(p => ({ value: p.id, label: `${p.name} (${p.sku})` }))}
+                />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Quantity</label>
-                <input type="number" min={1} value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: parseInt(e.target.value) || 1 }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <label htmlFor="movement-qty" className="text-xs font-semibold text-muted-foreground">Quantity</label>
+                <input id="movement-qty" type="number" inputMode="numeric" min={1} value={form.quantity || ""} onChange={e => setForm(f => ({ ...f, quantity: Math.max(0, parseInt(e.target.value) || 0) }))} className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
               </div>
 
               {form.productId && ["STOCK_OUT", "DAMAGED"].includes(form.type) && (
@@ -243,8 +290,8 @@ export default function InventoryPage() {
               )}
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Notes (optional)</label>
-                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="e.g. Quarterly damage audit" className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
+                <label htmlFor="movement-notes" className="text-xs font-semibold text-muted-foreground">Notes (optional)</label>
+                <textarea id="movement-notes" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="e.g. Quarterly damage audit" className="w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
               </div>
 
               {error && (
@@ -254,15 +301,9 @@ export default function InventoryPage() {
                 </div>
               )}
             </div>
-            <div className="flex gap-3 p-6 border-t border-border">
-              <button onClick={() => setShowModal(false)} className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-muted cursor-pointer">Cancel</button>
-              <button onClick={handleSubmit} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 cursor-pointer shadow-md shadow-primary/10">Apply Movement</button>
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
       </div>
-    </Skeleton>
+</>
   );
 }
 

@@ -12,12 +12,13 @@ import {
   ShoppingCart,
   TrendingUp,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 
 interface DockItem {
   name: string;
   href: string;
-  icon: React.ComponentType<any>;
+  icon: LucideIcon;
 }
 
 const dockItems: DockItem[] = [
@@ -50,7 +51,8 @@ export function Dock() {
 
   return (
     <nav
-      className="fixed left-1/2 -translate-x-1/2 z-30 pt-16 max-w-[calc(100vw-1rem)]"
+      aria-label="Main navigation"
+      className="fixed left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-1rem)]"
       style={{ bottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
     >
       <div
@@ -73,6 +75,7 @@ export function Dock() {
               key={item.href}
               href={item.href}
               aria-label={item.name}
+              aria-current={isActive ? "page" : undefined}
               onMouseEnter={() => { setHovered(i); prefetchRoute(item.href); }}
               onTouchStart={() => prefetchRoute(item.href)}
               className="group relative flex flex-col items-center justify-center"
@@ -82,7 +85,7 @@ export function Dock() {
               }}
             >
               {/* Tooltip (pointer devices only — hover never fires on touch) */}
-              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50 hidden sm:block">
+              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 group-focus-visible:opacity-100 group-focus-visible:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50 hidden sm:block">
                 {item.name}
               </span>
 

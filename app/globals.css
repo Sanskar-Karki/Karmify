@@ -25,7 +25,7 @@
 
   /* #EEEEEE → muted */
   --muted: 0 0% 93%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 38%;
 
   /* accent same as primary */
   --accent: 343 66% 48%;
@@ -71,7 +71,7 @@
   --secondary-foreground: 0 0% 93%;
 
   --muted: 0 0% 14%;
-  --muted-foreground: 0 0% 55%;
+  --muted-foreground: 0 0% 62%;
 
   --accent: 343 66% 52%;
   --accent-foreground: 0 0% 100%;
@@ -156,25 +156,165 @@
   0%, 100% { transform: translateY(-10%); animation-timing-function: cubic-bezier(0.8, 0, 1, 1); }
   50% { transform: translateY(0); animation-timing-function: cubic-bezier(0, 0, 0.2, 1); }
 }
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes modal-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes popover-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-2px) scale(0.98); }
+}
 
-.animate-fade-in { animation: fade-in 0.35s ease-out both; }
-.animate-slide-in-left { animation: slide-in-left 0.25s ease-out both; }
+/* backwards, not both: a transform held after the animation ends would pin any
+   position: fixed descendant to the page instead of the screen. */
+.animate-fade-in { animation: fade-in 0.25s ease-out backwards; }
+.animate-slide-in-left { animation: slide-in-left 0.25s ease-out backwards; }
 .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
 .animate-spin { animation: spin 1s linear infinite; }
 .animate-bounce { animation: bounce 1s infinite; }
 .duration-3000 { animation-duration: 3s; }
 
-body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-feature-settings: "rlig" 1, "calt" 1;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+/* Placeholder shimmer while data loads. */
+@keyframes skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+.skeleton-shimmer {
+  background-color: hsl(var(--muted));
+  background-image: linear-gradient(100deg, transparent 30%, hsl(var(--foreground) / 0.07) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s linear infinite;
 }
 
-* {
-  border-color: hsl(var(--border));
-  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+/* Floating UI. Exit timings must stay within OVERLAY_EXIT_MS. */
+.overlay-backdrop[data-state="open"] { animation: overlay-in 0.16s ease-out both; }
+.overlay-backdrop[data-state="closed"] { animation: overlay-out 0.14s ease-in both; }
+.overlay-panel[data-state="open"] { animation: modal-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.overlay-panel[data-state="closed"] { animation: modal-out 0.14s ease-in both; }
+.popover-panel[data-state="open"] { animation: popover-in 0.13s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.popover-panel[data-state="closed"] { animation: popover-out 0.1s ease-in both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in, .animate-slide-in-left, .animate-bounce,
+  .overlay-backdrop, .overlay-panel, .popover-panel {
+    animation-duration: 0.01ms !important;
+  }
+  .skeleton-shimmer { animation: none; }
+}
+
+/* Toasts: a floating card with a tinted icon. Sonner injects its CSS after this file, hence the extra specificity. */
+[data-sonner-toast] { --toast-tint: var(--muted-foreground); }
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  align-items: center;
+  gap: 12px;
+  padding: 12px 38px 12px 12px;
+  border-radius: 16px;
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--popover) / 0.94);
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05), 0 16px 36px -12px rgb(0 0 0 / 0.28);
+  backdrop-filter: blur(14px) saturate(1.5);
+}
+[data-sonner-toast][data-type="success"] { --toast-tint: 152 69% 34%; }
+[data-sonner-toast][data-type="error"] { --toast-tint: 0 72% 48%; }
+[data-sonner-toast][data-type="warning"] { --toast-tint: 32 95% 40%; }
+[data-sonner-toast][data-type="info"] { --toast-tint: 217 85% 50%; }
+[data-sonner-toast][data-type="loading"] { --toast-tint: var(--primary); }
+.dark [data-sonner-toast][data-type="success"] { --toast-tint: 152 60% 52%; }
+.dark [data-sonner-toast][data-type="error"] { --toast-tint: 0 85% 68%; }
+.dark [data-sonner-toast][data-type="warning"] { --toast-tint: 38 92% 58%; }
+.dark [data-sonner-toast][data-type="info"] { --toast-tint: 213 94% 68%; }
+
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  flex: none;
+  position: relative;
+  border-radius: 10px;
+  justify-content: center;
+  color: hsl(var(--toast-tint));
+  background: hsl(var(--toast-tint) / 0.13);
+}
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-icon] svg { margin: 0; width: 17px; height: 17px; }
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-title] { font-size: 13px; font-weight: 600; line-height: 1.35; }
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-description] { font-size: 12px; line-height: 1.4; color: hsl(var(--muted-foreground)); }
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-button] {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-weight: 600;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"] [data-close-button] {
+  top: 50%;
+  left: auto;
+  right: 8px;
+  transform: none;
+  margin-top: -11px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+:root [data-sonner-toaster] [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover {
+  background: hsl(var(--muted));
+  border: 0;
+  color: hsl(var(--foreground));
+}
+
+/*
+ * Base styles live in a cascade layer on purpose. Unlayered CSS beats every
+ * Tailwind utility, so a bare `* { border-color }` silently cancelled all
+ * border-*, transition-* and focus:outline-none classes in the app.
+ */
+@layer base {
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  a, button, input, textarea, select {
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+  }
+
+  *:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/*
+ * iOS zooms the page when a field under 16px gets focus. Sizing fields up on
+ * touch screens prevents that without disabling pinch-zoom for everyone.
+ * Unlayered so it wins over text-xs on form controls.
+ */
+@media (pointer: coarse) {
+  input, textarea, select { font-size: 16px; }
 }
 
 /* Custom scrollbars */
@@ -193,8 +333,26 @@ body {
   background: hsl(var(--muted-foreground) / 0.45);
 }
 
-/* Focus visible */
-*:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
+/* The customer label prints alone, even with the receipt dialog open behind it. */
+.label-print-root { display: none; }
+@media print {
+  body:has(> .label-print-root) > :not(.label-print-root) { display: none !important; }
+  .label-print-root { display: block; }
+  .label-print-root, .label-print-root * { visibility: visible; }
+}
+
+/* Receipts (one or many) print alone, the same way. */
+.receipt-print-root { display: none; }
+@media print {
+  body:has(> .receipt-print-root) > :not(.receipt-print-root) { display: none !important; }
+  .receipt-print-root { display: block; }
+  .receipt-print-root, .receipt-print-root * { visibility: visible; }
+}
+
+/* Receipt printing: only the receipt panel reaches the paper. */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: fixed; inset: 0; max-height: none; box-shadow: none; border: 0; }
+  .no-print { display: none !important; }
 }

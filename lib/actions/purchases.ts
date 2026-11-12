@@ -3,26 +3,10 @@
 import { db } from "@/lib/db";
 import { MovementType, OrderStatus, PaymentStatus } from "@prisma/client";
 import { requireTenant } from "@/lib/tenant";
-import { logActivity, notify, getDefaultWarehouseIdFor } from "@/lib/actions/helpers";
+import { documentStem, getDefaultWarehouseIdFor, lockDocumentNumbering, logActivity, nextDocumentNumber, notify } from "@/lib/actions/helpers";
+import { guarded, retryOnUniqueConflict, UserError } from "@/lib/actions/result";
+import { formatNPR } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
-
-// Purchase Orders
-export async function getPurchaseOrders() {
-  const tenant = await requireTenant();
-  return db.purchaseOrder.findMany({
-    where: { storeId: tenant.storeId },
-    include: {
-      supplier: true,
-      warehouse: true,
-      items: {
-        include: {
-          product: true,
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-}
 
 export async function createPurchaseOrder(data: {
   supplierId: string;
@@ -30,153 +14,158 @@ export async function createPurchaseOrder(data: {
   totalAmount: number;
   notes?: string;
 }) {
-  const tenant = await requireTenant();
-  const storeId = tenant.storeId;
-  const warehouseId = await getDefaultWarehouseIdFor(storeId);
+  return guarded("Could not create this purchase order.", async () => {
+    if (data.items.length === 0) throw new UserError("Add at least one line item.");
+    if (data.items.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0 || item.unitCost < 0)) {
+      throw new UserError("One of the line items has an invalid quantity or cost.");
+    }
 
-  const order = await db.$transaction(async (tx) => {
-    // Generate order number PO-YYYYMMDD-XXXX (per store)
-    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-    const count = await tx.purchaseOrder.count({
-      where: {
-        storeId,
-        orderNumber: {
-          startsWith: `PO-${dateStr}`,
-        },
-      },
-    });
-    const seq = String(count + 1).padStart(3, "0");
-    const orderNumber = `PO-${dateStr}-${seq}`;
+    const tenant = await requireTenant();
+    const storeId = tenant.storeId;
 
-    return tx.purchaseOrder.create({
-      data: {
-        storeId,
-        orderNumber,
-        supplierId: data.supplierId,
-        warehouseId,
-        status: OrderStatus.PENDING,
-        paymentStatus: PaymentStatus.UNPAID,
-        totalAmount: data.totalAmount,
-        notes: data.notes,
-        items: {
-          create: data.items.map(item => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            unitCost: item.unitCost,
-          })),
+    const productIds = [...new Set(data.items.map(item => item.productId))];
+    const [supplier, ownedProducts] = await Promise.all([
+      db.supplier.findFirst({ where: { id: data.supplierId, storeId }, select: { id: true } }),
+      db.product.count({ where: { id: { in: productIds }, storeId } }),
+    ]);
+    if (!supplier || ownedProducts !== productIds.length) {
+      throw new UserError("The supplier or a product no longer exists. Refresh and try again.");
+    }
+
+    const warehouseId = await getDefaultWarehouseIdFor(storeId);
+
+    const order = await retryOnUniqueConflict(() => db.$transaction(async (tx) => {
+      await lockDocumentNumbering(tx, storeId);
+      const stem = documentStem("PO");
+      const todays = await tx.purchaseOrder.findMany({
+        where: { storeId, orderNumber: { startsWith: stem } },
+        select: { orderNumber: true },
+      });
+
+      return tx.purchaseOrder.create({
+        data: {
+          storeId,
+          orderNumber: nextDocumentNumber(stem, todays.map(o => o.orderNumber)),
+          supplierId: data.supplierId,
+          warehouseId,
+          status: OrderStatus.PENDING,
+          paymentStatus: PaymentStatus.UNPAID,
+          totalAmount: data.totalAmount,
+          notes: data.notes,
+          items: {
+            create: data.items.map(item => ({
+              productId: item.productId,
+              quantity: item.quantity,
+              unitCost: item.unitCost,
+            })),
+          },
         },
-      },
-      include: {
-        supplier: true,
-        warehouse: true,
-      },
-    });
+        include: { supplier: { select: { companyName: true } } },
+      });
+    }));
+
+    await logActivity(
+      tenant,
+      "Purchase Order Created",
+      `Created purchase order ${order.orderNumber} (${formatNPR(data.totalAmount)}) for "${order.supplier.companyName}".`
+    );
+
+    revalidatePath("/purchases");
+    return { orderNumber: order.orderNumber };
   });
-
-  await logActivity(
-    tenant,
-    "Purchase Order Created",
-    `Created purchase order ${order.orderNumber} ($${data.totalAmount.toFixed(2)}) for "${order.supplier.companyName}".`
-  );
-
-  revalidatePath("/purchases");
-  return order;
 }
 
 export async function receivePurchaseOrder(poId: string) {
-  const tenant = await requireTenant();
-  const storeId = tenant.storeId;
+  return guarded("Could not receive this purchase order.", async () => {
+    const tenant = await requireTenant();
+    const storeId = tenant.storeId;
 
-  const order = await db.$transaction(async (tx) => {
-    const po = await tx.purchaseOrder.findUnique({
-      where: { id: poId, storeId },
-      include: {
-        items: {
-          include: {
-            product: true,
-          },
+    const order = await db.$transaction(async (tx) => {
+      // Claiming the order and checking it is still pending is one statement,
+      // so a double click or a second tab can't add the stock twice.
+      const claimed = await tx.purchaseOrder.updateMany({
+        where: { id: poId, storeId, status: OrderStatus.PENDING },
+        data: { status: OrderStatus.COMPLETED, paymentStatus: PaymentStatus.PAID },
+      });
+      if (claimed.count === 0) {
+        throw new UserError("This order has already been received or cancelled.");
+      }
+
+      const po = await tx.purchaseOrder.findUniqueOrThrow({
+        where: { id: poId },
+        include: {
+          items: true,
+          warehouse: { select: { name: true } },
+          supplier: { select: { companyName: true } },
         },
-        warehouse: true,
-        supplier: true,
-      },
-    });
+      });
 
-    if (!po) throw new Error("Purchase order not found.");
-    if (po.status === OrderStatus.COMPLETED) {
-      throw new Error("Purchase order has already been received.");
-    }
+      for (const item of po.items) {
+        await tx.stock.upsert({
+          where: { productId_warehouseId: { productId: item.productId, warehouseId: po.warehouseId } },
+          update: { quantity: { increment: item.quantity } },
+          create: { storeId, productId: item.productId, warehouseId: po.warehouseId, quantity: item.quantity },
+        });
 
-    // Mark PO Completed and Paid
-    await tx.purchaseOrder.update({
-      where: { id: poId },
-      data: {
-        status: OrderStatus.COMPLETED,
-        paymentStatus: PaymentStatus.PAID,
-      },
-    });
-
-    // Add stock and record movements
-    for (const item of po.items) {
-      await tx.stock.upsert({
-        where: {
-          productId_warehouseId: {
+        await tx.stockMovement.create({
+          data: {
+            storeId,
             productId: item.productId,
-            warehouseId: po.warehouseId,
+            quantity: item.quantity,
+            type: MovementType.STOCK_IN,
+            destWhId: po.warehouseId,
+            referenceId: po.id,
+            notes: `Received PO ${po.orderNumber} from ${po.supplier.companyName}`,
+            userId: tenant.userId,
           },
-        },
-        update: { quantity: { increment: item.quantity } },
-        create: {
-          storeId,
-          productId: item.productId,
-          warehouseId: po.warehouseId,
-          quantity: item.quantity,
-        },
-      });
+        });
+      }
 
-      // Record Stock Movement
-      await tx.stockMovement.create({
-        data: {
-          storeId,
-          productId: item.productId,
-          quantity: item.quantity,
-          type: MovementType.STOCK_IN,
-          destWhId: po.warehouseId,
-          referenceId: po.id,
-          notes: `Received PO ${po.orderNumber} from ${po.supplier.companyName}`,
-          userId: tenant.userId,
-        },
+      // Sized products got stock into their total only; ask for the split by size.
+      const sized = await tx.product.findMany({
+        where: { id: { in: po.items.map(i => i.productId) }, variants: { some: {} } },
+        select: { name: true },
       });
-    }
+      if (sized.length) {
+        await tx.notification.create({
+          data: {
+            storeId,
+            title: "Split received stock by size",
+            message: `PO ${po.orderNumber} added stock to ${sized.map(p => `"${p.name}"`).join(", ")}. Open each in Products → Edit and enter the new stock per size and colour.`,
+            type: "warning",
+          },
+        });
+      }
 
-    return po;
+      return po;
+    }, { timeout: 20_000, maxWait: 10_000 });
+
+    const units = order.items.reduce((acc, item) => acc + item.quantity, 0);
+
+    await logActivity(tenant, "Purchase Order Received", `Received stock for PO ${order.orderNumber} in "${order.warehouse.name}".`);
+    await notify(storeId, "Stock Received", `Successfully received ${units} items from "${order.supplier.companyName}" in PO ${order.orderNumber}.`, "info");
+
+    revalidatePath("/purchases");
+    revalidatePath("/inventory");
+    revalidatePath("/dashboard");
+    return { orderNumber: order.orderNumber, units };
   });
-
-  await logActivity(
-    tenant,
-    "Purchase Order Received",
-    `Received stock for PO ${order.orderNumber} in "${order.warehouse.name}".`
-  );
-
-  await notify(
-    storeId,
-    "Stock Received",
-    `Successfully received ${order.items.reduce((acc, item) => acc + item.quantity, 0)} items from "${order.supplier.companyName}" in PO ${order.orderNumber}.`,
-    "info"
-  );
-
-  revalidatePath("/purchases");
-  revalidatePath("/inventory");
-  revalidatePath("/dashboard");
-  return order;
 }
 
 export async function cancelPurchaseOrder(poId: string) {
-  const tenant = await requireTenant();
-  const order = await db.purchaseOrder.update({
-    where: { id: poId, storeId: tenant.storeId },
-    data: { status: OrderStatus.CANCELLED },
+  return guarded("Could not cancel this purchase order.", async () => {
+    const tenant = await requireTenant();
+    const claimed = await db.purchaseOrder.updateMany({
+      where: { id: poId, storeId: tenant.storeId, status: OrderStatus.PENDING },
+      data: { status: OrderStatus.CANCELLED },
+    });
+    if (claimed.count === 0) {
+      throw new UserError("Only pending orders can be cancelled.");
+    }
+
+    const order = await db.purchaseOrder.findUniqueOrThrow({ where: { id: poId }, select: { orderNumber: true } });
+    await logActivity(tenant, "Purchase Order Cancelled", `${order.orderNumber} was cancelled.`);
+    revalidatePath("/purchases");
+    return order;
   });
-  await logActivity(tenant, "Purchase Order Cancelled", `${order.orderNumber} was cancelled.`);
-  revalidatePath("/purchases");
-  return order;
 }

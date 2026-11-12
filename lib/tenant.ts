@@ -4,6 +4,7 @@ import { cache } from "react";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "@/lib/db";
 import { Role } from "@prisma/client";
+import { UserError } from "@/lib/actions/result";
 
 export type Tenant = {
   userId: string;
@@ -54,6 +55,6 @@ export const getTenant = cache(async (): Promise<Tenant | null> => {
 // unauthenticated caller is a bug, not a state to handle.
 export async function requireTenant(): Promise<Tenant> {
   const tenant = await getTenant();
-  if (!tenant) throw new Error("Not authenticated.");
+  if (!tenant) throw new UserError("Your session has expired. Please sign in again.");
   return tenant;
 }

@@ -59,9 +59,12 @@ model Store {
   warehouses     Warehouse[]
   products       Product[]
   stocks         Stock[]
+  variants       ProductVariant[]
   movements      StockMovement[]
   purchaseOrders PurchaseOrder[]
   sales          Sale[]
+  customers      Customer[]
+  customerSeq    Int             @default(0) // Last customer number issued; only ever goes up
   activities     ActivityLog[]
   notifications  Notification[]
   createdAt      DateTime        @default(now())
@@ -157,6 +160,7 @@ model Product {
   expiryDate    DateTime?
   status        String          @default("active") // "active" | "inactive"
   stocks        Stock[]
+  variants      ProductVariant[]
   movements     StockMovement[]
   purchaseItems PurchaseItem[]
   saleItems     SaleItem[]
@@ -182,6 +186,7 @@ model Stock {
 
   @@unique([productId, warehouseId])
   @@index([storeId])
+  @@index([warehouseId])
 }
 
 model StockMovement {
@@ -236,6 +241,25 @@ model PurchaseItem {
   quantity        Int
   unitCost        Float
   createdAt       DateTime      @default(now())
+
+  @@index([purchaseOrderId])
+  @@index([productId])
+}
+
+// A person the store sells to, so they keep one ID across all their orders.
+// Name, phone and address stay on each Sale as what was true for that delivery.
+model Customer {
+  id          String   @id @default(uuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  code        String // e.g. CUS-000042, printed as the barcode on labels
+  identityKey String // Normalised phone, else email, else name. See lib/customerIdentity.ts
+  sales       Sale[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([storeId, code])
+  @@unique([storeId, identityKey])
 }
 
 model Sale {
@@ -247,6 +271,8 @@ model Sale {
   customerEmail   String?
   customerPhone   String?
   customerAddress String?
+  customerId      String?
+  customer        Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   warehouseId     String
   warehouse       Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   items           SaleItem[]
@@ -260,12 +286,23 @@ model Sale {
   deliveryStatus  DeliveryStatus @default(IN_PROCESS)
   source          String         @default("pos") // "pos" | "website"
   externalOrderId String? // website orders.order_id (e.g. "KRM-20260714-0001"), used to dedupe repeat syncs
+  courierTrackingCode String? // Upaya tracking code, set once the courier has the order
+  courierStatus       String? // Upaya status slug, e.g. "dispatched-with-rider"
+  courierCheckedAt    DateTime? // Last time the status was read from Upaya
+  courierSubmittingAt DateTime? // Claim held while booking, so one order can't be booked twice
+  courierAreaId       Int? // Upaya area the customer chose at website checkout
+  courierLocationId   Int?
+  courierAreaTitle    String?
+  notes           String? // The customer's note from the website checkout
+  brand           String? // "originals" | "decor": which shop the sale belongs to (null = not set)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@unique([storeId, invoiceNumber])
   @@unique([storeId, externalOrderId])
+  @@index([storeId, courierTrackingCode])
   @@index([storeId, createdAt])
+  @@index([customerId])
 }
 
 model SaleItem {
@@ -276,7 +313,33 @@ model SaleItem {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
   quantity  Int
   unitPrice Float
+  variant   String? // Size/colour chosen on the website, e.g. "L · Navy"
+  variantId String? // The exact size/colour stock row this line took from
+  productVariant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+/// Stock per size and colour of a product (clothing). The product's Stock row
+/// holds the total of these, so everything that reads product stock still works.
+model ProductVariant {
+  id        String     @id @default(uuid())
+  storeId   String
+  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size      String     @default("") // "" when the product has no sizes
+  color     String     @default("") // "" when the product has no colours
+  quantity  Int        @default(0)
+  saleItems SaleItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([productId, size, color])
+  @@index([storeId])
 }
 
 model ActivityLog {

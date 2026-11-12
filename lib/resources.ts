@@ -1,30 +1,32 @@
 "use client";
 
-import {
-  getProducts, getCategories, getSuppliers, getStocks,
-  getSales, getStockMovements, getPurchaseOrders, getActivityLogs,
-  getCustomers,
-} from "@/app/actions";
+import { groupSalesByCustomer } from "@/lib/orders";
+import { batchLoad } from "@/lib/resourceBatch";
 import { defineResource } from "@/lib/useResources";
+import type { ResourceKey } from "@/lib/types";
+
+const batched = <K extends ResourceKey>(key: K) => defineResource(key, () => batchLoad(key));
 
 // Single source of truth for each cacheable resource. Pages compose the ones
-// they need; sharing a key means a fetch on one page satisfies another within
-// the cache TTL instead of refetching.
+// they need; sharing a key means a fetch on one page satisfies another.
 export const resources = {
-  products: defineResource("products", getProducts),
-  // Sales/POS only ever lists sellable products — filter at the source so the
-  // shared `products` cache stays canonical and this stays a derived view.
+  products: batched("products"),
+  // Sales/POS only lists sellable products. This is a view over the shared
+  // `products` entry rather than a second copy of it.
   activeProducts: defineResource(
     "products",
-    getProducts,
-    (data: any[]) => data.filter(p => p.status === "active")
+    () => batchLoad("products"),
+    products => products.filter(p => p.status === "active")
   ),
-  categories: defineResource("categories", getCategories),
-  suppliers: defineResource("suppliers", getSuppliers),
-  stocks: defineResource("stocks", getStocks),
-  sales: defineResource("sales", getSales),
-  movements: defineResource("movements", getStockMovements),
-  orders: defineResource("orders", getPurchaseOrders),
-  activities: defineResource("activities", getActivityLogs),
-  customers: defineResource("customers", getCustomers),
+  categories: batched("categories"),
+  suppliers: batched("suppliers"),
+  stocks: batched("stocks"),
+  sales: batched("sales"),
+  movements: batched("movements"),
+  orders: batched("orders"),
+  activities: batched("activities"),
+  // Derived from sales rather than fetched again, so opening a customer is
+  // instant whenever the order list has already loaded.
+  customers: defineResource("sales", () => batchLoad("sales"), groupSalesByCustomer),
+  notifications: batched("notifications"),
 };

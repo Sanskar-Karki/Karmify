@@ -1,39 +1,47 @@
 // Shared, resource-level data cache for the dashboard.
 //
-// Why this exists: every page used to keep its own per-page cache and refetch
-// *all* of its resources on every mount, so `getProducts` (used on 5 pages)
-// fired again on each navigation, and two pages that both need products never
-// shared the result. This store is keyed by resource name instead of by page,
-// adds a TTL so fresh data isn't refetched, and dedupes concurrent requests for
-// the same resource so N pages mounting at once trigger one fetch, not N.
+// Keyed by resource rather than by page, so two pages that need products share
+// one result. Fresh data is served without a network call, concurrent reads of
+// a key share one request, and subscribers re-render whenever an entry lands.
 
-type Entry<T> = {
-  data: T;
+type Entry = {
+  data: unknown;
+  /** 0 means "never loaded or explicitly stale". */
   fetchedAt: number;
-  inFlight?: Promise<T>;
+  inFlight?: Promise<unknown>;
 };
 
-const store = new Map<string, Entry<unknown>>();
+const store = new Map<string, Entry>();
+const listeners = new Set<() => void>();
+let version = 0;
+let owner: string | null = null;
 
-// How long cached data is considered fresh. Within this window a resource is
-// served from cache with no network call; past it the next read refetches.
 export const DEFAULT_TTL_MS = 30_000;
 
-// Bumped whenever a mutation invalidates resources, so the SVG-fast cache reads
-// stay correct after writes.
-export function getCached<T>(key: string): T | undefined {
-  const entry = store.get(key);
-  return entry ? (entry.data as T) : undefined;
+function publish() {
+  version += 1;
+  listeners.forEach(listener => listener());
 }
 
-function isFresh(entry: Entry<unknown> | undefined, ttl: number): boolean {
-  return !!entry && Date.now() - entry.fetchedAt < ttl;
+export function subscribeToCache(listener: () => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export const getCacheVersion = () => version;
+export const getServerCacheVersion = () => 0;
+
+export function getCached<T>(key: string): T | undefined {
+  return store.get(key)?.data as T | undefined;
 }
 
 /**
- * Fetch a resource, returning cached data when it is still fresh and deduping
- * concurrent fetches for the same key. `force` bypasses the freshness check
- * (used after a mutation) while still benefiting from in-flight dedupe.
+ * Fetch a resource, returning cached data while it is fresh and sharing any
+ * request already running. `force` always starts a new request and makes it
+ * the winner: a read that began before a mutation must not overwrite, or be
+ * mistaken for, the data read after it.
  */
 export function fetchResource<T>(
   key: string,
@@ -41,31 +49,46 @@ export function fetchResource<T>(
   opts: { ttl?: number; force?: boolean } = {}
 ): Promise<T> {
   const ttl = opts.ttl ?? DEFAULT_TTL_MS;
-  const entry = store.get(key) as Entry<T> | undefined;
+  const entry = store.get(key);
 
-  if (entry?.inFlight) return entry.inFlight;
-  if (!opts.force && isFresh(entry, ttl)) return Promise.resolve(entry!.data);
+  if (!opts.force && entry) {
+    if (entry.inFlight) return entry.inFlight as Promise<T>;
+    if (entry.fetchedAt > 0 && Date.now() - entry.fetchedAt < ttl) return Promise.resolve(entry.data as T);
+  }
 
-  const inFlight = fetcher()
-    .then(data => {
-      store.set(key, { data, fetchedAt: Date.now() });
+  const request: Promise<T> = fetcher().then(
+    data => {
+      if (store.get(key)?.inFlight === request) {
+        store.set(key, { data, fetchedAt: Date.now() });
+        publish();
+      }
       return data;
-    })
-    .catch(err => {
-      // Drop the in-flight marker so a later read can retry; keep stale data.
-      if (entry) store.set(key, { data: entry.data, fetchedAt: entry.fetchedAt });
-      else store.delete(key);
+    },
+    err => {
+      const current = store.get(key);
+      if (current?.inFlight === request) {
+        // Keep stale data on screen and allow a later read to retry.
+        store.set(key, { data: current.data, fetchedAt: current.fetchedAt });
+      }
       throw err;
-    });
+    }
+  );
 
-  store.set(key, { data: (entry?.data as T) ?? (undefined as T), fetchedAt: entry?.fetchedAt ?? 0, inFlight });
-  return inFlight;
+  store.set(key, { data: entry?.data, fetchedAt: entry?.fetchedAt ?? 0, inFlight: request });
+  return request;
 }
 
-/** Mark resources stale so the next read refetches (call after a mutation). */
-export function invalidate(...keys: string[]) {
-  for (const key of keys) {
-    const entry = store.get(key);
-    if (entry) store.set(key, { ...entry, fetchedAt: 0 });
-  }
+/** Mark everything stale so each resource refetches on its next read. */
+export function invalidateAll() {
+  for (const [key, entry] of store) store.set(key, { ...entry, fetchedAt: 0 });
+}
+
+/**
+ * Drops all cached data when a different account signs in on this browser, so
+ * one store's records are never shown to, or edited by, another.
+ */
+export function bindCacheToUser(userId: string | null | undefined) {
+  if (!userId || userId === owner) return;
+  if (owner !== null) store.clear();
+  owner = userId;
 }

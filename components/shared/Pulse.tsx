@@ -1,5 +1,6 @@
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/utils";
 
-export function Pulse({ className }: { className?: string }) {
-  return <div className={cn("animate-pulse bg-muted rounded", className)} />;
+export function Pulse({ className, style }: { className?: string; style?: CSSProperties }) {
+  return <div aria-hidden="true" className={cn("skeleton-shimmer rounded", className)} style={style} />;
 }
