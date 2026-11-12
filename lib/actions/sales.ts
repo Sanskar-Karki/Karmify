@@ -279,6 +279,8 @@ export async function createSale(data: {
   walkIn?: boolean;
   /** Delivery where the customer paid part up front; codAmount is what's left to collect. */
   partial?: boolean;
+  /** Delivery: the Upaya hub location chosen in the POS, so the order can be booked with Upaya. */
+  courierArea?: { areaId: number; locationId: number; title: string } | null;
 }) {
   return guarded("Could not complete this sale. Nothing was charged or deducted.", async () => {
     if (data.customerName?.trim() && nameProblem(data.customerName)) throw new UserError(nameProblem(data.customerName)!);
@@ -287,6 +289,10 @@ export async function createSale(data: {
       if (!Number.isFinite(amount) || amount < 0) throw new UserError("Amounts can't be negative.");
     }
     if (data.items.length === 0) throw new UserError("Add at least one product to the cart.");
+    const area = data.walkIn ? null : data.courierArea ?? null;
+    if (area && (!Number.isInteger(area.areaId) || area.areaId <= 0 || !Number.isInteger(area.locationId) || area.locationId <= 0)) {
+      throw new UserError("Choose the Upaya hub location again.");
+    }
     if (data.items.some(item => !Number.isInteger(item.quantity) || item.quantity <= 0 || item.unitPrice < 0)) {
       throw new UserError("One of the cart items has an invalid quantity or price.");
     }
@@ -338,6 +344,7 @@ export async function createSale(data: {
           paymentMethod: data.paymentMethod,
           brand: data.brand === "originals" || data.brand === "decor" ? data.brand : null,
           ...(walkIn && { deliveryStatus: DeliveryStatus.DELIVERED }),
+          ...(area && { courierAreaId: area.areaId, courierLocationId: area.locationId, courierAreaTitle: area.title.slice(0, 200) }),
           items: {
             create: data.items.map(item => ({
               productId: item.productId,
