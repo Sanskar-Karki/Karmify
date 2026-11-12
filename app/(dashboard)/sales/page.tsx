@@ -47,8 +47,8 @@ const lineKey = (c: { productId: string; variantId?: string | null }) => `${c.pr
 type CompletedSale = Awaited<ReturnType<typeof createSale>> extends ActionResult<infer T> ? T : never;
 
 const CUSTOMER_FIELDS = [
-  { label: "Customer Name", icon: User, key: "name", placeholder: "e.g. Kshitiz Adhikari", type: "text" },
-  { label: "Phone", icon: Phone, key: "phone", placeholder: "+977 9841...", type: "tel" },
+  { label: "Customer Name", icon: User, key: "name", placeholder: "Customer name", type: "text" },
+  { label: "Phone", icon: Phone, key: "phone", placeholder: "Phone number", type: "tel" },
   { label: "Address", icon: MapPin, key: "address", placeholder: "Delivery address", type: "text" },
 ] as const;
 
