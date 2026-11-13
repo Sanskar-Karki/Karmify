@@ -38,6 +38,11 @@ export const getTenant = cache(async (): Promise<Tenant | null> => {
     return { userId, storeId: existing.store.id, storeName: existing.store.name };
   }
 
+  // A login with no store. Karmify is the shop's own back office, so a stranger
+  // who signs up gets nothing unless KARMIFY_OPEN_SIGNUP=true (for setting up a
+  // brand-new shop). Clerk's sign-up should also be set to Restricted.
+  if (process.env.KARMIFY_OPEN_SIGNUP !== "true") return null;
+
   // First login (or a legacy user without a store): provision their store.
   const clerkUser = existing ? null : await currentUser();
   const email = existing?.email
@@ -65,6 +70,13 @@ export const getTenant = cache(async (): Promise<Tenant | null> => {
 // unauthenticated caller is a bug, not a state to handle.
 export async function requireTenant(): Promise<Tenant> {
   const tenant = await getTenant();
-  if (!tenant) throw new UserError("Your session has expired. Please sign in again.");
+  if (!tenant) {
+    const { userId } = await auth();
+    throw new UserError(
+      userId
+        ? "This account doesn't have access to Karmify. Ask the shop owner to add you."
+        : "Your session has expired. Please sign in again."
+    );
+  }
   return tenant;
 }

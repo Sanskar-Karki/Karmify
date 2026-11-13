@@ -61,6 +61,11 @@ export async function syncWebsiteOrders() {
 async function runWebsiteOrderSync() {
   const tenant = await requireTenant();
   const storeId = tenant.storeId;
+  // The website's orders hold customers' names, phone numbers and addresses,
+  // so only the store that receives them (as /api/website-orders does) may pull them.
+  if (!process.env.WEBSITE_ORDERS_STORE_ID || storeId !== process.env.WEBSITE_ORDERS_STORE_ID) {
+    throw new UserError("Website orders go to the shop's own store, not this one.");
+  }
   const warehouseId = await getDefaultWarehouseIdFor(storeId);
 
   const rows = await getUnimportedOrders(storeId);
