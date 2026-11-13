@@ -8,6 +8,7 @@ import { guarded, retryOnUniqueConflict, UserError } from "@/lib/actions/result"
 import { customerIdentityKey, findOrCreateCustomerId, nameProblem, phoneProblem } from "@/lib/customerIdentity";
 import { syncStockTotal } from "@/lib/variants";
 import { courierStillOpen } from "@/lib/courier";
+import { deletedOrderDetails, WEBSITE_ORDER_DELETED } from "@/lib/websiteOrders";
 import { formatNPR } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 
@@ -109,7 +110,15 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
           units += deduction.quantity;
         }
 
-        // Sized products: the units go back to the size/colour each line took from.
+        // Sized products: the units go back to the size/colour each line took
+        // from, but never more than the ledger says the order took. A website
+        // import takes nothing from a size that had none, and giving the
+        // ordered quantity back would invent stock.
+        const taken = new Map<string, number>();
+        for (const deduction of deductions) {
+          const key = `${deduction.referenceId}|${deduction.productId}`;
+          taken.set(key, (taken.get(key) ?? 0) + deduction.quantity);
+        }
         const sizedLines = await tx.saleItem.findMany({
           where: { saleId: { in: sales.map(s => s.id) }, variantId: { not: null } },
           select: { saleId: true, productId: true, variantId: true, quantity: true },
@@ -117,16 +126,37 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
         for (const line of sizedLines) {
           const sale = saleById.get(line.saleId);
           if (!sale) continue;
+          const key = `${line.saleId}|${line.productId}`;
+          const back = Math.min(line.quantity, taken.get(key) ?? 0);
+          if (back <= 0) continue;
+          taken.set(key, (taken.get(key) ?? 0) - back);
           const returned = await tx.productVariant.updateMany({
             where: { id: line.variantId!, storeId },
-            data: { quantity: { increment: line.quantity } },
+            data: { quantity: { increment: back } },
           });
           if (returned.count > 0) await syncStockTotal(tx, storeId, line.productId, sale.warehouseId);
         }
       }
 
+      // The website keeps its copy of these orders, so remember they were deleted
+      // here; otherwise the next Sync Website would bring them back.
+      const websiteOrders = await tx.sale.findMany({
+        where: { id: { in: saleIds }, storeId, externalOrderId: { not: null } },
+        select: { externalOrderId: true, invoiceNumber: true },
+      });
+
       await tx.saleItem.deleteMany({ where: { saleId: { in: saleIds }, sale: { storeId } } });
       const removed = await tx.sale.deleteMany({ where: { id: { in: saleIds }, storeId } });
+      if (websiteOrders.length > 0) {
+        await tx.activityLog.createMany({
+          data: websiteOrders.map(s => ({
+            storeId,
+            userId: tenant.userId,
+            action: WEBSITE_ORDER_DELETED,
+            details: deletedOrderDetails(s.externalOrderId!, s.invoiceNumber),
+          })),
+        });
+      }
       return { count: removed.count, restocked: units };
     }, { timeout: 20_000, maxWait: 10_000 });
 

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
 import { getDefaultWarehouseIdFor, logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
-import { describeItems, importWebsiteOrder, type WebsiteOrderRow } from "@/lib/websiteOrders";
+import { deletedWebsiteOrderIds, describeItems, importWebsiteOrder, type WebsiteOrderRow } from "@/lib/websiteOrders";
 import { revalidatePath } from "next/cache";
 
 // The karmalu website lives in its OWN Supabase project (not this app's DB),
@@ -43,15 +43,17 @@ async function fetchKarmaluOrders(): Promise<WebsiteOrderRow[]> {
 }
 
 async function getUnimportedOrders(storeId: string) {
-  const [allOrders, importedSales] = await Promise.all([
+  const [allOrders, importedSales, deletedIds] = await Promise.all([
     fetchKarmaluOrders(),
     db.sale.findMany({
       where: { storeId, externalOrderId: { not: null } },
       select: { externalOrderId: true },
     }),
+    // Deleted here on purpose; the website still has its copy.
+    deletedWebsiteOrderIds(storeId),
   ]);
   const importedIds = new Set(importedSales.map(s => s.externalOrderId));
-  return allOrders.filter(row => !importedIds.has(row.order_id));
+  return allOrders.filter(row => !importedIds.has(row.order_id) && !deletedIds.has(row.order_id));
 }
 
 export async function syncWebsiteOrders() {

@@ -175,7 +175,23 @@ async function getOrCreatePlaceholderProduct(tx: Prisma.TransactionClient, store
   return created.id;
 }
 
-/** Saves one website order, returning null if it was already imported. */
+/**
+ * Logged when a website order is deleted in Karmify. Its details start with the
+ * website's order number, and that order is never imported again: the website
+ * keeps its own copy, which Sync Website would otherwise bring back.
+ */
+export const WEBSITE_ORDER_DELETED = "Website Order Deleted";
+
+export const deletedOrderDetails = (orderId: string, invoiceNumber: string) =>
+  `${orderId} (${invoiceNumber}) was deleted in Karmify, so it won't be imported again.`;
+
+/** Website order numbers deleted in Karmify. */
+export async function deletedWebsiteOrderIds(storeId: string) {
+  const logs = await db.activityLog.findMany({ where: { storeId, action: WEBSITE_ORDER_DELETED }, select: { details: true } });
+  return new Set(logs.map((log) => log.details.split(" ")[0]));
+}
+
+/** Saves one website order, returning null if it was already imported or was deleted in Karmify. */
 export function importWebsiteOrder(storeId: string, warehouseId: string, row: WebsiteOrderRow) {
   return db.$transaction(async (tx) => {
     await lockDocumentNumbering(tx, storeId);
@@ -186,6 +202,13 @@ export function importWebsiteOrder(storeId: string, warehouseId: string, row: We
       select: { id: true },
     });
     if (already) return null;
+
+    // Deleted in Karmify on purpose (a cancelled or test order): leave it deleted.
+    const deleted = await tx.activityLog.findFirst({
+      where: { storeId, action: WEBSITE_ORDER_DELETED, details: { startsWith: `${row.order_id} ` } },
+      select: { id: true },
+    });
+    if (deleted) return null;
 
     const stem = documentStem("INV");
     const todays = await tx.sale.findMany({
