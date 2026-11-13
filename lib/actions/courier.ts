@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
 import { logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
-import { courierMobile, courierReference, courierStillOpen, type CourierOrderForm } from "@/lib/courier";
+import { courierMobile, courierReference, courierStillOpen, splitCourierAddress, type CourierOrderForm } from "@/lib/courier";
+import { itemName } from "@/lib/orders";
 import { courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
   createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError,
@@ -36,6 +37,26 @@ export async function getCourierSetup(address: string) {
     try {
       const [categories, suggestions] = await Promise.all([getCategories(), suggestAreas(address)]);
       return { categories, suggestions };
+    } catch (err) {
+      throw upayaMessage(err, "Could not reach Upaya. Try again shortly.");
+    }
+  });
+}
+
+/** Whether this store books with Upaya (the POS only asks for a hub location when it does). */
+export async function getCourierStatus() {
+  return guarded("Could not check the courier setup.", async () => {
+    const tenant = await requireTenant();
+    return { enabled: courierEnabledFor(tenant.storeId) };
+  });
+}
+
+/** Upaya hub locations that match a typed delivery address. */
+export async function suggestCourierAreas(address: string) {
+  return guarded("Could not suggest Upaya hub locations.", async () => {
+    await requireCourierTenant();
+    try {
+      return await suggestAreas(address);
     } catch (err) {
       throw upayaMessage(err, "Could not reach Upaya. Try again shortly.");
     }
@@ -173,6 +194,53 @@ export async function sendOrderToCourier(saleId: string, form: CourierOrderForm)
 
     revalidatePath("/customers");
     return booked;
+  });
+}
+
+// Upaya product categories: Living & Decor ships as household goods, everything else as clothing.
+const UPAYA_CATEGORY = { clothing: 1, household: 6 };
+const DOOR_TO_DOOR = 3;
+
+/**
+ * Books a delivery sale with Upaya from what's saved on it: the POS calls this
+ * right after "Complete Sale". Goes through sendOrderToCourier, so the same
+ * claim and duplicate check apply, and a failure leaves the sale as it is
+ * (book it later from the order).
+ */
+export async function bookSaleWithUpaya(saleId: string) {
+  return guarded("Could not send this order to Upaya.", async () => {
+    const tenant = await requireCourierTenant();
+    const sale = await db.sale.findFirst({
+      where: { id: saleId, storeId: tenant.storeId },
+      select: {
+        customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, notes: true,
+        paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true,
+        items: { select: { quantity: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
+      },
+    });
+    if (!sale) throw new UserError("That order no longer exists. Refresh the page and try again.");
+    if (!sale.courierAreaId) throw new UserError("Choose the Upaya hub location for this order, then book it.");
+
+    const { address, landmark } = splitCourierAddress(sale.customerAddress);
+    const goods = sale.items.reduce((total, item) => total + item.quantity * item.unitPrice, 0) - sale.discount;
+    const result = await sendOrderToCourier(saleId, {
+      receiverName: sale.customerName ?? "",
+      receiverPhone: sale.customerPhone ?? "",
+      address,
+      landmark,
+      areaId: sale.courierAreaId,
+      serviceTypeId: DOOR_TO_DOOR,
+      categoryId: sale.brand === "decor" ? UPAYA_CATEGORY.household : UPAYA_CATEGORY.clothing,
+      description: sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join(", ").slice(0, 2500),
+      declaredValue: Math.max(1, Math.round(goods)),
+      // Paid (QR or marked paid): nothing to collect. Otherwise what's left to pay; website
+      // imports don't record a COD amount, and their total already includes delivery.
+      codAmount: sale.paymentMethod === "QR" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount,
+      weight: 1,
+      note: (sale.notes ?? "").slice(0, 250),
+    });
+    if (!result.ok) throw new UserError(result.message);
+    return result.data;
   });
 }
 

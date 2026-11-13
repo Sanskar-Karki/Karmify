@@ -6,7 +6,9 @@ import {
   Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote,
 } from "lucide-react";
 import { toast } from "sonner";
-import { createSale } from "@/app/actions";
+import { bookSaleWithUpaya, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
+import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
+import { courierMobile, type CourierArea } from "@/lib/courier";
 import { cn, formatNPR } from "@/lib/utils";
 import { ProductCardPlaceholder, TransactionRowPlaceholder } from "@/components/skeletons/placeholders";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -45,8 +47,8 @@ const lineKey = (c: { productId: string; variantId?: string | null }) => `${c.pr
 type CompletedSale = Awaited<ReturnType<typeof createSale>> extends ActionResult<infer T> ? T : never;
 
 const CUSTOMER_FIELDS = [
-  { label: "Customer Name", icon: User, key: "name", placeholder: "e.g. Kshitiz Adhikari", type: "text" },
-  { label: "Phone", icon: Phone, key: "phone", placeholder: "+977 9841...", type: "tel" },
+  { label: "Customer Name", icon: User, key: "name", placeholder: "Customer name", type: "text" },
+  { label: "Phone", icon: Phone, key: "phone", placeholder: "Phone number", type: "tel" },
   { label: "Address", icon: MapPin, key: "address", placeholder: "Delivery address", type: "text" },
 ] as const;
 
@@ -62,6 +64,8 @@ type Draft = {
   customer: typeof BLANK_CUSTOMER;
   mode: SaleMode;
   deliveryAmount: number;
+  /** Delivery: the Upaya hub location chosen. */
+  hub?: CourierArea | null;
 };
 
 const smallField = "w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20";
@@ -100,6 +104,35 @@ export default function SalesPage() {
   const searchRef = useRef<HTMLInputElement>(null);
   // The sized product whose size/colour is being picked.
   const [picking, setPicking] = useState<Product | null>(null);
+  // Upaya courier: whether this store books with Upaya, the hub location for
+  // this delivery, whether to book on "Complete Sale", and how the last booking went.
+  const [upayaEnabled, setUpayaEnabled] = useState(false);
+  const [hub, setHub] = useState<CourierArea | null>(null);
+  // Off until staff tick it: a booking sends a real Upaya pickup.
+  const [bookUpaya, setBookUpaya] = useState(false);
+  const [courierBooking, setCourierBooking] = useState<{ state: "booking" | "booked" | "failed"; text: string } | null>(null);
+  // Upaya's delivery charge for the chosen hub, filled into the Delivery field.
+  const [hubRate, setHubRate] = useState<{ state: "loading" | "set" | "none"; charge?: number } | null>(null);
+  const rateRequest = useRef(0);
+
+  /** Chooses the hub and fills in Upaya's delivery charge for it (1 kg, door to door, as booked). */
+  async function chooseHub(area: CourierArea | null) {
+    setHub(area);
+    const id = ++rateRequest.current;
+    if (!area) return setHubRate(null);
+    setHubRate({ state: "loading" });
+    const result = await estimateCourierRate(area.locationId, 1, 3).catch(() => null);
+    if (id !== rateRequest.current) return; // a newer hub was chosen meanwhile
+    if (result?.ok && typeof result.data === "number" && result.data > 0) {
+      setDeliveryAmount(result.data);
+      setHubRate({ state: "set", charge: result.data });
+    } else {
+      setHubRate({ state: "none" });
+    }
+  }
+  useEffect(() => {
+    getCourierStatus().then(result => { if (result.ok) setUpayaEnabled(result.data.enabled); }).catch(() => {});
+  }, []);
 
   // Restore the unfinished sale once, then keep saving it as it changes.
   const draftLoaded = useRef(false);
@@ -114,6 +147,7 @@ export default function SalesPage() {
         if (d.customer) setCustomer({ ...BLANK_CUSTOMER, ...d.customer });
         if (d.mode === "walkin" || d.mode === "delivery") setMode(d.mode);
         if (typeof d.deliveryAmount === "number") setDeliveryAmount(d.deliveryAmount);
+        if (d.hub && Number.isInteger(d.hub.areaId)) setHub(d.hub);
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
@@ -125,12 +159,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, deliveryAmount };
+      const draft: Draft = { cart: rawCart, customer, mode, deliveryAmount, hub };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, deliveryAmount]);
+  }, [rawCart, customer, mode, deliveryAmount, hub]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -341,8 +375,15 @@ export default function SalesPage() {
       }
       if (deliveryPay === "cod" && cod <= 0) return void toast.error("COD amount is required.");
     }
+    // Delivery booked with Upaya on completion: it needs a hub location and a mobile number.
+    const booking = !walkIn && upayaEnabled && bookUpaya;
+    if (booking) {
+      if (!hub) return void toast.error("Choose the Upaya hub location for this delivery.");
+      if (!courierMobile(customer.phone)) return void toast.error("Upaya needs a 10-digit mobile number (98…) to book this delivery.");
+    }
 
     setSubmitting(true);
+    setCourierBooking(null);
     const result = await mutate(() => createSale({
       customerName: customer.name.trim() || undefined,
       customerPhone: customer.phone.trim() || undefined,
@@ -355,6 +396,7 @@ export default function SalesPage() {
       paymentMethod: method,
       walkIn,
       partial: !walkIn && deliveryPay === "partial",
+      courierArea: !walkIn && hub ? { areaId: hub.areaId, locationId: hub.locationId, title: hub.title } : null,
       // The shop being sold from; under "All shops", the cart's products' shop.
       brand: shop !== "all" ? shop : shopOfProducts(products.filter(p => cart.some(c => c.productId === p.id))),
     }));
@@ -383,6 +425,24 @@ export default function SalesPage() {
     setDeliveryAmount(0);
     setCodOverride(null);
     setPaymentMethod("COD");
+    setHub(null);
+    setHubRate(null);
+
+    // The sale is saved; now book it with Upaya. A failure leaves the sale as it
+    // is, and it can be booked later from the customer's order.
+    if (booking) {
+      setCourierBooking({ state: "booking", text: "Booking with Upaya…" });
+      const booked = await bookSaleWithUpaya(result.data.id).catch(() => null);
+      if (booked?.ok) {
+        const text = `Booked · tracking ${booked.data.trackingCode}`;
+        setCourierBooking({ state: "booked", text });
+        toast.success(`${result.data.invoiceNumber} booked with Upaya (tracking ${booked.data.trackingCode}).`);
+      } else {
+        const reason = booked && !booked.ok ? booked.message : "Could not reach the server.";
+        setCourierBooking({ state: "failed", text: `Not booked: ${reason}` });
+        toast.error(`Sale saved, but Upaya didn't take it: ${reason} Book it from Customers → this order.`, { duration: 10000 });
+      }
+    }
     await refetch();
   }
 
@@ -458,6 +518,40 @@ export default function SalesPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Upaya courier: the hub location, and booking on "Complete Sale" */}
+              {!walkIn && upayaEnabled && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 pt-1">
+                    <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                      <Truck size={11} /> Upaya courier
+                    </p>
+                    <label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bookUpaya}
+                        onChange={e => setBookUpaya(e.target.checked)}
+                        className="h-3.5 w-3.5 accent-[var(--primary)] cursor-pointer"
+                      />
+                      Book on complete
+                    </label>
+                  </div>
+                  <UpayaHubPicker value={hub} onChange={chooseHub} address={customer.address} />
+                  {hub && hubRate?.state === "loading" && <p className="text-[10px] text-muted-foreground">Getting Upaya&apos;s delivery charge…</p>}
+                  {hub && hubRate?.state === "set" && (
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400">Upaya charge {formatNPR(hubRate.charge ?? 0)} filled in as Delivery. You can still change it.</p>
+                  )}
+                  {hub && hubRate?.state === "none" && (
+                    <p className="text-[10px] text-amber-600">Upaya has no price for this hub right now. Enter the delivery charge yourself.</p>
+                  )}
+                  {bookUpaya && customer.phone.trim() && !courierMobile(customer.phone) && (
+                    <p className="text-[10px] font-medium text-amber-600">Upaya needs a 10-digit mobile number (98…) to book.</p>
+                  )}
+                  {!bookUpaya && (
+                    <p className="text-[10px] text-muted-foreground">Not booked now. Send it later from Customers & Orders (Send to Upaya).</p>
+                  )}
+                </div>
+              )}
 
               <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment</p>
               <div className={cn("grid gap-2", walkIn ? "grid-cols-1" : "grid-cols-2")}>
@@ -832,6 +926,14 @@ export default function SalesPage() {
               <div className="flex justify-between gap-3"><span className="text-muted-foreground">Payment</span><span className="font-semibold text-right">{receiptExtras.walkIn
                 ? (lastSale.paymentMethod === "QR" ? "QR (paid)" : "Cash (paid)")
                 : receiptExtras.deliveryPay === "paid" ? "Fully paid" : receiptExtras.deliveryPay === "partial" ? "Partially paid" : "Cash on Delivery"}</span></div>
+              {courierBooking && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-muted-foreground">Upaya</span>
+                  <span className={cn("font-semibold text-right break-words min-w-0", courierBooking.state === "booked" && "text-emerald-600", courierBooking.state === "failed" && "text-red-600")}>
+                    {courierBooking.text}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="border-t border-dashed border-border/60 pt-4 space-y-1.5">
