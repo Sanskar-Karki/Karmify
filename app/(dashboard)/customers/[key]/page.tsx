@@ -232,7 +232,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
           {customer.sales.map(sale => {
             const isEditingSale = editingSaleId === sale.id;
             return (
-            <div key={sale.id} className="p-5 space-y-3">
+            <div key={sale.id} className="data-row p-5 space-y-3">
               <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 <div className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-0">
                   <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -242,12 +242,12 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                     <p className="text-sm font-bold flex items-center gap-1.5">
                       {sale.invoiceNumber}
                       {sale.source === "website" && (
-                        <span className="flex items-center gap-1 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+                        <span className="flex items-center gap-1 text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
                           <Globe size={9} /> Website
                         </span>
                       )}
                     </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                    <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
                       <ShoppingBag size={10} className="shrink-0" />
                       <span className="truncate">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.warehouse.name} · {new Date(sale.createdAt).toLocaleString()}</span>
                     </p>
@@ -255,11 +255,11 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                 </div>
 
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <span className="text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
                     {sale.paymentMethod === "QR" ? "QR Payment" : "Cash on Delivery"}
                   </span>
                   {!isEditingSale && (
-                    <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
+                    <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
                       {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
                     </span>
                   )}
@@ -320,7 +320,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                       <span className="min-w-0 break-words font-medium text-foreground">{item.product.name}</span>
                       <span className="font-semibold shrink-0">{formatNPR(item.unitPrice * item.quantity)}</span>
                     </div>
-                    <p className="text-[11px]">
+                    <p className="text-[12px]">
                       {[itemOptionsText(item), `${item.quantity} × ${formatNPR(item.unitPrice)}`].filter(Boolean).join(" · ")}
                     </p>
                   </div>

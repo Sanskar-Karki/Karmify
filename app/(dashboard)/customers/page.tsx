@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -20,7 +20,7 @@ import { CustomerLabelDialog } from "@/components/shared/CustomerLabelDialog";
 import { ReceiptDialog } from "@/components/shared/ReceiptDialog";
 import { CourierDialog } from "@/components/shared/CourierDialog";
 import { ORDER_COLUMNS, PlaceholderRows } from "@/components/skeletons/placeholders";
-import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
+import { Pagination, usePagination } from "@/components/shared/Pagination";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
@@ -30,6 +30,8 @@ import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatusStyle } from "@/lib/courier";
 import { useStoreProfile } from "@/lib/storeProfile";
+import { channelOf } from "@/lib/analytics";
+import { DateRangeCalendar, shortDay } from "@/components/shared/DateRangeCalendar";
 import type { Sale } from "@/lib/types";
 
 type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED";
@@ -44,13 +46,29 @@ const DATE_FILTERS = [
   { value: "custom", label: "Custom" },
 ];
 
+// Where an order came from, matching the Analytics channels.
 const SOURCE_FILTERS = [
-  { value: "all", label: "All Orders" },
-  { value: "pos", label: "POS Sales" },
-  { value: "website", label: "Website Orders" },
-] as const;
+  { value: "all", label: "All sources" },
+  { value: "website", label: "Website" },
+  { value: "pos", label: "Shop (POS)" },
+  { value: "upaya", label: "Sent with Upaya" },
+  { value: "store", label: "In store" },
+];
 
-type SourceFilter = (typeof SOURCE_FILTERS)[number]["value"];
+const PAYMENT_FILTERS = [
+  { value: "all", label: "Any payment" },
+  { value: "PAID", label: "Paid" },
+  { value: "UNPAID", label: "Unpaid" },
+  { value: "PARTIAL", label: "Partly paid" },
+];
+
+function matchesSource(sale: Sale, source: string) {
+  if (source === "all") return true;
+  if (source === "website") return sale.source === "website";
+  if (source === "pos") return sale.source !== "website";
+  if (source === "upaya") return Boolean(sale.courierTrackingCode);
+  return channelOf(sale) === "store";
+}
 
 const BLANK_EDIT = { customerName: "", customerPhone: "", customerAddress: "", codAmount: "", deliveryAmount: "", deliveryStatus: "IN_PROCESS" };
 
@@ -98,33 +116,22 @@ function isWithinDateFilter(dateStr: string | Date, filter: string, customStart:
 
 const fieldClass = "w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
 
-function FilterChips<T extends string>({ options, value, onChange }: { options: readonly { value: T; label: string }[]; value: string; onChange: (value: T) => void }) {
-  return (
-    <>
-      {options.map(f => (
-        <button
-          key={f.value}
-          type="button"
-          aria-pressed={value === f.value}
-          onClick={() => onChange(f.value)}
-          className={cn(
-            "px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0",
-            value === f.value
-              ? "bg-primary text-primary-foreground border-primary shadow-sm shadow-primary/20"
-              : "bg-background text-muted-foreground border-border hover:bg-muted"
-          )}
-        >
-          {f.label}
-        </button>
-      ))}
-    </>
-  );
-}
-
 export default function CustomersPage() {
   const { sales, loading, refetch } = useResources({ sales: resources.sales });
   const store = useStoreProfile();
   const router = useRouter();
+
+  // A click anywhere on an order row opens that customer, except on the row's own
+  // controls (tick box, menus, buttons, links) or menus/dialogs opened from it.
+  const openCustomer = (e: React.MouseEvent<HTMLTableRowElement>, key: string) => {
+    const target = e.target as HTMLElement;
+    if (!e.currentTarget.contains(target)) return;
+    if (target.closest("a, button, input, select, textarea, label, [role='menu'], [role='listbox'], [role='dialog']")) return;
+    if (window.getSelection()?.toString()) return; // selecting text to copy it
+    const href = `/customers/${encodeURIComponent(key)}`;
+    if (e.ctrlKey || e.metaKey) window.open(href, "_blank");
+    else router.push(href);
+  };
   const [labelSale, setLabelSale] = useState<Sale | null>(null);
   const [showLabel, setShowLabel] = useState(false);
   const [courierSale, setCourierSale] = useState<Sale | null>(null);
@@ -134,7 +141,11 @@ export default function CustomersPage() {
   const [dateFilter, setDateFilter] = useUrlState("filter", "all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useUrlState("status", "all");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const dateAnchor = useRef<HTMLDivElement>(null);
 
   const [editing, setEditing] = useState<Sale | null>(null);
   const [showEdit, setShowEdit] = useState(false);
@@ -155,7 +166,8 @@ export default function CustomersPage() {
   const [upayaBatch, setUpayaBatch] = useState<{ ready: Sale[]; skipped: { sale: Sale; reason: string }[] } | null>(null);
   const [sendingUpaya, setSendingUpaya] = useState(false);
 
-  const filtered = useMemo(() => {
+  // Everything except the status, so each status chip can show its own count.
+  const beforeStatus = useMemo(() => {
     const q = (parseCustomerCode(search) ?? search.trim()).toLowerCase();
     return sales.filter(s =>
       ((s.customerName ?? "").toLowerCase().includes(q) ||
@@ -164,11 +176,45 @@ export default function CustomersPage() {
         (s.courierTrackingCode ?? "").toLowerCase().includes(q) ||
         s.invoiceNumber.toLowerCase().includes(q)) &&
       isWithinDateFilter(s.createdAt, dateFilter, customStart, customEnd) &&
-      (sourceFilter === "all" || (s.source ?? "pos") === sourceFilter)
+      matchesSource(s, sourceFilter) &&
+      (paymentFilter === "all" || s.paymentStatus === paymentFilter)
     );
-  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter]);
+  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, paymentFilter]);
 
-  const { visible: displayed, remaining, step, showMore } = useShowMore(filtered);
+  const statusCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of beforeStatus) counts.set(s.deliveryStatus, (counts.get(s.deliveryStatus) ?? 0) + 1);
+    return counts;
+  }, [beforeStatus]);
+
+  const filtered = useMemo(
+    () => (statusFilter === "all" ? beforeStatus : beforeStatus.filter(s => s.deliveryStatus === statusFilter)),
+    [beforeStatus, statusFilter]
+  );
+  const filtersOn = dateFilter !== "all" || sourceFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all";
+  const clearFilters = () => {
+    setDateFilter("all");
+    setCustomStart("");
+    setCustomEnd("");
+    setSourceFilter("all");
+    setPaymentFilter("all");
+    setStatusFilter("all");
+  };
+  const customLabel = customStart
+    ? customStart === customEnd || !customEnd ? shortDay(customStart) : `${shortDay(customStart)} – ${shortDay(customEnd)}`
+    : "Pick dates";
+
+  const pager = usePagination(filtered, "customers");
+  const displayed = pager.visible;
+  const tableScroll = useRef<HTMLDivElement>(null);
+  const goToPage = (p: number) => {
+    pager.setPage(p);
+    tableScroll.current?.scrollTo({ top: 0 });
+  };
+  const changePageSize = (size: number) => {
+    pager.setPageSize(size);
+    tableScroll.current?.scrollTo({ top: 0 });
+  };
 
   // Only rows currently on screen count as selected, so changing a filter can
   // never leave hidden orders queued for deletion.
@@ -178,6 +224,7 @@ export default function CustomersPage() {
   const summary = useMemo(() => ({
     revenue: filtered.filter(countsAsSale).reduce((total, s) => total + s.totalAmount, 0),
     pending: filtered.filter(s => s.deliveryStatus === "IN_PROCESS" || s.deliveryStatus === "RETURN_PROCESS").length,
+    unpaid: filtered.filter(s => countsAsSale(s) && s.paymentStatus !== "PAID").length,
   }), [filtered]);
 
   async function handleSyncWebsiteOrders() {
@@ -387,92 +434,131 @@ export default function CustomersPage() {
 
   const hasOpenShipments = sales.some(s => s.courierTrackingCode && !COURIER_FINAL_STATUSES.includes(s.courierStatus ?? ""));
   const iconButton = "w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors";
-  const th = "text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3";
+  // Opaque and sticky, with its bottom line drawn as a shadow (borders don't stick with the cell).
+  const stickyTh = "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_hsl(var(--border))]";
+  const th = cn(stickyTh, "text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3");
 
   return (
 <>
-      <div className="space-y-5 animate-fade-in">
-      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Customers &amp; Orders</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">Every order placed, with delivery &amp; payment status</p>
+      {/* On laptops the page fills the screen down to just above its bottom edge (reaching into the room
+          the layout keeps for the dock, which is small there) and only the orders table scrolls. */}
+      <div className="space-y-3 animate-fade-in lg:flex lg:h-[calc(100%+4.75rem)] lg:-mb-[4.75rem] lg:flex-col lg:space-y-0 lg:gap-3">
+      {/* Title with a one-line summary of what's shown, and the page actions */}
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-extrabold tracking-tight">Customers &amp; Orders</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
+            {[
+              { label: filtered.length === 1 ? "order" : "orders", val: filtered.length.toLocaleString(), icon: ShoppingBag },
+              { label: "revenue", val: formatNPR(summary.revenue), icon: Wallet },
+              { label: "to deliver", val: summary.pending.toLocaleString(), icon: Truck },
+              { label: "unpaid", val: summary.unpaid.toLocaleString(), icon: Receipt },
+            ].map(stat => (
+              <span key={stat.label} className="flex items-center gap-1.5 whitespace-nowrap">
+                <stat.icon size={13} aria-hidden />
+                {loading ? <Pulse className="h-3.5 w-10" /> : <span className="font-bold text-foreground tabular-nums">{stat.val}</span>}
+                {stat.label}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full xl:w-auto">
-          <div className="relative flex-1 min-w-full sm:min-w-56 xl:w-72">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+          <div className="relative flex-1 min-w-full sm:min-w-56 xl:w-64 xl:flex-none">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
               onKeyDown={onSearchKeyDown}
               placeholder="Search name, phone, order, customer ID or tracking..."
               aria-label="Search orders"
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full pl-8.5 pr-3 py-2 rounded-lg border border-border bg-background text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
-          <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0} className="flex-1 sm:flex-none px-3 sm:px-4">
-            <Download size={15} /> Export
+          <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px]">
+            <Download size={14} /> Export
           </Button>
-          <Button variant="secondary" onClick={handleSyncWebsiteOrders} disabled={syncing} className="flex-1 sm:flex-none px-3 sm:px-4 whitespace-nowrap">
-            <RefreshCw size={15} className={cn(syncing && "animate-spin")} /> {syncing ? "Syncing..." : "Sync Website"}
+          <Button variant="secondary" onClick={handleSyncWebsiteOrders} disabled={syncing} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap">
+            <RefreshCw size={14} className={cn(syncing && "animate-spin")} /> {syncing ? "Syncing..." : "Sync Website"}
           </Button>
           {hasOpenShipments && (
-            <Button variant="secondary" onClick={handleRefreshCourier} disabled={refreshingCourier} className="flex-1 sm:flex-none px-3 sm:px-4 whitespace-nowrap">
-              <Truck size={15} className={cn(refreshingCourier && "animate-pulse")} /> Refresh Upaya
+            <Button variant="secondary" onClick={handleRefreshCourier} disabled={refreshingCourier} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap">
+              <Truck size={14} className={cn(refreshingCourier && "animate-pulse")} /> Refresh Upaya
             </Button>
           )}
           <Link
             href="/sales"
-            className="flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-3 sm:px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground rounded-xl shadow-sm shadow-primary/20 hover:bg-primary/90 transition-colors whitespace-nowrap"
+            className="flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-3.5 py-2 text-[13px] font-semibold bg-primary text-primary-foreground rounded-lg shadow-sm shadow-primary/20 hover:bg-primary/90 transition-colors whitespace-nowrap"
           >
-            <Plus size={15} /> New Order
+            <Plus size={14} /> New Order
           </Link>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-card border border-border/80 rounded-2xl shadow-sm p-4 space-y-3">
-        <div className="flex items-center gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible -mx-1 px-1 pb-0.5">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mr-1 shrink-0">
-            <Calendar size={13} /> Date:
-          </span>
-          <FilterChips options={DATE_FILTERS} value={dateFilter} onChange={setDateFilter} />
+      {/* Filters: a status switch with counts, then date, source and payment */}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div role="group" aria-label="Delivery status" className="flex max-w-full items-center gap-0.5 self-start overflow-x-auto rounded-xl border border-border/70 bg-muted/70 p-1">
+          {[{ value: "all", label: "All" }, ...DELIVERY_STATUSES].map(st => {
+            const count = st.value === "all" ? beforeStatus.length : statusCounts.get(st.value) ?? 0;
+            const active = statusFilter === st.value;
+            return (
+              <button
+                key={st.value}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setStatusFilter(st.value)}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all whitespace-nowrap",
+                  active ? "bg-card text-foreground shadow-sm ring-1 ring-border/60" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {st.label}
+                <span className={cn("text-[11px] font-bold tabular-nums", active ? "text-primary" : "text-muted-foreground/70")}>{count}</span>
+              </button>
+            );
+          })}
         </div>
-        <div className="flex items-center gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible -mx-1 px-1 pb-0.5">
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mr-1 shrink-0">
-            <Globe size={13} /> Source:
-          </span>
-          <FilterChips options={SOURCE_FILTERS} value={sourceFilter} onChange={setSourceFilter} />
-        </div>
-        {dateFilter === "custom" && (
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <label htmlFor="orders-from" className="text-xs font-semibold text-muted-foreground">From</label>
-            <input id="orders-from" type="date" value={customStart} max={customEnd || undefined} onChange={e => setCustomStart(e.target.value)} className="px-3 py-1.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
-            <label htmlFor="orders-to" className="text-xs font-semibold text-muted-foreground">To</label>
-            <input id="orders-to" type="date" value={customEnd} min={customStart || undefined} onChange={e => setCustomEnd(e.target.value)} className="px-3 py-1.5 rounded-lg border border-border bg-background text-xs focus:outline-none focus:ring-2 focus:ring-primary/20" />
-            {(customStart || customEnd) && (
-              <button type="button" onClick={() => { setCustomStart(""); setCustomEnd(""); }} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground border border-border hover:bg-muted transition-colors">
-                <X size={12} /> Clear
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div ref={dateAnchor} className="flex items-center gap-1.5">
+            <Dropdown
+              aria-label="Date"
+              value={dateFilter}
+              onChange={v => {
+                setDateFilter(v);
+                if (v === "custom") setDatePickerOpen(true);
+              }}
+              options={DATE_FILTERS}
+              className="w-32"
+              triggerClassName="py-1.5 text-xs rounded-lg"
+            />
+            {dateFilter === "custom" && (
+              <button type="button" onClick={() => setDatePickerOpen(o => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted whitespace-nowrap">
+                <Calendar size={13} /> {customLabel}
               </button>
             )}
           </div>
+          <Dropdown aria-label="Source" value={sourceFilter} onChange={setSourceFilter} options={SOURCE_FILTERS} className="w-36" triggerClassName="py-1.5 text-xs rounded-lg" />
+          <Dropdown aria-label="Payment" value={paymentFilter} onChange={setPaymentFilter} options={PAYMENT_FILTERS} className="w-32" triggerClassName="py-1.5 text-xs rounded-lg" />
+          {filtersOn && (
+            <button type="button" onClick={clearFilters} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground">
+              <X size={12} /> Clear
+            </button>
+          )}
+        </div>
+        {datePickerOpen && (
+          <DateRangeCalendar
+            open={datePickerOpen}
+            onClose={() => setDatePickerOpen(false)}
+            anchorRef={dateAnchor}
+            initialStart={customStart || undefined}
+            initialEnd={customEnd || undefined}
+            onApply={(start, end) => {
+              setCustomStart(start);
+              setCustomEnd(end);
+              setDateFilter("custom");
+              setDatePickerOpen(false);
+            }}
+          />
         )}
-      </div>
-
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { label: "Total Orders", val: filtered.length, color: "text-amber-500", icon: ShoppingBag },
-          { label: "Total Revenue", val: formatNPR(summary.revenue), color: "text-emerald-500", icon: Wallet },
-          { label: "Pending Deliveries", val: summary.pending, color: "text-blue-500", icon: Truck },
-        ].map(s => (
-          <div key={s.label} className="bg-card border border-border/80 p-5 rounded-2xl shadow-sm flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold text-muted-foreground">{s.label}</p>
-              {loading ? <Pulse className="h-8 xl:h-9 w-16 mt-1" /> : <p className="text-2xl xl:text-3xl font-black mt-1 truncate">{s.val}</p>}
-            </div>
-            <s.icon size={32} className={cn("opacity-10 shrink-0", s.color)} />
-          </div>
-        ))}
       </div>
 
       {/* Bulk action bar */}
@@ -509,13 +595,13 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Orders Table */}
-      <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+      {/* Orders Table: the rows scroll, the column names stay on top */}
+      <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden flex flex-col lg:min-h-[20rem] lg:flex-1">
+        <div ref={tableScroll} className="max-h-[calc(100dvh-8rem)] overflow-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border/60 bg-muted/30">
-                <th className="px-5 py-3 w-10">
+              <tr>
+                <th className={cn(stickyTh, "px-5 py-3 w-10")}>
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -540,7 +626,7 @@ export default function CustomersPage() {
               {!loading && displayed.map((sale, i) => {
                 const key = customerKey(sale);
                 return (
-                  <tr key={sale.id} className={cn("hover:bg-muted/20 transition-colors", selectedIds.has(sale.id) && "bg-primary/5")}>
+                  <tr key={sale.id} onClick={(e) => openCustomer(e, key)} className={cn("data-row cursor-pointer", selectedIds.has(sale.id) && "bg-primary/5")}>
                     <td className="px-5 py-3.5">
                       <input
                         type="checkbox"
@@ -550,7 +636,7 @@ export default function CustomersPage() {
                         className="w-4 h-4 rounded border-border cursor-pointer accent-primary"
                       />
                     </td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium hidden sm:table-cell">{i + 1}</td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium hidden sm:table-cell">{pager.offset + i + 1}</td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">{new Date(sale.createdAt).toLocaleDateString()}</td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-1.5">
@@ -558,27 +644,27 @@ export default function CustomersPage() {
                           {sale.invoiceNumber}
                         </Link>
                         {sale.source === "website" && (
-                          <span className="flex items-center gap-1 text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+                          <span className="flex items-center gap-1 text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
                             <Globe size={9} /> Website
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()}</p>
                     </td>
                     <td className="px-5 py-3.5 font-semibold text-xs">
                       {sale.customerName || "Walk-in Customer"}
-                      {sale.customer && <p className="text-[10px] text-muted-foreground mt-0.5 font-mono font-medium">{sale.customer.code}</p>}
-                      <p className="text-[10px] text-muted-foreground mt-0.5 font-normal lg:hidden">{sale.customerPhone || "—"}</p>
+                      {sale.customer && <p className="text-[11px] text-muted-foreground mt-0.5 font-mono font-medium">{sale.customer.code}</p>}
+                      <p className="text-[11px] text-muted-foreground mt-0.5 font-normal lg:hidden">{sale.customerPhone || "—"}</p>
                     </td>
                     <td className="px-5 py-3.5 text-xs hidden lg:table-cell">
                       <span className={cn(!sale.customerPhone && "text-muted-foreground italic")}>
                         {sale.customerPhone || "—"}
                       </span>
                       {sale.customerAddress && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[140px]" title={sale.customerAddress}>{sale.customerAddress}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[140px]" title={sale.customerAddress}>{sale.customerAddress}</p>
                       )}
                       {sale.courierAreaTitle && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[140px]" title={sale.courierAreaTitle}>Hub: {sale.courierAreaTitle}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[140px]" title={sale.courierAreaTitle}>Hub: {sale.courierAreaTitle}</p>
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
@@ -588,12 +674,12 @@ export default function CustomersPage() {
                       <span className="font-extrabold text-xs">{formatNPR(sale.deliveryAmount ?? 0)}</span>
                     </td>
                     <td className="px-5 py-3.5 hidden sm:table-cell">
-                      <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
+                      <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
                         {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
                       </span>
                       {sale.courierStatus && (
                         <p className="mt-1">
-                          <span className={cn("text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap", courierStatusStyle(sale.courierStatus))}>
+                          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap", courierStatusStyle(sale.courierStatus))}>
                             {courierStatusLabel(sale.courierStatus)}
                           </span>
                         </p>
@@ -631,16 +717,25 @@ export default function CustomersPage() {
               })}
             </tbody>
           </table>
+          {!loading && filtered.length === 0 && (
+            sales.length === 0 ? (
+              <EmptyState icon={Users} title="No customers yet" description="Orders appear here automatically once a sale is recorded in the POS." />
+            ) : (
+              <EmptyState icon={Search} title="No matching orders" description="Try adjusting your search or filters." />
+            )
+          )}
         </div>
 
-        {!loading && <ShowMoreButton remaining={remaining} step={step} onClick={showMore} />}
-
-        {!loading && filtered.length === 0 && (
-          sales.length === 0 ? (
-            <EmptyState icon={Users} title="No customers yet" description="Orders appear here automatically once a sale is recorded in the POS." />
-          ) : (
-            <EmptyState icon={Search} title="No matching orders" description="Try adjusting your search or filters." />
-          )
+        {!loading && (
+          <Pagination
+            page={pager.page}
+            pageCount={pager.pageCount}
+            pageSize={pager.pageSize}
+            total={pager.total}
+            offset={pager.offset}
+            onPage={goToPage}
+            onPageSize={changePageSize}
+          />
         )}
       </div>
 
@@ -678,7 +773,7 @@ export default function CustomersPage() {
           <div className="space-y-1.5">
             <label htmlFor="edit-cod" className="text-xs font-semibold text-muted-foreground">COD amount (Rs.)</label>
             <input id="edit-cod" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.codAmount} onChange={setField("codAmount")} className={fieldClass} />
-            {editing?.courierTrackingCode && <p className="text-[11px] text-muted-foreground">Upaya keeps the amount it was booked with. Changing it here doesn&apos;t update the rider.</p>}
+            {editing?.courierTrackingCode && <p className="text-[12px] text-muted-foreground">Upaya keeps the amount it was booked with. Changing it here doesn&apos;t update the rider.</p>}
           </div>
           <div className="space-y-1.5">
             <label htmlFor="edit-delivery" className="text-xs font-semibold text-muted-foreground">Delivery amount (Rs.)</label>

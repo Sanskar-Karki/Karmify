@@ -494,17 +494,17 @@ export default function ProductsPage() {
           <div className="border-t border-border/50 pt-3 space-y-3">
             <div>
               <h3 className="text-sm font-semibold text-foreground">Sizes &amp; colours</h3>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
+              <p className="text-[12px] text-muted-foreground mt-0.5">
                 For clothing: stock per size and colour. The product&apos;s stock becomes their total, and sales take from the exact size sold.
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-muted-foreground">Sizes</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">Sizes</span>
                 <input value={sizesText} onChange={e => setSizesText(e.target.value)} placeholder="S, M, L, XL" className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
               </label>
               <label className="space-y-1">
-                <span className="text-[11px] font-semibold text-muted-foreground">Colours</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">Colours</span>
                 <input value={colorsText} onChange={e => setColorsText(e.target.value)} placeholder="Black, Navy" className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
               </label>
               <button type="button" onClick={addCombinations} className="px-3 py-2 rounded-lg text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/15 cursor-pointer whitespace-nowrap">
@@ -514,7 +514,7 @@ export default function ProductsPage() {
 
             {hasVariants && (
               <div className="rounded-xl border border-border/60 overflow-hidden">
-                <div className="grid grid-cols-[1fr_1fr_6rem_2rem] gap-2 px-3 py-2 bg-muted/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                <div className="grid grid-cols-[1fr_1fr_6rem_2rem] gap-2 px-3 py-2 bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <span>Size</span><span>Colour</span><span className="text-right">Stock</span><span />
                 </div>
                 <div className="divide-y divide-border/40 max-h-64 overflow-y-auto">
@@ -711,7 +711,7 @@ export default function ProductsPage() {
                 );
                 return (
                   <React.Fragment key={p.id}>
-                  <tr className={cn("hover:bg-muted/20 transition-colors group", open && "bg-muted/20 border-b-0", selected.has(p.id) && "bg-primary/5")}>
+                  <tr className={cn("data-row group", open && "bg-muted/20 border-b-0", selected.has(p.id) && "bg-primary/5")}>
                     <td className="w-10 pl-5 pr-0 py-4">
                       <input
                         type="checkbox"
@@ -728,15 +728,15 @@ export default function ProductsPage() {
                         </div>
                         <div className="min-w-0">
                           <p className="font-semibold text-foreground truncate max-w-[180px]">{p.name}</p>
-                          <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{p.sku}</p>
+                          <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{p.sku}</p>
                           {/* Category + stock surfaced here on mobile, where their dedicated columns are hidden */}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1 md:hidden">
-                            <span className="text-[9px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded font-medium">{cat?.name ?? "—"}</span>
-                            <span className={cn("inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded", isLow ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
+                            <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded font-medium">{cat?.name ?? "—"}</span>
+                            <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded", isLow ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
                               {isLow ? <AlertTriangle size={9} /> : <CheckCircle2 size={9} />}
                               {totalStock} units
                             </span>
-                            {sizesButton("text-[9px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground", 10)}
+                            {sizesButton("text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground", 10)}
                           </div>
                         </div>
                       </div>
@@ -749,7 +749,7 @@ export default function ProductsPage() {
                     </td>
                     <td className="px-4 py-4 text-right">
                       <p className="font-bold text-foreground">{formatNPR(p.sellingPrice)}</p>
-                      <p className="text-[10px] text-muted-foreground">cost {formatNPR(p.costPrice)} · <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{margin(p)}% margin</span></p>
+                      <p className="text-[11px] text-muted-foreground">cost {formatNPR(p.costPrice)} · <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{margin(p)}% margin</span></p>
                     </td>
                     <td className="px-4 py-4 text-right hidden md:table-cell">
                       <div className="flex flex-col items-end gap-1">
@@ -757,20 +757,20 @@ export default function ProductsPage() {
                           {isLow ? <AlertTriangle size={11} /> : <CheckCircle2 size={11} />}
                           {totalStock} units
                         </div>
-                        {sizesButton("-mr-1.5 px-1.5 py-0.5 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted", 12)}
+                        {sizesButton("-mr-1.5 px-1.5 py-0.5 rounded-md text-[12px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted", 12)}
                         {summary && summary.soldOut.length > 0 ? (
-                          <span title={`Sold out: ${summary.soldOut.join(", ")}`} className="text-[10px] font-semibold text-red-600 dark:text-red-400">
+                          <span title={`Sold out: ${summary.soldOut.join(", ")}`} className="text-[11px] font-semibold text-red-600 dark:text-red-400">
                             {summary.soldOut.length} of {summary.options} sold out
                           </span>
                         ) : summary && summary.low.length > 0 ? (
-                          <span title={`Running low: ${summary.low.join(", ")}`} className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                          <span title={`Running low: ${summary.low.join(", ")}`} className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
                             {summary.low.length} running low
                           </span>
                         ) : null}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-center">
-                      <span className={cn("text-[10px] font-bold uppercase px-2.5 py-1 rounded-full", p.status === "active" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500")}>
+                      <span className={cn("text-[11px] font-bold uppercase px-2.5 py-1 rounded-full", p.status === "active" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500")}>
                         {p.status}
                       </span>
                     </td>

@@ -93,7 +93,7 @@ export function NotificationBell() {
       >
         <Bell size={15} />
         {unread > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-extrabold flex items-center justify-center">
+          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold flex items-center justify-center">
             {unread > 9 ? "9+" : unread}
           </span>
         )}
@@ -126,8 +126,8 @@ export function NotificationBell() {
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-bold">{n.title}</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 break-words">{n.message}</p>
-                    <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
+                    <p className="text-[12px] text-muted-foreground mt-0.5 break-words">{n.message}</p>
+                    <p className="text-[11px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
                   </div>
                 </li>
               );

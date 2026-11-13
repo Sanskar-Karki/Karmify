@@ -457,11 +457,11 @@ export default function SalesPage() {
         {!loading && (
           <div className="flex gap-2">
             <div className="rounded-xl border border-border/80 bg-card px-4 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Sales today</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sales today</p>
               <p className="text-lg font-extrabold leading-tight">{todaySales.length}</p>
             </div>
             <div className="rounded-xl border border-border/80 bg-card px-4 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Taken today</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Taken today</p>
               <p className="text-lg font-extrabold leading-tight">{formatNPR(todayTotal)}</p>
             </div>
           </div>
@@ -491,7 +491,7 @@ export default function SalesPage() {
                 ))}
               </div>
 
-              <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 Customer{walkIn && <span className="font-medium normal-case tracking-normal"> · optional</span>}
               </p>
               <div className="grid grid-cols-1 gap-2.5">
@@ -513,7 +513,7 @@ export default function SalesPage() {
                     />
                   </div>
                   {field.key !== "address" && fieldErrors[field.key] && (
-                    <p className="mt-1 text-[10px] font-medium text-red-600">{fieldErrors[field.key]}</p>
+                    <p className="mt-1 text-[11px] font-medium text-red-600">{fieldErrors[field.key]}</p>
                   )}
                   </div>
                 ))}
@@ -523,10 +523,10 @@ export default function SalesPage() {
               {!walkIn && upayaEnabled && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 pt-1">
-                    <p className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                    <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                       <Truck size={11} /> Upaya courier
                     </p>
-                    <label className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground cursor-pointer">
+                    <label className="flex items-center gap-1.5 text-[12px] font-medium text-muted-foreground cursor-pointer">
                       <input
                         type="checkbox"
                         checked={bookUpaya}
@@ -537,27 +537,27 @@ export default function SalesPage() {
                     </label>
                   </div>
                   <UpayaHubPicker value={hub} onChange={chooseHub} address={customer.address} />
-                  {hub && hubRate?.state === "loading" && <p className="text-[10px] text-muted-foreground">Getting Upaya&apos;s delivery charge…</p>}
+                  {hub && hubRate?.state === "loading" && <p className="text-[11px] text-muted-foreground">Getting Upaya&apos;s delivery charge…</p>}
                   {hub && hubRate?.state === "set" && (
-                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400">Upaya charge {formatNPR(hubRate.charge ?? 0)} filled in as Delivery. You can still change it.</p>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400">Upaya charge {formatNPR(hubRate.charge ?? 0)} filled in as Delivery. You can still change it.</p>
                   )}
                   {hub && hubRate?.state === "none" && (
-                    <p className="text-[10px] text-amber-600">Upaya has no price for this hub right now. Enter the delivery charge yourself.</p>
+                    <p className="text-[11px] text-amber-600">Upaya has no price for this hub right now. Enter the delivery charge yourself.</p>
                   )}
                   {bookUpaya && customer.phone.trim() && !courierMobile(customer.phone) && (
-                    <p className="text-[10px] font-medium text-amber-600">Upaya needs a 10-digit mobile number (98…) to book.</p>
+                    <p className="text-[11px] font-medium text-amber-600">Upaya needs a 10-digit mobile number (98…) to book.</p>
                   )}
                   {!bookUpaya && (
-                    <p className="text-[10px] text-muted-foreground">Not booked now. Send it later from Customers & Orders (Send to Upaya).</p>
+                    <p className="text-[11px] text-muted-foreground">Not booked now. Send it later from Customers & Orders (Send to Upaya).</p>
                   )}
                 </div>
               )}
 
-              <p className="pt-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Payment</p>
+              <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Payment</p>
               <div className={cn("grid gap-2", walkIn ? "grid-cols-1" : "grid-cols-2")}>
                 {walkIn && (
                   <label className="space-y-1">
-                    <span className="text-[10px] font-semibold text-muted-foreground">
+                    <span className="text-[11px] font-semibold text-muted-foreground">
                       {paymentMethod === "QR" ? "QR amount received" : "Cash received"} <span className="font-normal">(less = discount)</span>
                     </span>
                     <span className="relative block">
@@ -568,7 +568,7 @@ export default function SalesPage() {
                 )}
                 {!walkIn && (<>
                 <label className="space-y-1">
-                  <span className="text-[10px] font-semibold text-muted-foreground">Delivery</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">Delivery</span>
                   <span className="relative block">
                     <Truck size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input type="number" inputMode="decimal" min={0} step="0.01" value={deliveryAmount || ""} onChange={e => setDeliveryAmount(Math.max(0, parseFloat(e.target.value) || 0))} placeholder="0" className={smallField} />
@@ -576,7 +576,7 @@ export default function SalesPage() {
                 </label>
                 {deliveryPay === "partial" && (
                   <label className="space-y-1">
-                    <span className="text-[10px] font-semibold text-muted-foreground">Advance paid *</span>
+                    <span className="text-[11px] font-semibold text-muted-foreground">Advance paid *</span>
                     <span className="relative block">
                       <Banknote size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                       <input type="number" inputMode="decimal" min={0} step="0.01" value={advance} onChange={e => setAdvance(e.target.value)} placeholder="0" className={smallField} />
@@ -585,7 +585,7 @@ export default function SalesPage() {
                 )}
                 {deliveryPay === "cod" && (
                 <label className="space-y-1">
-                  <span className="text-[10px] font-semibold text-muted-foreground">COD *</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">COD *</span>
                   <span className="relative block">
                     <Receipt size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
@@ -637,7 +637,7 @@ export default function SalesPage() {
                       role="radio"
                       aria-checked={deliveryPay === option.value}
                       onClick={() => setDeliveryPay(option.value)}
-                      className={cn("flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-[11px] font-semibold rounded-xl border transition-all", deliveryPay === option.value ? "bg-primary/10 border-primary/40 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
+                      className={cn("flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-[12px] font-semibold rounded-xl border transition-all", deliveryPay === option.value ? "bg-primary/10 border-primary/40 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
                     >
                       <option.icon size={13} /> {option.label}
                     </button>
@@ -699,7 +699,7 @@ export default function SalesPage() {
                   className={cn("relative flex flex-col items-start gap-1.5 p-2 bg-card border rounded-xl text-left transition-all", exhausted ? "opacity-50 cursor-not-allowed border-border/40" : "border-border/80 hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 active:scale-[0.98]")}
                 >
                   {inCart > 0 && (
-                    <span className="absolute top-2 right-2 min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-extrabold flex items-center justify-center">{inCart}</span>
+                    <span className="absolute top-2 right-2 min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold flex items-center justify-center">{inCart}</span>
                   )}
                   <div className="w-full aspect-[4/3] rounded-lg bg-primary/10 border border-border/40 flex items-center justify-center overflow-hidden">
                     {p.imageUrl ? (
@@ -711,11 +711,11 @@ export default function SalesPage() {
                     )}
                   </div>
                   <div className="min-w-0 w-full">
-                    <p className="text-[11px] font-bold text-foreground line-clamp-2 leading-tight">{p.name}</p>
+                    <p className="text-[12px] font-bold text-foreground line-clamp-2 leading-tight">{p.name}</p>
                   </div>
                   <div className="flex flex-wrap items-center justify-between w-full mt-auto gap-1">
                     <p className="text-xs font-extrabold text-primary">{formatNPR(p.sellingPrice)}</p>
-                    <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap", avail <= p.minStockLevel ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
+                    <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap", avail <= p.minStockLevel ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
                       {exhausted ? "Sold out" : `${avail} left`}
                     </span>
                   </div>
@@ -741,7 +741,7 @@ export default function SalesPage() {
             {/* Cart Header */}
             <div className="p-4 border-b border-border/60 flex items-center justify-between">
               <h2 className="font-bold flex items-center gap-2 text-sm"><ShoppingCart size={15} className="text-primary" />Cart ({cartUnits} {cartUnits === 1 ? "item" : "items"})</h2>
-              {cart.length > 0 && <button type="button" onClick={() => setCart([])} className="text-[11px] text-red-500 font-semibold hover:underline">Clear All</button>}
+              {cart.length > 0 && <button type="button" onClick={() => setCart([])} className="text-[12px] text-red-500 font-semibold hover:underline">Clear All</button>}
             </div>
 
             {/* Cart Items */}
@@ -750,7 +750,7 @@ export default function SalesPage() {
                 <div className="flex flex-col items-center py-10 text-center text-muted-foreground gap-2">
                   <ShoppingCart size={28} className="opacity-30" />
                   <p className="text-xs font-semibold">Cart is empty</p>
-                  <p className="text-[10px]">Tap a product or scan a barcode to add it.</p>
+                  <p className="text-[11px]">Tap a product or scan a barcode to add it.</p>
                 </div>
               ) : (
                 cart.map(item => (
@@ -758,7 +758,7 @@ export default function SalesPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold leading-snug break-words">{item.name}</p>
                       {item.variantLabel && (
-                        <p className="text-[10px] font-medium text-muted-foreground">{itemOptionsText({ variant: item.variantLabel })}</p>
+                        <p className="text-[11px] font-medium text-muted-foreground">{itemOptionsText({ variant: item.variantLabel })}</p>
                       )}
                       <div className="mt-1 flex items-center gap-1.5">
                         <input
@@ -771,10 +771,10 @@ export default function SalesPage() {
                           onFocus={e => e.target.select()}
                           aria-label={`Price of ${item.name}`}
                           title="Lower the price to give a discount"
-                          className="w-20 h-7 px-2 text-[11px] font-semibold rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                          className="w-20 h-7 px-2 text-[12px] font-semibold rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                         />
                         {item.unitPrice < item.listPrice && (
-                          <span className="text-[10px] text-muted-foreground line-through">{formatNPR(item.listPrice)}</span>
+                          <span className="text-[11px] text-muted-foreground line-through">{formatNPR(item.listPrice)}</span>
                         )}
                       </div>
                     </div>
@@ -835,8 +835,8 @@ export default function SalesPage() {
           <details className="group bg-card border border-border/80 rounded-2xl overflow-hidden shadow-sm">
             <summary className="p-4 flex items-center justify-between cursor-pointer list-none [&::-webkit-details-marker]:hidden">
               <h3 className="font-bold text-sm">Recent Transactions</h3>
-              <span className="text-[11px] font-semibold text-muted-foreground group-open:hidden">Show</span>
-              <span className="text-[11px] font-semibold text-muted-foreground hidden group-open:inline">Hide</span>
+              <span className="text-[12px] font-semibold text-muted-foreground group-open:hidden">Show</span>
+              <span className="text-[12px] font-semibold text-muted-foreground hidden group-open:inline">Hide</span>
             </summary>
             <div className="border-t border-border/60" />
             <div tabIndex={0} aria-label="Recent transactions" className="divide-y divide-border/30 max-h-56 overflow-y-auto">
@@ -850,16 +850,16 @@ export default function SalesPage() {
                     <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
                       <span className="truncate">{s.invoiceNumber}</span>
                       {s.source === "website" && (
-                        <span className="text-[8px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
+                        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
                           Website
                         </span>
                       )}
                     </p>
-                    <p className="text-[10px] text-muted-foreground truncate">{s.customerName ?? "Walk-in"} · {new Date(s.createdAt).toLocaleDateString()}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{s.customerName ?? "Walk-in"} · {new Date(s.createdAt).toLocaleDateString()}</p>
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-xs font-extrabold">{formatNPR(s.totalAmount)}</p>
-                    <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded", PAYMENT_STYLES[s.paymentStatus])}>{s.paymentStatus}</span>
+                    <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded", PAYMENT_STYLES[s.paymentStatus])}>{s.paymentStatus}</span>
                   </div>
                 </div>
               ))}
@@ -896,7 +896,7 @@ export default function SalesPage() {
                   className={cn("flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-xl border text-left transition-all", left <= 0 ? "opacity-40 cursor-not-allowed border-border/40" : "border-border/80 hover:border-primary/50 hover:bg-primary/5 cursor-pointer")}
                 >
                   <span className="text-sm font-bold">{label}</span>
-                  <span className="text-[10px] text-muted-foreground">{left <= 0 ? "Sold out" : `${left} left`}</span>
+                  <span className="text-[11px] text-muted-foreground">{left <= 0 ? "Sold out" : `${left} left`}</span>
                 </button>
               );
             })}
@@ -914,7 +914,7 @@ export default function SalesPage() {
               </div>
               <h2 className="text-lg font-extrabold">{store.name}</h2>
               {(store.address || store.phone) && (
-                <p className="text-[10px] text-muted-foreground">{[store.address, store.phone].filter(Boolean).join(" · ")}</p>
+                <p className="text-[11px] text-muted-foreground">{[store.address, store.phone].filter(Boolean).join(" · ")}</p>
               )}
               <p className="text-xs text-muted-foreground font-mono">{lastSale.invoiceNumber}</p>
             </div>
@@ -943,7 +943,7 @@ export default function SalesPage() {
                     <span className="min-w-0 break-words font-semibold">{item.product.name}</span>
                     <span className="font-semibold shrink-0">{formatNPR(item.unitPrice * item.quantity)}</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground">
+                  <p className="text-[12px] text-muted-foreground">
                     {[itemOptionsText(item), `${item.quantity} × ${formatNPR(item.unitPrice)}`].filter(Boolean).join(" · ")}
                   </p>
                 </div>
@@ -966,7 +966,7 @@ export default function SalesPage() {
               )}
             </div>
 
-            <div className="text-center text-[9px] text-muted-foreground mt-2">
+            <div className="text-center text-[10px] text-muted-foreground mt-2">
               Thank you for shopping at {store.name}!
             </div>
 

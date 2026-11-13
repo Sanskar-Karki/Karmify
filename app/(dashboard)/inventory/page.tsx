@@ -116,7 +116,7 @@ export default function InventoryPage() {
         <div className="p-5 border-b border-border/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="font-bold text-base">Stock Levels</h2>
-            <p className="text-[10px] text-muted-foreground mt-0.5">Current physical unit counts</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Current physical unit counts</p>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative flex-1 sm:w-56">
@@ -150,7 +150,7 @@ export default function InventoryPage() {
                 const total = getTotalStock(prod.id);
                 const isLow = total < prod.minStockLevel;
                 return (
-                  <tr key={prod.id} className="hover:bg-muted/10 transition-colors">
+                  <tr key={prod.id} className="data-row">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 border border-border/40 flex items-center justify-center shrink-0">
@@ -158,7 +158,7 @@ export default function InventoryPage() {
                         </div>
                         <div>
                           <p className="font-semibold text-xs text-foreground">{prod.name}</p>
-                          <p className="text-[10px] text-muted-foreground font-mono">{prod.sku}</p>
+                          <p className="text-[11px] text-muted-foreground font-mono">{prod.sku}</p>
                         </div>
                       </div>
                     </td>
@@ -169,7 +169,7 @@ export default function InventoryPage() {
                       <span className={cn("text-sm font-extrabold", isLow ? "text-red-500" : "text-foreground")}>{total}</span>
                     </td>
                     <td className="px-4 py-4 text-center">
-                      <span className={cn("inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full", isLow ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
+                      <span className={cn("inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full", isLow ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
                         {isLow ? <AlertTriangle size={9} /> : <CheckCircle2 size={9} />}
                         {isLow ? "Low" : "OK"}
                       </span>
@@ -187,7 +187,7 @@ export default function InventoryPage() {
       <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
         <div className="p-5 border-b border-border/60">
           <h2 className="font-bold text-base">Stock Movement Ledger</h2>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Full audit trail of every stock event recorded in the system</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Full audit trail of every stock event recorded in the system</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -208,24 +208,24 @@ export default function InventoryPage() {
               {!loading && movements.slice(0, 30).map(mov => {
                 const prod = productById.get(mov.productId);
                 return (
-                  <tr key={mov.id} className="hover:bg-muted/10 transition-colors">
+                  <tr key={mov.id} className="data-row">
                     <td className="px-5 py-3.5">
-                      <span className={cn("text-[10px] font-bold uppercase px-2.5 py-1 rounded-lg", TYPE_STYLES[mov.type] ?? "bg-muted text-muted-foreground")}>
+                      <span className={cn("text-[11px] font-bold uppercase px-2.5 py-1 rounded-lg", TYPE_STYLES[mov.type] ?? "bg-muted text-muted-foreground")}>
                         {mov.type.replace("_", " ")}
                       </span>
                     </td>
                     <td className="px-4 py-3.5">
                       <p className="text-xs font-semibold">{prod?.name ?? "—"}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono">{prod?.sku}</p>
+                      <p className="text-[11px] text-muted-foreground font-mono">{prod?.sku}</p>
                     </td>
                     <td className="px-4 py-3.5 text-right">
                       <span className="font-bold text-sm">{mov.quantity}</span>
                     </td>
                     <td className="px-4 py-3.5 hidden lg:table-cell">
-                      <p className="text-[10px] text-muted-foreground max-w-[200px] truncate">{mov.notes ?? "—"}</p>
+                      <p className="text-[11px] text-muted-foreground max-w-[200px] truncate">{mov.notes ?? "—"}</p>
                     </td>
                     <td className="px-4 py-3.5 text-right">
-                      <p className="text-[10px] text-muted-foreground">{new Date(mov.createdAt).toLocaleDateString("en-US", { day: "2-digit", month: "short" })}</p>
+                      <p className="text-[11px] text-muted-foreground">{new Date(mov.createdAt).toLocaleDateString("en-US", { day: "2-digit", month: "short" })}</p>
                     </td>
                   </tr>
                 );

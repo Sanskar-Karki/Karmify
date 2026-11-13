@@ -66,15 +66,15 @@ export default function DashboardLayout({
     <div className="flex flex-col h-dvh w-full overflow-hidden bg-background text-foreground">
       {/* Topbar */}
       <header
-        className="flex items-center justify-between gap-2 h-16 sm:h-18 px-3 sm:px-5 bg-card border-b border-border shrink-0"
+        className="relative z-30 flex items-center justify-between gap-2 h-16 sm:h-18 px-3 sm:px-5 bg-card/80 backdrop-blur-xl border-b border-border/70 shadow-[0_1px_0_rgba(0,0,0,0.02)] shrink-0"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         {/* Brand */}
         <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0 shrink-0" aria-label="Karmify dashboard">
-          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground font-black text-sm shrink-0 shadow-md shadow-primary/30">
+          <div className="flex items-center justify-center w-9 h-9 rounded-2xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground font-display font-extrabold text-base shrink-0 shadow-lg shadow-primary/25">
             K
           </div>
-          <span className="hidden sm:inline text-sm font-extrabold tracking-tight text-foreground truncate">
+          <span className="hidden sm:inline font-display text-base font-extrabold tracking-tight text-foreground truncate">
             Karmify
           </span>
         </Link>

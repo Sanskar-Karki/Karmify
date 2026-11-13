@@ -174,7 +174,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
             setShowPicker(false);
           }}
           className={cn(
-            "px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-colors cursor-pointer",
+            "px-2.5 py-1 rounded-md text-[11px] font-bold uppercase transition-colors cursor-pointer",
             value === r ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
           )}
         >
@@ -190,7 +190,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
               setShowPicker(!showPicker);
             }}
             className={cn(
-              "px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-colors cursor-pointer",
+              "px-2.5 py-1 rounded-md text-[11px] font-bold uppercase transition-colors cursor-pointer",
               value === "custom" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             )}
           >
@@ -198,7 +198,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
           </button>
 
           {value === "custom" && (
-            <div className="text-[10px] text-muted-foreground px-2 py-1 bg-card rounded-md">
+            <div className="text-[11px] text-muted-foreground px-2 py-1 bg-card rounded-md">
               {customStart && customEnd
                 ? `${shortDate(customStart)} - ${shortDate(customEnd)}`
                 : customStart
@@ -236,7 +236,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
                           <ChevronRight size={15} />
                         </button>
                       </div>
-                      <div className="text-[10px] font-medium space-y-1">
+                      <div className="text-[11px] font-medium space-y-1">
                         {!customStart ? (
                           <p className="text-muted-foreground">Select a start date</p>
                         ) : !customEnd ? (
@@ -254,7 +254,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
 
                     <div className="grid grid-cols-7 gap-1">
                       {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(day => (
-                        <div key={day} className="text-center text-[10px] font-semibold text-muted-foreground h-6 flex items-center justify-center">
+                        <div key={day} className="text-center text-[11px] font-semibold text-muted-foreground h-6 flex items-center justify-center">
                           {day}
                         </div>
                       ))}
@@ -273,7 +273,7 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
                             onClick={() => date && handleDateSelect(dateStr)}
                             disabled={!date}
                             className={cn(
-                              "h-7 rounded text-[10px] font-medium transition-all cursor-pointer disabled:cursor-default",
+                              "h-7 rounded text-[11px] font-medium transition-all cursor-pointer disabled:cursor-default",
                               !date ? "invisible" : "",
                               isStart || isEnd ? "bg-primary text-primary-foreground shadow-md" : "",
                               isInRange && !isStart && !isEnd ? "bg-primary/20 text-foreground" : "",
@@ -292,14 +292,14 @@ function RangeSelector({ value, onChange, showCustom = false, onCustomChange }: 
                           setCustomStart("");
                           setCustomEnd("");
                         }}
-                        className="flex-1 px-2 py-1.5 rounded text-[10px] font-semibold border border-border/60 text-foreground hover:bg-muted transition-colors"
+                        className="flex-1 px-2 py-1.5 rounded text-[11px] font-semibold border border-border/60 text-foreground hover:bg-muted transition-colors"
                       >
                         Clear
                       </button>
                       <button
                         onClick={handlePickerClose}
                         disabled={!customStart || !customEnd}
-                        className="flex-1 px-2 py-1.5 rounded text-[10px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-1 px-2 py-1.5 rounded text-[11px] font-semibold bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {!customStart ? "Select dates" : !customEnd ? "Select end" : "Done"}
                       </button>
@@ -445,7 +445,7 @@ export default function Dashboard() {
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Total Sales</span>
               {loading ? <Pulse className="h-8 w-28" /> : <p className="text-2xl font-black">{formatNPR(totalSalesRevenue)}</p>}
               {loading ? <Pulse className="h-5 w-24 rounded-md" /> : (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-md">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-md">
                 <TrendingUp size={10} />
                 {sales.length} orders total
               </span>
@@ -466,7 +466,7 @@ export default function Dashboard() {
             <div className="space-y-2">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Asset Valuation</span>
               {loading ? <Pulse className="h-8 w-28" /> : <p className="text-2xl font-black">{formatNPR(totalStockValuation)}</p>}
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded">
                 <Layers size={10} />
                 Cost basis valuation
               </span>
@@ -487,7 +487,7 @@ export default function Dashboard() {
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Stock Alerts</span>
               {loading ? <Pulse className="h-8 w-20" /> : <p className="text-2xl font-black text-amber-600 dark:text-amber-400">{lowStockLocations.length}</p>}
               {loading ? <Pulse className="h-5 w-16 rounded" /> : (
-              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ${lowStockLocations.length > 0 ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"}`}>
+              <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded ${lowStockLocations.length > 0 ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"}`}>
                 {lowStockLocations.length > 0 ? `${lowStockLocations.length} item${lowStockLocations.length !== 1 ? "s" : ""}` : "All stable"}
               </span>
               )}
@@ -510,7 +510,7 @@ export default function Dashboard() {
           {loading ? <Pulse className="h-7 w-16" /> : (
             <p className="text-xl font-bold text-foreground">{totals.todayOrders}</p>
           )}
-          <p className="text-[10px] text-muted-foreground mt-1">transactions</p>
+          <p className="text-[11px] text-muted-foreground mt-1">transactions</p>
         </Link>
 
         {/* Pending Deliveries */}
@@ -522,7 +522,7 @@ export default function Dashboard() {
           {loading ? <Pulse className="h-7 w-16" /> : (
             <p className="text-xl font-bold text-foreground">{totals.inTransit}</p>
           )}
-          <p className="text-[10px] text-muted-foreground mt-1">pending orders</p>
+          <p className="text-[11px] text-muted-foreground mt-1">pending orders</p>
         </Link>
 
         {/* Total Inventory Units */}
@@ -534,7 +534,7 @@ export default function Dashboard() {
           {loading ? <Pulse className="h-7 w-16" /> : (
             <p className="text-xl font-bold text-foreground">{totals.units.toLocaleString()}</p>
           )}
-          <p className="text-[10px] text-muted-foreground mt-1">total stock</p>
+          <p className="text-[11px] text-muted-foreground mt-1">total stock</p>
         </Link>
 
         {/* Active Products */}
@@ -546,7 +546,7 @@ export default function Dashboard() {
           {loading ? <Pulse className="h-7 w-16" /> : (
             <p className="text-xl font-bold text-foreground">{totals.activeProducts}</p>
           )}
-          <p className="text-[10px] text-muted-foreground mt-1">active catalog</p>
+          <p className="text-[11px] text-muted-foreground mt-1">active catalog</p>
         </Link>
       </div>
 
@@ -554,7 +554,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card border border-border/60 p-4 rounded-xl">
         <div>
           <h2 className="text-sm font-bold text-foreground">Analytics Period</h2>
-          <p className="text-[10px] text-muted-foreground mt-1">
+          <p className="text-[11px] text-muted-foreground mt-1">
             {trendRange === "custom" && customTrendStart && customTrendEnd
               ? `${customTrendStart.toLocaleDateString()} - ${customTrendEnd.toLocaleDateString()}`
               : `Viewing data by ${trendRange}`}
@@ -577,7 +577,7 @@ export default function Dashboard() {
         <div className="bg-card border border-border/80 p-6 rounded-2xl lg:col-span-2 flex flex-col space-y-3 shadow-sm">
           <div>
             <h2 className="text-base font-bold text-foreground">Revenue Trend</h2>
-            <p className="text-[10px] text-muted-foreground">Checkout value over time</p>
+            <p className="text-[11px] text-muted-foreground">Checkout value over time</p>
           </div>
 
           <div className="h-64 w-full text-xs">
@@ -591,7 +591,7 @@ export default function Dashboard() {
         <div className="bg-card border border-border/80 p-6 rounded-2xl flex flex-col justify-between shadow-sm">
           <div>
             <h2 className="text-base font-bold text-foreground">Delivery Status</h2>
-            <p className="text-[10px] text-muted-foreground">Order fulfillment breakdown</p>
+            <p className="text-[11px] text-muted-foreground">Order fulfillment breakdown</p>
           </div>
 
           {loading ? <DonutPlaceholder /> : (
@@ -599,7 +599,7 @@ export default function Dashboard() {
           <div className="h-44 w-full flex items-center justify-center text-xs relative">
             <DeliveryPieChart data={deliveryStatusData} />
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-[10px] font-semibold text-muted-foreground">Total Orders</span>
+              <span className="text-[11px] font-semibold text-muted-foreground">Total Orders</span>
               <span className="text-base font-bold text-foreground">{totalOrdersForDelivery.toLocaleString()}</span>
             </div>
           </div>
@@ -625,7 +625,7 @@ export default function Dashboard() {
       <div className="bg-card border border-border/80 p-6 rounded-2xl flex flex-col space-y-4 shadow-sm">
         <div>
           <h2 className="text-base font-bold text-foreground">Order Activity Trend</h2>
-          <p className="text-[10px] text-muted-foreground">Orders created vs. delivered vs. returned</p>
+          <p className="text-[11px] text-muted-foreground">Orders created vs. delivered vs. returned</p>
         </div>
 
         <div className="h-64 w-full text-xs">
@@ -641,7 +641,7 @@ export default function Dashboard() {
         <div className="bg-card border border-border/80 p-6 rounded-2xl lg:col-span-7 flex flex-col space-y-4 shadow-sm">
           <div>
             <h2 className="text-base font-bold text-foreground">Stock Volume by Category</h2>
-            <p className="text-[10px] text-muted-foreground">Total accumulated physical units stored in vaults</p>
+            <p className="text-[11px] text-muted-foreground">Total accumulated physical units stored in vaults</p>
           </div>
 
           <div className="h-60 w-full text-xs">
@@ -656,9 +656,9 @@ export default function Dashboard() {
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-base font-bold text-foreground">Low Stock Warnings</h2>
-              <p className="text-[10px] text-muted-foreground">Depleted stock levels under minimum target limits</p>
+              <p className="text-[11px] text-muted-foreground">Depleted stock levels under minimum target limits</p>
             </div>
-            <Link href="/inventory" className="text-[10px] text-primary font-semibold hover:underline flex items-center gap-0.5">
+            <Link href="/inventory" className="text-[11px] text-primary font-semibold hover:underline flex items-center gap-0.5">
               Review
               <ArrowRight size={10} />
             </Link>
@@ -671,7 +671,7 @@ export default function Dashboard() {
               <div className="flex flex-col items-center justify-center py-10 text-center space-y-2">
                 <CheckCircle size={28} className="text-emerald-500" />
                 <p className="text-xs font-semibold">Perfect Inventory Standing</p>
-                <p className="text-[10px] text-muted-foreground max-w-[200px]">No stocks are currently running below safety levels.</p>
+                <p className="text-[11px] text-muted-foreground max-w-[200px]">No stocks are currently running below safety levels.</p>
               </div>
             ) : (
               lowStockAlerts.map(({ stock, product }) => (
@@ -682,9 +682,9 @@ export default function Dashboard() {
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start gap-1">
                       <p className="text-xs font-bold text-foreground truncate">{product.name}</p>
-                      <span className="text-[9px] bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-tight shrink-0">{stock.quantity} Unit{stock.quantity !== 1 && "s"} left</span>
+                      <span className="text-[10px] bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 font-extrabold px-1.5 py-0.5 rounded uppercase tracking-tight shrink-0">{stock.quantity} Unit{stock.quantity !== 1 && "s"} left</span>
                     </div>
-                    <div className="flex justify-between items-center text-[10px] text-muted-foreground mt-0.5">
+                    <div className="flex justify-between items-center text-[11px] text-muted-foreground mt-0.5">
                       <span>{product.sku}</span>
                     </div>
                   </div>
@@ -701,7 +701,7 @@ export default function Dashboard() {
         <div className="bg-card border border-border/80 p-6 rounded-2xl lg:col-span-2 flex flex-col space-y-3 shadow-sm">
           <div>
             <h2 className="text-base font-bold text-foreground">Operational Audit Logs</h2>
-            <p className="text-[10px] text-muted-foreground">Recent administrative events captured across POS terminal & hubs</p>
+            <p className="text-[11px] text-muted-foreground">Recent administrative events captured across POS terminal & hubs</p>
           </div>
 
           <div className="space-y-2.5">
@@ -714,9 +714,9 @@ export default function Dashboard() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="font-bold text-foreground">{act.action}</p>
-                  <p className="text-muted-foreground text-[10px] mt-0.5">{act.details}</p>
+                  <p className="text-muted-foreground text-[11px] mt-0.5">{act.details}</p>
                 </div>
-                <span className="text-[9px] text-muted-foreground shrink-0 whitespace-nowrap">{new Date(act.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                <span className="text-[10px] text-muted-foreground shrink-0 whitespace-nowrap">{new Date(act.createdAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
               </div>
             ))}
           </div>
@@ -726,27 +726,27 @@ export default function Dashboard() {
         <div className="bg-card border border-border/80 p-6 rounded-2xl flex flex-col justify-between shadow-sm relative overflow-hidden">
           <div className="space-y-3">
             <h2 className="text-base font-bold text-foreground">Database Sync</h2>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
               Your session is connected to the <strong>live Postgres database</strong>. Changes made during billing checkouts, product creation, or stock adjustments persist across all sessions.
             </p>
           </div>
 
           <div className="flex flex-col gap-2.5 mt-4">
-            <div className="flex justify-between items-center text-[10px] border-b border-border/40 pb-2">
+            <div className="flex justify-between items-center text-[11px] border-b border-border/40 pb-2">
               <span className="text-muted-foreground">Product Registry Count</span>
               {loading ? <Pulse className="h-3 w-16" /> : <span className="font-bold text-foreground">{products.length} Products</span>}
             </div>
-            <div className="flex justify-between items-center text-[10px] border-b border-border/40 pb-2">
+            <div className="flex justify-between items-center text-[11px] border-b border-border/40 pb-2">
               <span className="text-muted-foreground">Stock Movements Logged</span>
               {loading ? <Pulse className="h-3 w-14" /> : <span className="font-bold text-foreground">{movements.length} Events</span>}
             </div>
-            <div className="flex justify-between items-center text-[10px] pb-1">
+            <div className="flex justify-between items-center text-[11px] pb-1">
               <span className="text-muted-foreground">Captured Transactions</span>
               {loading ? <Pulse className="h-3 w-20" /> : <span className="font-bold text-foreground">{sales.length} Sales invoices</span>}
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 justify-center py-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/40 dark:border-emerald-900/30 rounded-xl text-[10px] font-bold text-emerald-700 dark:text-emerald-400 mt-4">
+          <div className="flex items-center gap-1.5 justify-center py-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/40 dark:border-emerald-900/30 rounded-xl text-[11px] font-bold text-emerald-700 dark:text-emerald-400 mt-4">
             <Database size={10} />
             <span>PostgreSQL Sync Secure</span>
           </div>

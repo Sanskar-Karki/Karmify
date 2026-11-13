@@ -1,11 +1,21 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Inter, Plus_Jakarta_Sans } from "next/font/google";
 import { ClerkProvider, SignInButton, SignUpButton, Show } from "@clerk/nextjs";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Inter for everything you read (clear at small sizes, numbers line up in
+// tables); Plus Jakarta Sans for headings.
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
@@ -37,7 +47,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${jakarta.variable} ${geistMono.variable} h-full antialiased`}
     >
       <head>
         <script

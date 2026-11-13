@@ -4,8 +4,8 @@
 // separately and show its numbers first.
 
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip as RechartsTooltip, BarChart, Bar, Cell, PieChart, Pie, LineChart, Line, Legend,
+  ResponsiveContainer, XAxis, YAxis, CartesianGrid,
+  Tooltip as RechartsTooltip, BarChart, Bar, Cell, PieChart, Pie, Legend,
 } from "recharts";
 import { formatNPR } from "@/lib/utils";
 
@@ -23,19 +23,13 @@ const CATEGORY_COLORS = ["#CB2957", "#8B1A38", "#E8699A", "#F4A6BE"];
 export function RevenueChart({ data, tickInterval }: { data: { label: string; amount: number }[]; tickInterval: number }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-        <defs>
-          <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#CB2957" stopOpacity={0.25} />
-            <stop offset="95%" stopColor="#CB2957" stopOpacity={0.0} />
-          </linearGradient>
-        </defs>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_COLOR} />
+      <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} barCategoryGap="22%">
+        <CartesianGrid vertical={false} stroke={GRID_COLOR} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} interval={tickInterval} />
-        <YAxis tickLine={false} axisLine={false} />
-        <RechartsTooltip formatter={value => formatNPR(Number(value) || 0)} contentStyle={TOOLTIP_STYLE} />
-        <Area type="monotone" dataKey="amount" stroke="#CB2957" strokeWidth={2} fillOpacity={1} fill="url(#salesGrad)" />
-      </AreaChart>
+        <YAxis tickLine={false} axisLine={false} width={40} tickFormatter={(v: number) => (v >= 1000 ? `${Math.round(v / 100) / 10}k` : String(v))} />
+        <RechartsTooltip formatter={value => formatNPR(Number(value) || 0)} contentStyle={TOOLTIP_STYLE} cursor={{ fill: "#8888881a" }} />
+        <Bar dataKey="amount" name="Revenue" fill="#CB2957" radius={[4, 4, 0, 0]} maxBarSize={28} />
+      </BarChart>
     </ResponsiveContainer>
   );
 }
@@ -58,16 +52,16 @@ export function DeliveryPieChart({ data }: { data: { key: string; name: string; 
 export function OrderTrendChart({ data, tickInterval }: { data: { label: string; created: number; delivered: number; returned: number }[]; tickInterval: number }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID_COLOR} />
+      <BarChart data={data} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={2} barCategoryGap="20%">
+        <CartesianGrid vertical={false} stroke={GRID_COLOR} />
         <XAxis dataKey="label" tickLine={false} axisLine={false} interval={tickInterval} />
         <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
-        <RechartsTooltip contentStyle={TOOLTIP_STYLE} />
-        <Legend wrapperStyle={{ fontSize: "10px" }} />
-        <Line type="monotone" dataKey="created" name="Created" stroke="#CB2957" strokeWidth={2} dot={false} />
-        <Line type="monotone" dataKey="delivered" name="Delivered" stroke="#22c55e" strokeWidth={2} dot={false} />
-        <Line type="monotone" dataKey="returned" name="Returned" stroke="#ef4444" strokeWidth={2} dot={false} />
-      </LineChart>
+        <RechartsTooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "#8888881a" }} />
+        <Legend wrapperStyle={{ fontSize: "10px" }} iconType="square" />
+        <Bar dataKey="created" name="Created" fill="#CB2957" radius={[4, 4, 0, 0]} maxBarSize={16} />
+        <Bar dataKey="delivered" name="Delivered" fill="#22c55e" radius={[4, 4, 0, 0]} maxBarSize={16} />
+        <Bar dataKey="returned" name="Returned" fill="#ef4444" radius={[4, 4, 0, 0]} maxBarSize={16} />
+      </BarChart>
     </ResponsiveContainer>
   );
 }

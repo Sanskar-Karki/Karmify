@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { prefetchRoute } from "@/lib/prefetch";
 import {
   LayoutDashboard,
+  ChartColumn,
   Package,
   ArrowLeftRight,
   ShoppingCart,
@@ -23,6 +24,7 @@ interface DockItem {
 
 const dockItems: DockItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Analytics", href: "/analytics", icon: ChartColumn },
   { name: "Customers", href: "/customers", icon: Users },
   { name: "Products", href: "/products", icon: Package },
   { name: "Inventory", href: "/inventory", icon: ArrowLeftRight },
@@ -52,12 +54,12 @@ export function Dock() {
   return (
     <nav
       aria-label="Main navigation"
-      className="fixed left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-1rem)]"
+      className="dock fixed left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-1rem)]"
       style={{ bottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
     >
       <div
         onMouseLeave={() => setHovered(null)}
-        className="relative flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-5 py-2.5 sm:py-3.5 rounded-full bg-card/70 backdrop-blur-md border border-border/60 shadow-lg shadow-black/10"
+        className="dock-bar relative flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-5 py-2.5 sm:py-3.5 rounded-full"
       >
         {/* Glass sheen */}
         <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-black/5 pointer-events-none" />
@@ -92,10 +94,10 @@ export function Dock() {
               {/* Icon chip — 44px min touch target on mobile */}
               <div
                 className={cn(
-                  "relative flex items-center justify-center w-11 h-11 sm:w-10 sm:h-10 rounded-xl border transition-all duration-300 cursor-pointer",
+                  "dock-chip relative flex items-center justify-center w-11 h-11 sm:w-10 sm:h-10 rounded-xl border cursor-pointer",
                   isActive
                     ? "bg-primary border-primary/30 text-primary-foreground shadow-lg shadow-primary/30"
-                    : "bg-foreground/5 border-foreground/10 text-muted-foreground hover:bg-foreground/10 hover:border-foreground/20 hover:text-foreground"
+                    : "bg-white/35 dark:bg-white/5 border-white/50 dark:border-white/10 text-muted-foreground hover:bg-white/60 dark:hover:bg-white/10 hover:text-foreground"
                 )}
               >
                 <Icon size={18} strokeWidth={2} />

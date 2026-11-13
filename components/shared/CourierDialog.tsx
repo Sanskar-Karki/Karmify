@@ -208,12 +208,12 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
                 <Pulse className="h-16 w-full" />
               ) : options.length > 0 ? (
                 <div className="rounded-xl border border-border divide-y divide-border/60 max-h-44 overflow-y-auto">
-                  {!typing && <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suggested from address</p>}
+                  {!typing && <p className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Suggested from address</p>}
                   {options.map(option => (
                     <button key={option.areaId} type="button" onClick={() => setArea(option)} className="w-full text-left px-3 py-2 text-sm hover:bg-muted flex items-center gap-2">
                       <MapPin size={13} className="text-muted-foreground shrink-0" />
                       <span className="min-w-0 truncate">{option.title}</span>
-                      {option.hub && <span className="ml-auto text-[10px] text-muted-foreground whitespace-nowrap max-w-[35%] truncate">{option.hub}</span>}
+                      {option.hub && <span className="ml-auto text-[11px] text-muted-foreground whitespace-nowrap max-w-[35%] truncate">{option.hub}</span>}
                     </button>
                   ))}
                 </div>
@@ -241,7 +241,7 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
         <div className="space-y-1.5">
           <label htmlFor="courier-cod" className={labelClass}>Cash to collect (Rs.)</label>
           <input id="courier-cod" type="number" inputMode="decimal" min={0} max={500000} value={form.cod} onChange={update("cod")} disabled={sale.paymentMethod === "QR"} className={cn(fieldClass, "disabled:opacity-60")} />
-          {sale.paymentMethod === "QR" && <p className="text-[11px] text-muted-foreground">Paid by QR, so the rider collects nothing.</p>}
+          {sale.paymentMethod === "QR" && <p className="text-[12px] text-muted-foreground">Paid by QR, so the rider collects nothing.</p>}
         </div>
         <div className="space-y-1.5">
           <label htmlFor="courier-declared" className={labelClass}>Declared value (Rs.)</label>
@@ -321,7 +321,7 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
         <button type="button" onClick={copy} aria-label="Copy tracking code" className="flex items-center gap-1.5 font-mono font-bold text-sm hover:text-primary">
           {code} <Copy size={13} />
         </button>
-        {status && <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", courierStatusStyle(status))}>{courierStatusLabel(status)}</span>}
+        {status && <span className={cn("text-[11px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", courierStatusStyle(status))}>{courierStatusLabel(status)}</span>}
       </div>
 
       {!tracking ? (
@@ -342,7 +342,7 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
                 <li key={i} className="pl-4 relative">
                   <span className={cn("absolute -left-[5px] top-1.5 w-2 h-2 rounded-full", i === 0 ? "bg-primary" : "bg-border")} />
                   <p className="text-sm font-semibold">{entry.status ?? "Update"}</p>
-                  <p className="text-[11px] text-muted-foreground">{[entry.at, entry.hub, entry.by].filter(Boolean).join(" · ")}</p>
+                  <p className="text-[12px] text-muted-foreground">{[entry.at, entry.hub, entry.by].filter(Boolean).join(" · ")}</p>
                   {entry.remarks && <p className="text-xs mt-0.5 break-words">{entry.remarks}</p>}
                 </li>
               ))}

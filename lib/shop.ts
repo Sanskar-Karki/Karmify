@@ -4,7 +4,8 @@ import { useSyncExternalStore } from "react";
 import { getCached } from "@/lib/resourceCache";
 
 // Which shop the dashboard shows: Karmalu Originals, Karmalu Living & Decor, or both.
-// Kept per browser, like the theme. Pages don't filter themselves: useResources
+// Karmify always opens on Originals; a switch lasts until the tab is closed
+// (sessionStorage), so the next visit starts on Originals again. Pages don't filter themselves: useResources
 // applies filterForShop to products, sales, stock and movements for them.
 
 export type Shop = "all" | "originals" | "decor";
@@ -28,22 +29,22 @@ function subscribe(listener: () => void) {
 
 export function readShop(): Shop {
   try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    return value === "originals" || value === "decor" ? value : "all";
+    const value = sessionStorage.getItem(STORAGE_KEY);
+    return value === "all" || value === "decor" ? value : "originals";
   } catch {
-    return "all";
+    return "originals";
   }
 }
 
 export function useShop(): Shop {
-  return useSyncExternalStore(subscribe, readShop, () => "all");
+  return useSyncExternalStore(subscribe, readShop, () => "originals");
 }
 
 export function setShop(shop: Shop) {
   try {
-    localStorage.setItem(STORAGE_KEY, shop);
+    sessionStorage.setItem(STORAGE_KEY, shop);
   } catch {
-    // Private browsing: falls back to all shops.
+    // Storage blocked: stays on Originals.
   }
   listeners.forEach(listener => listener());
 }

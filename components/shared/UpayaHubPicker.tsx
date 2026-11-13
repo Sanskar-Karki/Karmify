@@ -106,7 +106,7 @@ export function UpayaHubPicker({
           <Check size={13} className="text-primary shrink-0" />
           <span className="min-w-0">
             <span className="block font-semibold truncate">{value.title}</span>
-            {value.hub && <span className="block text-[10px] text-muted-foreground truncate">Hub: {value.hub}</span>}
+            {value.hub && <span className="block text-[11px] text-muted-foreground truncate">Hub: {value.hub}</span>}
           </span>
         </span>
         <button
@@ -146,7 +146,7 @@ export function UpayaHubPicker({
 
       {open && (typing || suggestions.length > 0) && (
         <div id={listId} role="listbox" className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-border bg-card shadow-lg max-h-56 overflow-y-auto">
-          {!typing && <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Suggested from address</p>}
+          {!typing && <p className="px-3 pt-2 pb-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Suggested from address</p>}
           {options.map((option, i) => (
             <button
               key={option.areaId}
@@ -159,7 +159,7 @@ export function UpayaHubPicker({
             >
               <MapPin size={12} className="text-muted-foreground shrink-0" />
               <span className="min-w-0 truncate font-medium">{option.title}</span>
-              {option.hub && <span className="ml-auto pl-2 text-[10px] text-muted-foreground whitespace-nowrap max-w-[40%] truncate">{option.hub}</span>}
+              {option.hub && <span className="ml-auto pl-2 text-[11px] text-muted-foreground whitespace-nowrap max-w-[40%] truncate">{option.hub}</span>}
             </button>
           ))}
           {typing && searching && options.length === 0 && <p className="px-3 py-2 text-xs text-muted-foreground">Searching Upaya…</p>}

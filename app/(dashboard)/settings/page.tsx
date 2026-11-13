@@ -244,7 +244,7 @@ function TeamTab() {
             </div>
             <p className="text-xs text-muted-foreground truncate">{user?.primaryEmailAddress?.emailAddress}</p>
           </div>
-          <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-full bg-primary/10 text-primary">Owner</span>
+          <span className="text-[11px] font-bold uppercase px-2.5 py-1 rounded-full bg-primary/10 text-primary">Owner</span>
         </div>
       </div>
 

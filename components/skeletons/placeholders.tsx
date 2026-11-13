@@ -59,7 +59,7 @@ function PlaceholderTable({ columns, rows, cellClassName }: { columns: Placehold
         <thead>
           <tr className="border-b border-border/60 bg-muted/30">
             {columns.map((column, i) => (
-              <th key={i} className={cn("text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3", column.className)}>{column.label}</th>
+              <th key={i} className={cn("text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3", column.className)}>{column.label}</th>
             ))}
           </tr>
         </thead>
@@ -245,7 +245,7 @@ function CardTitle({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
       <h2 className="text-base font-bold text-foreground">{title}</h2>
-      <p className="text-[10px] text-muted-foreground">{subtitle}</p>
+      <p className="text-[11px] text-muted-foreground">{subtitle}</p>
     </div>
   );
 }
@@ -309,7 +309,7 @@ export function InventoryPlaceholder() {
       <div className={cn(card, "overflow-hidden")}>
         <div className="p-5 border-b border-border/60">
           <h2 className="font-bold text-base">Stock Levels</h2>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Current physical unit counts</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Current physical unit counts</p>
         </div>
         <PlaceholderTable columns={STOCK_COLUMNS} rows={8} cellClassName="px-5 py-4" />
       </div>

@@ -195,7 +195,7 @@ export function VariantMatrix({
 
   const sizeHeading = (s: Axis[number]) => (s.key ? s.label : hasSizes ? "One size" : "Units");
   const colourHeading = (c: Axis[number]) => (c.key ? c.label : hasColours ? "No colour" : "Units");
-  const quiet = "text-[10px] font-bold uppercase tracking-wider text-muted-foreground";
+  const quiet = "text-[11px] font-bold uppercase tracking-wider text-muted-foreground";
 
   return (
     <div className={cn("rounded-xl border border-border/60 bg-card p-3 sm:p-4 shadow-sm", className)}>
@@ -207,7 +207,7 @@ export function VariantMatrix({
                 {hasColours ? "Colour" : <span className="sr-only">Stock</span>}
               </th>
               {grid.sizes.map(s => (
-                <th key={s.key} scope="col" className="min-w-11 px-1 pb-1 text-center text-[11px] font-bold text-foreground">
+                <th key={s.key} scope="col" className="min-w-11 px-1 pb-1 text-center text-[12px] font-bold text-foreground">
                   {sizeHeading(s)}
                 </th>
               ))}
@@ -262,7 +262,7 @@ export function VariantMatrix({
           )}
         </table>
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-[11px] text-muted-foreground">
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/50 pt-3 text-[12px] text-muted-foreground">
         <LegendDot className="bg-emerald-500" label="In stock" />
         <LegendDot className="bg-amber-500" label={`Below ${LOW_VARIANT_STOCK + 1}`} />
         <LegendDot className="bg-red-500" label="Sold out" />

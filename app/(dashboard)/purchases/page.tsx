@@ -189,7 +189,7 @@ export default function PurchasesPage() {
           return (
             <div key={po.id} className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
               <div
-                className="flex flex-col md:flex-row md:items-center justify-between gap-3 p-5 cursor-pointer hover:bg-muted/20 transition-colors"
+                className="data-row flex flex-col md:flex-row md:items-center justify-between gap-3 p-5 cursor-pointer"
                 onClick={() => setExpandedId(isExpanded ? null : po.id)}
               >
                 <div className="flex items-center gap-4 min-w-0">
@@ -199,10 +199,10 @@ export default function PurchasesPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
                       <p className="font-bold text-sm">{po.orderNumber}</p>
-                      <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", STATUS_STYLES[po.status])}>{po.status}</span>
-                      <span className={cn("text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full", PAYMENT_STYLES[po.paymentStatus])}>{po.paymentStatus}</span>
+                      <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full", STATUS_STYLES[po.status])}>{po.status}</span>
+                      <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full", PAYMENT_STYLES[po.paymentStatus])}>{po.paymentStatus}</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{po.supplier.companyName} · {new Date(po.createdAt).toLocaleDateString()}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{po.supplier.companyName} · {new Date(po.createdAt).toLocaleDateString()}</p>
                   </div>
                 </div>
 
@@ -214,7 +214,7 @@ export default function PurchasesPage() {
                       <Button
                         onClick={e => { e.stopPropagation(); void markReceived(po.id); }}
                         loading={receivingId === po.id}
-                        className="px-3 py-2 text-[11px] font-bold bg-emerald-700 hover:bg-emerald-800 shadow-none"
+                        className="px-3 py-2 text-[12px] font-bold bg-emerald-700 hover:bg-emerald-800 shadow-none"
                       >
                         {receivingId !== po.id && <CheckCircle size={12} />} Mark Received
                       </Button>
@@ -222,7 +222,7 @@ export default function PurchasesPage() {
                         variant="secondary"
                         onClick={e => { e.stopPropagation(); setCancelTarget({ id: po.id, orderNumber: po.orderNumber }); setCancelOpen(true); }}
                         disabled={receivingId === po.id}
-                        className="px-3 py-2 text-[11px] font-bold text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
+                        className="px-3 py-2 text-[12px] font-bold text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/20"
                       >
                         <XCircle size={12} /> Cancel
                       </Button>
@@ -270,9 +270,9 @@ export default function PurchasesPage() {
                         </tr>
                       </tfoot>
                     </table>
-                    {po.notes && <p className="mt-3 text-[10px] text-muted-foreground italic">Notes: {po.notes}</p>}
+                    {po.notes && <p className="mt-3 text-[11px] text-muted-foreground italic">Notes: {po.notes}</p>}
                     {po.status === "COMPLETED" && (
-                      <div className="mt-3 flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                      <div className="mt-3 flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
                         <CheckCircle size={11} /> Stock was automatically received into inventory upon completion.
                       </div>
                     )}
@@ -322,12 +322,12 @@ export default function PurchasesPage() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-muted-foreground">Order Line Items</span>
-              <button type="button" onClick={addItem} className="flex items-center gap-1 text-[11px] font-bold text-primary hover:underline"><Plus size={12} />Add Item</button>
+              <button type="button" onClick={addItem} className="flex items-center gap-1 text-[12px] font-bold text-primary hover:underline"><Plus size={12} />Add Item</button>
             </div>
             {form.items.map((item, idx) => (
               <div key={idx} className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end p-2.5 sm:p-0 rounded-xl border border-border/40 sm:border-0 bg-muted/10 sm:bg-transparent">
                 <div className="col-span-2 sm:col-span-6 space-y-1">
-                  <span className="text-[10px] font-semibold text-muted-foreground">Product</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">Product</span>
                   <Dropdown
                     aria-label={`Product for line ${idx + 1}`}
                     value={item.productId}
@@ -338,11 +338,11 @@ export default function PurchasesPage() {
                   />
                 </div>
                 <div className="col-span-1 sm:col-span-2 space-y-1">
-                  <span className="text-[10px] font-semibold text-muted-foreground">Qty</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">Qty</span>
                   <input aria-label={`Quantity for line ${idx + 1}`} type="number" inputMode="numeric" min={1} value={item.quantity || ""} onChange={e => updateItem(idx, { quantity: Math.max(0, parseInt(e.target.value) || 0) })} className={cn(fieldClass, "px-2.5 text-xs")} />
                 </div>
                 <div className="col-span-1 sm:col-span-3 space-y-1">
-                  <span className="text-[10px] font-semibold text-muted-foreground">Unit Cost</span>
+                  <span className="text-[11px] font-semibold text-muted-foreground">Unit Cost</span>
                   <input aria-label={`Unit cost for line ${idx + 1}`} type="number" inputMode="decimal" min={0} step={0.01} value={item.unitCost || ""} onChange={e => updateItem(idx, { unitCost: Math.max(0, parseFloat(e.target.value) || 0) })} className={cn(fieldClass, "px-2.5 text-xs")} />
                 </div>
                 <div className="col-span-2 sm:col-span-1 flex justify-end">

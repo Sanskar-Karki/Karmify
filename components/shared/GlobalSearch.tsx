@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Package, Receipt, Truck, LayoutDashboard, ArrowLeftRight,
+  Search, Package, Receipt, Truck, LayoutDashboard, ChartColumn, ArrowLeftRight,
   ShoppingCart, TrendingUp, Settings, Users, User, CornerDownLeft, X, type LucideIcon,
 } from "lucide-react";
 import { cn, formatNPR } from "@/lib/utils";
@@ -31,6 +31,7 @@ interface SearchIndex {
 
 const PAGES: SearchResult[] = [
   { id: "p-dashboard", type: "Page", label: "Dashboard", sub: "Overview & stats", href: "/dashboard", icon: LayoutDashboard },
+  { id: "p-analytics", type: "Page", label: "Analytics", sub: "Sales in depth", href: "/analytics", icon: ChartColumn },
   { id: "p-products", type: "Page", label: "Products", sub: "Catalog management", href: "/products", icon: Package },
   { id: "p-inventory", type: "Page", label: "Inventory", sub: "Stock & movements", href: "/inventory", icon: ArrowLeftRight },
   { id: "p-sales", type: "Page", label: "POS & Sales", sub: "Checkout terminal", href: "/sales", icon: ShoppingCart },
@@ -111,7 +112,7 @@ function ResultsList({
         if (items.length === 0) return null;
         return (
           <div key={type} className="pb-1">
-            <p className="px-3 pt-2 pb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{type}</p>
+            <p className="px-3 pt-2 pb-1.5 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{type}</p>
             {items.map(item => {
               const idx = results.indexOf(item);
               const Icon = item.icon;
@@ -324,7 +325,7 @@ export function GlobalSearch() {
           aria-label="Search customers, products, invoices and orders"
           className="w-full pl-10 pr-16 py-2.5 rounded-xl border border-border bg-background focus:bg-card focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary/40 text-sm font-medium text-foreground placeholder:text-muted-foreground/60"
         />
-        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 font-sans text-[10px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded pointer-events-none">
+        <kbd className="absolute right-3 top-1/2 -translate-y-1/2 font-sans text-[11px] font-semibold text-muted-foreground bg-muted px-1.5 py-0.5 rounded pointer-events-none">
           {shortcutIsCmd ? "⌘K" : "Ctrl K"}
         </kbd>
 
