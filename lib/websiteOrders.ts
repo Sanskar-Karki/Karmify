@@ -128,9 +128,9 @@ function courierArea(address: WebsiteAddress | null) {
 
 // Website orders only carry PAYMENT/DELIVERY info as a single free-form
 // status; approximate the closest Sale enums rather than inventing new ones.
-function mapDeliveryStatus(status: string): "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" {
+function mapDeliveryStatus(status: string): "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED" {
   if (status === "Delivered") return "DELIVERED";
-  if (status === "Cancelled") return "RETURNED";
+  if (status === "Cancelled") return "CANCELLED";
   return "IN_PROCESS";
 }
 

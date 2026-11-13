@@ -20,7 +20,7 @@ import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { deliveryAddress, itemOptionsText, PAYMENT_STYLES } from "@/lib/orders";
+import { countsAsSale, deliveryAddress, itemOptionsText, PAYMENT_STYLES } from "@/lib/orders";
 import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
 import { shopOfProducts, useShop } from "@/lib/shop";
@@ -357,7 +357,7 @@ export default function SalesPage() {
   // Today's takings for the header (Nepal date).
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kathmandu" }).format(new Date());
   const todaySales = sales.filter(s => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kathmandu" }).format(new Date(s.createdAt)) === today);
-  const todayTotal = todaySales.reduce((sum, s) => sum + s.totalAmount + s.deliveryAmount, 0);
+  const todayTotal = todaySales.filter(countsAsSale).reduce((sum, s) => sum + s.totalAmount + s.deliveryAmount, 0);
 
   async function handleCheckout() {
     if (cart.length === 0) return;

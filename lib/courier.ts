@@ -29,10 +29,11 @@ export const courierStatusLabel = (slug: string) =>
 
 /**
  * The Karmify delivery status a courier status means, or null to leave it alone.
- * Cancelled, lost and disposed parcels need a person to decide what happened.
+ * Lost and disposed parcels need a person to decide what happened.
  */
-export function deliveryStatusFor(slug: string): "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | null {
+export function deliveryStatusFor(slug: string): "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED" | null {
   if (slug === "delivered") return "DELIVERED";
+  if (slug === "cancelled") return "CANCELLED";
   if (slug === "returned-to-vendor") return "RETURNED";
   return RETURN_STATUSES.includes(slug) ? "RETURN_PROCESS" : null;
 }

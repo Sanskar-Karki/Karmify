@@ -45,6 +45,7 @@ enum DeliveryStatus {
   DELIVERED
   RETURN_PROCESS
   RETURNED
+  CANCELLED
 }
 
 // A tenant. Every business/store using the app gets its own Store, and all

@@ -26,6 +26,7 @@ import { ActivityRowPlaceholder, ChartPlaceholder, DonutPlaceholder, LowStockRow
 import { Popover } from "@/components/shared/Popover";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { countsAsSale } from "@/lib/orders";
 
 const loadCharts = () => import("@/components/dashboard/Charts");
 const chartLoading = () => <ChartPlaceholder />;
@@ -317,6 +318,7 @@ const DELIVERY_STATUS_META: Record<string, { label: string; color: string }> = {
   IN_PROCESS: { label: "In Process", color: "#F4A6BE" },
   RETURN_PROCESS: { label: "Return Process", color: "#f59e0b" },
   RETURNED: { label: "Returned", color: "#ef4444" },
+  CANCELLED: { label: "Cancelled", color: "#a1a1aa" },
 };
 
 export default function Dashboard() {
@@ -350,7 +352,7 @@ export default function Dashboard() {
 
     const todayKey = new Date().toDateString();
     return {
-      revenue: sales.reduce((acc, s) => acc + s.totalAmount, 0),
+      revenue: sales.filter(countsAsSale).reduce((acc, s) => acc + s.totalAmount, 0),
       stockValue,
       units,
       lowStockAlerts,
@@ -369,7 +371,7 @@ export default function Dashboard() {
 
     const revenue = buckets.map(b => ({
       label: b.label,
-      amount: sales.filter(s => inBucket(s.createdAt, b)).reduce((sum, s) => sum + s.totalAmount, 0),
+      amount: sales.filter(s => countsAsSale(s) && inBucket(s.createdAt, b)).reduce((sum, s) => sum + s.totalAmount, 0),
     }));
 
     const orders = buckets.map(b => ({

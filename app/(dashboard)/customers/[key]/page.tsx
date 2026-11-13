@@ -23,7 +23,7 @@ import { ReceiptDialog } from "@/components/shared/ReceiptDialog";
 import { CustomerDetailPlaceholder } from "@/components/skeletons/placeholders";
 import type { Sale } from "@/lib/types";
 
-type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED";
+type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED";
 
 const CUSTOMER_FIELDS = [
   { label: "Name", icon: User, key: "name", placeholder: "Customer name" },

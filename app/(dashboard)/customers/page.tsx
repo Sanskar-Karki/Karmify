@@ -24,7 +24,7 @@ import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { customerKey, DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
+import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -32,7 +32,7 @@ import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatu
 import { useStoreProfile } from "@/lib/storeProfile";
 import type { Sale } from "@/lib/types";
 
-type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED";
+type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED";
 
 const DATE_FILTERS = [
   { value: "all", label: "All Time" },
@@ -176,7 +176,7 @@ export default function CustomersPage() {
   const allVisibleSelected = displayed.length > 0 && selectedVisible.length === displayed.length;
 
   const summary = useMemo(() => ({
-    revenue: filtered.reduce((total, s) => total + s.totalAmount, 0),
+    revenue: filtered.filter(countsAsSale).reduce((total, s) => total + s.totalAmount, 0),
     pending: filtered.filter(s => s.deliveryStatus === "IN_PROCESS" || s.deliveryStatus === "RETURN_PROCESS").length,
   }), [filtered]);
 

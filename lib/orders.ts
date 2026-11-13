@@ -42,13 +42,18 @@ export const DELIVERY_STATUSES = [
   { value: "DELIVERED", label: "Delivered" },
   { value: "RETURN_PROCESS", label: "Return Process" },
   { value: "RETURNED", label: "Returned" },
+  { value: "CANCELLED", label: "Cancelled" },
 ];
+
+/** Cancelled orders never happened, so they stay out of revenue totals. */
+export const countsAsSale = (sale: { deliveryStatus?: string | null }) => sale.deliveryStatus !== "CANCELLED";
 
 export const DELIVERY_STYLES: Record<string, string> = {
   IN_PROCESS: "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400",
   DELIVERED: "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400",
   RETURN_PROCESS: "bg-orange-100 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400",
   RETURNED: "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400",
+  CANCELLED: "bg-zinc-200 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300",
 };
 
 export const PAYMENT_STYLES: Record<string, string> = {
