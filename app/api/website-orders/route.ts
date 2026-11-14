@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     await notify(
       storeId,
       WEBSITE_ORDER_NOTIFICATION,
-      `${order.customer_name} placed ${order.order_id} on the website: ${items}.${note}`,
+      `${order.customer_name} placed ${order.order_id} on the website (${saved.invoiceNumber}): ${items}.${note}`,
       "info"
     );
     if (saved.missingSizes.length > 0) {

@@ -13,6 +13,7 @@ import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { Modal } from "@/components/shared/Modal";
 import { Button } from "@/components/shared/Button";
 import { mutate } from "@/lib/mutate";
+import { useUrlState } from "@/lib/useUrlState";
 
 type MovementType = "STOCK_IN" | "STOCK_OUT" | "DAMAGED" | "RETURNED" | "ADJUSTMENT";
 
@@ -45,7 +46,7 @@ export default function InventoryPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(BLANK_FORM);
   const [submitting, setSubmitting] = useState(false);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useUrlState("q");
   const [lowOnly, setLowOnly] = useState(false);
 
   const stockByProduct = useMemo(() => {

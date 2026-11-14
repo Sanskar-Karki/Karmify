@@ -1,11 +1,10 @@
 "use client";
 
-import React, { use, useState } from "react";
+import React, { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, User, Phone, MapPin, Edit2, Save, X,
-  Receipt, ShoppingBag, Users, DollarSign, Globe, Tag, Copy,
+  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, MessageCircle, Phone, Receipt, Save, Store, Tag, Users, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { updateCustomerInfo, updateSaleDetails } from "@/app/actions";
@@ -13,9 +12,12 @@ import { cn, formatNPR } from "@/lib/utils";
 import { resources } from "@/lib/resources";
 import { useResources } from "@/lib/useResources";
 import { mutate } from "@/lib/mutate";
-import { contactKey, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, itemOptionsText } from "@/lib/orders";
+import {
+  contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, itemOptionsText, PAYMENT_STYLES,
+} from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
+import { timeAgo } from "@/lib/notifications";
 import { Dropdown } from "@/components/shared/Dropdown";
 import { Button } from "@/components/shared/Button";
 import { CustomerLabelDialog } from "@/components/shared/CustomerLabelDialog";
@@ -24,20 +26,37 @@ import { CustomerDetailPlaceholder } from "@/components/skeletons/placeholders";
 import type { Sale } from "@/lib/types";
 
 type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED";
-
-const CUSTOMER_FIELDS = [
-  { label: "Name", icon: User, key: "name", placeholder: "Customer name" },
-  { label: "Phone", icon: Phone, key: "phone", placeholder: "Phone number" },
-  { label: "Address", icon: MapPin, key: "address", placeholder: "Delivery address" },
-] as const;
+type OrderFilter = "all" | DeliveryStatus;
 
 const PAYMENT_METHODS = [
   { value: "COD", label: "Cash on Delivery" },
   { value: "QR", label: "QR Payment" },
 ];
+const PAYMENT_LABEL: Record<string, string> = { PAID: "Paid", UNPAID: "Unpaid", PARTIAL: "Part paid" };
 
+const card = "bg-card border border-border/80 rounded-2xl shadow-sm";
 const fieldClass = "w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
-const iconButton = "w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0";
+const labelClass = "text-xs font-semibold text-muted-foreground";
+const iconButton = "w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors shrink-0";
+
+const initials = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join("") || "?";
+
+/** wa.me wants the full international number: Nepal mobiles get 977 in front. */
+function whatsappLink(phone: string) {
+  const digits = phone.replace(/\D/g, "");
+  const full = digits.length === 10 && digits.startsWith("9") ? `977${digits}` : digits;
+  return full.length >= 10 ? `https://wa.me/${full}` : null;
+}
+
+async function copy(text: string, what: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast.success(`Copied ${what}`, { id: "copied" });
+  } catch {
+    toast.error("Couldn't copy. Select it and copy it manually.");
+  }
+}
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ key: string }> }) {
   const { key: rawKey } = use(params);
@@ -67,14 +86,33 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: "", phone: "", address: "" });
   const [saving, setSaving] = useState(false);
+  const [filter, setFilter] = useState<OrderFilter>("all");
 
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
-  const [saleForm, setSaleForm] = useState({ totalAmount: "", customerAddress: "", deliveryStatus: "IN_PROCESS", paymentMethod: "COD" });
-  const [savingSale, setSavingSale] = useState(false);
+  const stats = useMemo(() => {
+    if (!customer) return null;
+    const counted = customer.sales.filter(countsAsSale);
+    const spent = counted.reduce((sum, s) => sum + s.totalAmount, 0);
+    const dates = customer.sales.map(s => new Date(s.createdAt).getTime());
+    const unpaid = customer.sales
+      .filter(s => s.deliveryStatus === "DELIVERED" && s.paymentStatus !== "PAID")
+      .reduce((sum, s) => sum + (s.codAmount || s.totalAmount), 0);
+    const byStatus = new Map<string, number>();
+    for (const s of customer.sales) byStatus.set(s.deliveryStatus, (byStatus.get(s.deliveryStatus) ?? 0) + 1);
+    return {
+      spent,
+      average: counted.length ? spent / counted.length : 0,
+      first: new Date(Math.min(...dates)),
+      last: new Date(Math.max(...dates)),
+      returns: (byStatus.get("RETURNED") ?? 0) + (byStatus.get("RETURN_PROCESS") ?? 0),
+      website: customer.sales.filter(s => s.source === "website").length,
+      unpaid,
+      byStatus,
+    };
+  }, [customer]);
 
   function startEditing() {
     if (!customer) return;
-    setForm({ name: customer.name, phone: customer.phone ?? "", address: customer.address ?? "" });
+    setForm({ name: customer.name, phone: customer.phone ?? "", address: deliveryAddress(customer.address) });
     setEditing(true);
   }
 
@@ -105,236 +143,191 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     setSaving(false);
   }
 
-  async function copyCustomerId(code: string) {
-    try {
-      await navigator.clipboard.writeText(code);
-      toast.success(`Copied ${code}`, { id: "copied-customer-id" });
-    } catch {
-      toast.error("Couldn't copy. Select the ID and copy it manually.");
-    }
-  }
-
-  function startEditSale(sale: Sale) {
-    setEditingSaleId(sale.id);
-    setSaleForm({
-      totalAmount: String(sale.totalAmount),
-      customerAddress: sale.customerAddress ?? "",
-      deliveryStatus: sale.deliveryStatus ?? "IN_PROCESS",
-      paymentMethod: sale.paymentMethod ?? "COD",
-    });
-  }
-
-  async function handleSaveSale(sale: Sale) {
-    setSavingSale(true);
-    const result = await mutate(
-      () => updateSaleDetails(sale.id, {
-        totalAmount: parseFloat(saleForm.totalAmount) || 0,
-        customerAddress: saleForm.customerAddress,
-        deliveryStatus: saleForm.deliveryStatus as DeliveryStatus,
-        paymentMethod: saleForm.paymentMethod as "COD" | "QR",
-      }),
-      { success: `${sale.invoiceNumber} updated.` }
-    );
-    if (result.ok) {
-      await refetch();
-      setEditingSaleId(null);
-    }
-    setSavingSale(false);
-  }
-
   if (loading) {
     return <CustomerDetailPlaceholder />;
   }
 
-  if (!customer) {
+  if (!customer || !stats) {
     return (
-      <div className="flex flex-col items-center py-16 text-center text-muted-foreground gap-2 bg-card border border-border/80 rounded-2xl">
+      <div className={cn(card, "flex flex-col items-center gap-2 py-16 text-center text-muted-foreground")}>
         <Users size={36} className="opacity-30" />
-        <p className="font-semibold text-sm">Customer not found</p>
-        <Link href="/customers" className="text-xs text-primary font-semibold hover:underline mt-2">Back to Customers</Link>
+        <p className="text-sm font-semibold">Customer not found</p>
+        <Link href="/customers" className="mt-2 text-xs font-semibold text-primary hover:underline">Back to Customers</Link>
       </div>
     );
   }
 
+  const address = deliveryAddress(customer.address);
+  const wa = customer.phone ? whatsappLink(customer.phone) : null;
+  const orders = filter === "all" ? customer.sales : customer.sales.filter(s => s.deliveryStatus === filter);
+  const filterTabs: { id: OrderFilter; label: string; count: number }[] = [
+    { id: "all", label: "All", count: customer.sales.length },
+    ...DELIVERY_STATUSES.map(s => ({ id: s.value as OrderFilter, label: s.label, count: stats.byStatus.get(s.value) ?? 0 })).filter(t => t.count > 0),
+  ];
+
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-5 animate-fade-in">
+      {/* Breadcrumb */}
       <div className="flex items-center gap-3">
-        <Link href="/customers" aria-label="Back to customers" className="w-9 h-9 flex items-center justify-center rounded-xl border border-border hover:bg-muted transition-colors shrink-0">
+        <Link href="/customers" aria-label="Back to customers and orders" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border transition-colors hover:bg-muted">
           <ArrowLeft size={16} />
         </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-extrabold tracking-tight truncate">{customer.name}</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">{customer.orderCount} order{customer.orderCount !== 1 ? "s" : ""} · {formatNPR(customer.totalSpent)} total spent</p>
-        </div>
-        {customer.code && (
-          <button
-            type="button"
-            onClick={() => copyCustomerId(customer.code as string)}
-            aria-label={`Copy customer ID ${customer.code}`}
-            title="Copy customer ID"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card text-xs font-bold font-mono whitespace-nowrap hover:bg-muted transition-colors shrink-0"
-          >
-            {customer.code} <Copy size={12} className="text-muted-foreground" />
-          </button>
-        )}
+        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <Link href="/customers" className="hover:text-foreground">Customers &amp; Orders</Link>
+          <ChevronRight size={12} className="shrink-0" />
+          <span className="truncate font-semibold text-foreground">{customer.name}</span>
+        </nav>
       </div>
 
-      {/* Customer Info Card */}
-      <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-5 sm:p-6 border-b border-border/60 flex items-center justify-between gap-3">
-          <h2 className="font-bold text-base">Customer Details</h2>
-          {!editing ? (
-            <button type="button" onClick={startEditing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold bg-primary/10 text-primary border border-primary/20 rounded-xl hover:bg-primary/20 transition-colors">
-              <Edit2 size={13} /> Edit
-            </button>
-          ) : (
-            <div className="flex gap-2">
-              <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving} className="px-3 py-2 text-xs">
-                <X size={13} /> Cancel
-              </Button>
-              <Button onClick={handleSave} loading={saving} className="px-3 py-2 text-xs">
-                {!saving && <Save size={13} />} {saving ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          )}
-        </div>
-        <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
-          {CUSTOMER_FIELDS.map(field => (
-            <div key={field.key} className="space-y-1.5">
-              <label htmlFor={`customer-${field.key}`} className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                <field.icon size={12} />{field.label}
-              </label>
-              {editing ? (
-                <input
-                  id={`customer-${field.key}`}
-                  value={form[field.key]}
-                  onChange={e => setForm(f => ({ ...f, [field.key]: e.target.value }))}
-                  placeholder={field.placeholder}
-                  className={fieldClass}
-                />
-              ) : (
-                <p className={cn("text-sm font-semibold py-2.5 break-words", !customer[field.key] && "text-muted-foreground italic font-normal")}>
-                  {customer[field.key] || "Not provided"}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Sales History */}
-      <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
-        <div className="p-5 sm:p-6 border-b border-border/60">
-          <h2 className="font-bold text-base">Sales History</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">{customer.sales.length} invoice{customer.sales.length !== 1 ? "s" : ""}</p>
-        </div>
-        <div className="divide-y divide-border/40">
-          {customer.sales.map(sale => {
-            const isEditingSale = editingSaleId === sale.id;
-            return (
-            <div key={sale.id} className="data-row p-5 space-y-3">
-              <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                <div className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-0">
-                  <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <Receipt size={16} className="text-primary/70" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold flex items-center gap-1.5">
-                      {sale.invoiceNumber}
-                      {sale.source === "website" && (
-                        <span className="flex items-center gap-1 text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
-                          <Globe size={9} /> Website
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                      <ShoppingBag size={10} className="shrink-0" />
-                      <span className="truncate">{sale.items.length} item{sale.items.length !== 1 ? "s" : ""} · {sale.warehouse.name} · {new Date(sale.createdAt).toLocaleString()}</span>
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                    {sale.paymentMethod === "QR" ? "QR Payment" : "Cash on Delivery"}
-                  </span>
-                  {!isEditingSale && (
-                    <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
-                      {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        {/* ── Profile ── */}
+        <aside className="space-y-4 lg:sticky lg:top-20">
+          <section className={cn(card, "overflow-hidden")}>
+            <div className="flex items-start gap-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-5">
+              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-primary text-lg font-black text-primary-foreground shadow-md shadow-primary/20">
+                {initials(customer.name)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h1 className="break-words text-xl font-extrabold leading-tight tracking-tight">{customer.name}</h1>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  {customer.code && (
+                    <button
+                      type="button"
+                      onClick={() => copy(customer.code as string, customer.code as string)}
+                      title="Copy customer ID"
+                      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-1.5 py-0.5 font-mono text-[11px] font-bold hover:bg-muted"
+                    >
+                      {customer.code} <Copy size={10} className="text-muted-foreground" />
+                    </button>
+                  )}
+                  {customer.orderCount > 1 && (
+                    <span className="rounded-md bg-emerald-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                      Repeat customer
                     </span>
                   )}
                 </div>
-
-                <div className="flex items-center gap-2 ml-auto shrink-0">
-                  {!isEditingSale && <p className="text-sm font-extrabold text-right">{formatNPR(sale.totalAmount)}</p>}
-                  {!isEditingSale && (<>
-                    <button type="button" onClick={() => { setLabelSale(sale); setShowLabel(true); }} aria-label={`Print label for ${sale.invoiceNumber}`} title="Print label" className={cn(iconButton, "border border-border hover:bg-muted")}>
-                      <Tag size={12} />
-                    </button>
-                    <button type="button" onClick={() => setReceiptSale(sale)} aria-label={`Print receipt for ${sale.invoiceNumber}`} title="Print receipt" className={cn(iconButton, "border border-border hover:bg-muted")}>
-                      <Receipt size={12} />
-                    </button>
-                  </>)}
-                  {!isEditingSale ? (
-                    <button type="button" onClick={() => startEditSale(sale)} aria-label={`Edit ${sale.invoiceNumber}`} className={cn(iconButton, "border border-border hover:bg-muted")}>
-                      <Edit2 size={12} />
-                    </button>
-                  ) : (
-                    <div className="flex gap-1.5 shrink-0">
-                      <button type="button" onClick={() => setEditingSaleId(null)} disabled={savingSale} aria-label="Cancel editing" className={cn(iconButton, "border border-border bg-muted text-muted-foreground hover:bg-muted/70")}>
-                        <X size={12} />
-                      </button>
-                      <button type="button" onClick={() => handleSaveSale(sale)} disabled={savingSale} aria-label="Save invoice" className={cn(iconButton, "bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50")}>
-                        <Save size={12} />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {isEditingSale && (
-                <div className="pl-0 sm:pl-[52px] grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                  <div className="space-y-1.5">
-                    <label htmlFor={`price-${sale.id}`} className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><DollarSign size={12} />Price</label>
-                    <input id={`price-${sale.id}`} type="number" inputMode="decimal" min={0} step="0.01" value={saleForm.totalAmount} onChange={e => setSaleForm(f => ({ ...f, totalAmount: e.target.value }))} className={cn(fieldClass, "py-2")} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor={`address-${sale.id}`} className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><MapPin size={12} />Location</label>
-                    <input id={`address-${sale.id}`} value={saleForm.customerAddress} onChange={e => setSaleForm(f => ({ ...f, customerAddress: e.target.value }))} placeholder="Delivery address" className={cn(fieldClass, "py-2")} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-muted-foreground">Delivery Status</span>
-                    <Dropdown aria-label="Delivery status" value={saleForm.deliveryStatus} onChange={v => setSaleForm(f => ({ ...f, deliveryStatus: v }))} options={DELIVERY_STATUSES} triggerClassName="py-2" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-muted-foreground">Payment Method</span>
-                    <Dropdown aria-label="Payment method" value={saleForm.paymentMethod} onChange={v => setSaleForm(f => ({ ...f, paymentMethod: v }))} options={PAYMENT_METHODS} triggerClassName="py-2" />
-                  </div>
-                </div>
-              )}
-
-              <div className="pl-0 sm:pl-[52px] space-y-1">
-                {sale.items.map(item => (
-                  <div key={item.id} className="text-xs text-muted-foreground">
-                    <div className="flex justify-between gap-3">
-                      <span className="min-w-0 break-words font-medium text-foreground">{item.product.name}</span>
-                      <span className="font-semibold shrink-0">{formatNPR(item.unitPrice * item.quantity)}</span>
-                    </div>
-                    <p className="text-[12px]">
-                      {[itemOptionsText(item), `${item.quantity} × ${formatNPR(item.unitPrice)}`].filter(Boolean).join(" · ")}
-                    </p>
-                  </div>
-                ))}
-                {sale.notes && (
-                  <p className="pt-1 text-xs text-foreground break-words">
-                    <span className="font-semibold">Customer note:</span> {sale.notes}
-                  </p>
-                )}
+                <p className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <Calendar size={11} /> Customer since {stats.first.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}
+                </p>
               </div>
             </div>
-            );
-          })}
-        </div>
+
+            {/* Contact, or the edit form */}
+            {editing ? (
+              <div className="space-y-3 border-t border-border/60 p-5">
+                <div className="space-y-1.5">
+                  <label htmlFor="customer-name" className={labelClass}>Name</label>
+                  <input id="customer-name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Customer name" className={fieldClass} autoFocus />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="customer-phone" className={labelClass}>Phone</label>
+                  <input id="customer-phone" type="tel" inputMode="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="98XXXXXXXX" className={fieldClass} />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="customer-address" className={labelClass}>Address</label>
+                  <textarea id="customer-address" rows={2} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Delivery address" className={cn(fieldClass, "resize-none")} />
+                  <p className="text-[11px] text-muted-foreground">Saved on all {customer.orderCount} of this customer&apos;s orders.</p>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving} className="flex-1 py-2 text-xs">
+                    <X size={13} /> Cancel
+                  </Button>
+                  <Button onClick={handleSave} loading={saving} className="flex-1 py-2 text-xs">
+                    {!saving && <Save size={13} />} {saving ? "Saving…" : "Save"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="border-t border-border/60 p-5">
+                <div className="mb-2 flex items-center justify-between">
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contact</h2>
+                  <button type="button" onClick={startEditing} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10">
+                    <Edit2 size={12} /> Edit
+                  </button>
+                </div>
+                <dl className="space-y-3 text-sm">
+                  <ContactRow icon={Phone} label="Phone" value={customer.phone}>
+                    {customer.phone && (
+                      <>
+                        <a href={`tel:${customer.phone}`} className={iconButton} title="Call" aria-label={`Call ${customer.phone}`}><Phone size={13} /></a>
+                        {wa && <a href={wa} target="_blank" rel="noreferrer" className={iconButton} title="WhatsApp" aria-label="Message on WhatsApp"><MessageCircle size={13} /></a>}
+                        <button type="button" onClick={() => copy(customer.phone as string, "phone number")} className={iconButton} title="Copy" aria-label="Copy phone number"><Copy size={13} /></button>
+                      </>
+                    )}
+                  </ContactRow>
+                  {customer.email && (
+                    <ContactRow icon={Mail} label="Email" value={customer.email}>
+                      <a href={`mailto:${customer.email}`} className={iconButton} title="Email" aria-label="Send an email"><Mail size={13} /></a>
+                    </ContactRow>
+                  )}
+                  <ContactRow icon={MapPin} label="Address" value={address || null}>
+                    {address && (
+                      <button type="button" onClick={() => copy(address, "address")} className={iconButton} title="Copy" aria-label="Copy address"><Copy size={13} /></button>
+                    )}
+                  </ContactRow>
+                </dl>
+              </div>
+            )}
+          </section>
+
+          {/* Numbers */}
+          <section className={cn(card, "grid grid-cols-2 gap-px overflow-hidden bg-border/60")} aria-label="Customer summary">
+            {[
+              { label: "Orders", value: String(customer.orderCount), note: `${stats.website} from the website` },
+              { label: "Spent", value: formatNPR(stats.spent), note: "Cancelled left out" },
+              { label: "Average order", value: formatNPR(Math.round(stats.average)), note: "Per order" },
+              { label: "Last order", value: timeAgo(stats.last), note: stats.last.toLocaleDateString() },
+              { label: "Returns", value: String(stats.returns), note: stats.returns ? "Returned or on the way" : "None", warn: stats.returns > 0 },
+              { label: "Unpaid", value: formatNPR(stats.unpaid), note: stats.unpaid ? "Delivered, not marked paid" : "All settled", warn: stats.unpaid > 0 },
+            ].map(stat => (
+              <div key={stat.label} className="bg-card p-3.5">
+                <p className="text-[11px] font-semibold text-muted-foreground">{stat.label}</p>
+                <p className={cn("mt-0.5 text-base font-black", stat.warn ? "text-amber-600 dark:text-amber-400" : "text-foreground")}>{stat.value}</p>
+                <p className="truncate text-[10px] text-muted-foreground">{stat.note}</p>
+              </div>
+            ))}
+          </section>
+        </aside>
+
+        {/* ── Orders ── */}
+        <section className="space-y-3" aria-labelledby="orders-title">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 id="orders-title" className="text-base font-bold">
+              Orders <span className="font-medium text-muted-foreground">· {customer.sales.length}</span>
+            </h2>
+            <div className="flex gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]" role="tablist" aria-label="Filter orders">
+              {filterTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={filter === tab.id}
+                  onClick={() => setFilter(tab.id)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors",
+                    filter === tab.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {tab.label} <span className="text-[10px] opacity-70">{tab.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {orders.length === 0 ? (
+            <div className={cn(card, "py-12 text-center text-xs text-muted-foreground")}>No orders with this status.</div>
+          ) : (
+            orders.map(sale => (
+              <OrderCard
+                key={sale.id}
+                sale={sale}
+                onLabel={() => { setLabelSale(sale); setShowLabel(true); }}
+                onReceipt={() => setReceiptSale(sale)}
+                onSaved={() => refetch({ quiet: true })}
+              />
+            ))
+          )}
+        </section>
       </div>
 
       {labelSale && (
@@ -344,5 +337,229 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
         <ReceiptDialog open onClose={() => setReceiptSale(null)} sales={[receiptSale]} store={store} />
       )}
     </div>
+  );
+}
+
+function ContactRow({ icon: Icon, label, value, children }: { icon: typeof Phone; label: string; value: string | null; children?: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+        <Icon size={14} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <dt className="text-[11px] text-muted-foreground">{label}</dt>
+        <dd className={cn("break-words text-sm font-semibold", !value && "font-normal italic text-muted-foreground")}>{value || "Not provided"}</dd>
+      </div>
+      {children && <div className="flex shrink-0 gap-1.5">{children}</div>}
+    </div>
+  );
+}
+
+/** One order: summary, items, quick status change, and a full edit form. */
+function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel: () => void; onReceipt: () => void; onSaved: () => Promise<unknown> | void }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  const [form, setForm] = useState(() => formFor(sale));
+  const address = deliveryAddress(sale.customerAddress);
+  const units = sale.items.reduce((n, i) => n + i.quantity, 0);
+
+  function formFor(s: Sale) {
+    return {
+      totalAmount: String(s.totalAmount),
+      deliveryAmount: String(s.deliveryAmount ?? 0),
+      codAmount: String(s.codAmount ?? 0),
+      customerAddress: deliveryAddress(s.customerAddress),
+      deliveryStatus: (s.deliveryStatus ?? "IN_PROCESS") as string,
+      paymentMethod: (s.paymentMethod ?? "COD") as string,
+    };
+  }
+
+  async function changeStatus(status: string) {
+    if (status === sale.deliveryStatus) return;
+    setChangingStatus(true);
+    const label = DELIVERY_STATUSES.find(d => d.value === status)?.label ?? status;
+    const result = await mutate(() => updateSaleDetails(sale.id, { deliveryStatus: status as DeliveryStatus }), {
+      success: `${sale.invoiceNumber} marked ${label}.`,
+    });
+    if (result.ok) await onSaved();
+    setChangingStatus(false);
+  }
+
+  async function save() {
+    const amounts = [form.totalAmount, form.deliveryAmount, form.codAmount].map(v => parseFloat(v));
+    if (amounts.some(v => !Number.isFinite(v) || v < 0)) {
+      toast.error("Amounts must be numbers, 0 or more.");
+      return;
+    }
+    setSaving(true);
+    // A website order's address keeps its "[Shop]" tag.
+    const tag = /^\[[^\]]*\]\s*/.exec(sale.customerAddress ?? "")?.[0] ?? "";
+    const result = await mutate(
+      () => updateSaleDetails(sale.id, {
+        totalAmount: amounts[0],
+        deliveryAmount: amounts[1],
+        codAmount: amounts[2],
+        customerAddress: form.customerAddress.trim() ? tag + form.customerAddress.trim() : "",
+        deliveryStatus: form.deliveryStatus as DeliveryStatus,
+        paymentMethod: form.paymentMethod as "COD" | "QR",
+      }),
+      { success: `${sale.invoiceNumber} updated.` }
+    );
+    if (result.ok) {
+      await onSaved();
+      setEditing(false);
+    }
+    setSaving(false);
+  }
+
+  return (
+    <article className={cn(card, "overflow-hidden", editing && "ring-2 ring-primary/30")}>
+      {/* Header */}
+      <div className="flex flex-wrap items-start gap-x-4 gap-y-3 p-4 sm:p-5">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", sale.source === "website" ? "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" : "bg-primary/10 text-primary")}>
+            {sale.source === "website" ? <Globe size={17} /> : <Store size={17} />}
+          </span>
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-mono text-sm font-bold">{sale.invoiceNumber}</span>
+              <span className="text-[11px] text-muted-foreground">{sale.source === "website" ? "Website order" : "In store"}</span>
+            </p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {new Date(sale.createdAt).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}
+              {" · "}{units} item{units === 1 ? "" : "s"} · {sale.warehouse.name}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <p className="text-base font-black">{formatNPR(sale.totalAmount)}</p>
+            <p className="mt-0.5 flex items-center justify-end gap-1">
+              <span className="text-[10px] font-semibold text-muted-foreground">{sale.paymentMethod === "QR" ? "QR" : "COD"}</span>
+              <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-extrabold uppercase", PAYMENT_STYLES[sale.paymentStatus] ?? PAYMENT_STYLES.UNPAID)}>
+                {PAYMENT_LABEL[sale.paymentStatus] ?? sale.paymentStatus}
+              </span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Status + actions */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-y border-border/50 bg-muted/30 px-4 py-2.5 sm:px-5">
+        <div className="flex items-center gap-2">
+          <div className="w-44">
+            <Dropdown
+              aria-label={`Delivery status of ${sale.invoiceNumber}`}
+              value={sale.deliveryStatus}
+              onChange={changeStatus}
+              options={DELIVERY_STATUSES}
+              disabled={changingStatus || editing}
+              triggerClassName={cn("py-1.5 text-xs font-bold", DELIVERY_STYLES[sale.deliveryStatus])}
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button type="button" onClick={onLabel} className={iconButton} title="Print label" aria-label={`Print label for ${sale.invoiceNumber}`}><Tag size={13} /></button>
+          <button type="button" onClick={onReceipt} className={iconButton} title="Print receipt" aria-label={`Print receipt for ${sale.invoiceNumber}`}><Receipt size={13} /></button>
+          {!editing && (
+            <button
+              type="button"
+              onClick={() => { setForm(formFor(sale)); setEditing(true); }}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+            >
+              <Edit2 size={12} /> Edit
+            </button>
+          )}
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="space-y-4 p-4 sm:p-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {([
+              ["totalAmount", "Order total"],
+              ["deliveryAmount", "Delivery charge"],
+              ["codAmount", "COD to collect"],
+            ] as const).map(([field, label]) => (
+              <div key={field} className="space-y-1.5">
+                <label htmlFor={`${field}-${sale.id}`} className={labelClass}>{label}</label>
+                <input
+                  id={`${field}-${sale.id}`}
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  value={form[field]}
+                  onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
+                  className={cn(fieldClass, "py-2")}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor={`address-${sale.id}`} className={labelClass}>Delivery address for this order</label>
+            <input id={`address-${sale.id}`} value={form.customerAddress} onChange={e => setForm(f => ({ ...f, customerAddress: e.target.value }))} placeholder="Delivery address" className={cn(fieldClass, "py-2")} />
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <span className={labelClass}>Delivery status</span>
+              <Dropdown aria-label="Delivery status" value={form.deliveryStatus} onChange={v => setForm(f => ({ ...f, deliveryStatus: v }))} options={DELIVERY_STATUSES} triggerClassName="py-2" />
+            </div>
+            <div className="space-y-1.5">
+              <span className={labelClass}>Payment method</span>
+              <Dropdown aria-label="Payment method" value={form.paymentMethod} onChange={v => setForm(f => ({ ...f, paymentMethod: v }))} options={PAYMENT_METHODS} triggerClassName="py-2" />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">For cash on delivery, payment follows the status: Delivered marks it paid, anything else unpaid.</p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setEditing(false)} disabled={saving} className="px-4 py-2 text-xs"><X size={13} /> Cancel</Button>
+            <Button onClick={save} loading={saving} className="px-4 py-2 text-xs">{!saving && <Save size={13} />} {saving ? "Saving…" : "Save changes"}</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 p-4 sm:p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">
+          {/* Items */}
+          <ul className="space-y-2">
+            {sale.items.map(item => {
+              const options = itemOptionsText(item);
+              return (
+                <li key={item.id} className="flex items-start justify-between gap-3 text-xs">
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold text-foreground">{item.product.name}</p>
+                    <p className="text-muted-foreground">{[options, `${item.quantity} × ${formatNPR(item.unitPrice)}`].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  <span className="shrink-0 font-bold">{formatNPR(item.unitPrice * item.quantity)}</span>
+                </li>
+              );
+            })}
+            {(sale.deliveryAmount > 0 || sale.discount > 0) && (
+              <li className="space-y-0.5 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+                {sale.deliveryAmount > 0 && <p className="flex justify-between"><span>Delivery</span><span>{formatNPR(sale.deliveryAmount)}</span></p>}
+                {sale.discount > 0 && <p className="flex justify-between"><span>Discount</span><span>−{formatNPR(sale.discount)}</span></p>}
+              </li>
+            )}
+          </ul>
+
+          {/* Delivery details */}
+          <div className="space-y-2 rounded-xl bg-muted/40 p-3 text-xs">
+            <p className="flex items-start gap-1.5">
+              <MapPin size={12} className="mt-0.5 shrink-0 text-muted-foreground" />
+              <span className={cn("break-words", !address && "italic text-muted-foreground")}>{address || "No address (in-store sale)"}</span>
+            </p>
+            {sale.courierAreaTitle && <p className="pl-[18px] text-[11px] text-muted-foreground">Hub: {sale.courierAreaTitle}</p>}
+            {sale.paymentMethod === "COD" && sale.codAmount > 0 && (
+              <p className="pl-[18px] text-[11px] text-muted-foreground">COD: {formatNPR(sale.codAmount)}</p>
+            )}
+            {sale.notes && (
+              <p className="border-t border-border/50 pt-2 text-[11px]">
+                <span className="font-semibold">Customer note:</span> {sale.notes}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </article>
   );
 }

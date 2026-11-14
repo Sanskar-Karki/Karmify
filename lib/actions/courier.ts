@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
 import { logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
-import { courierMobile, courierReference, courierStillOpen, splitCourierAddress, type CourierOrderForm } from "@/lib/courier";
+import {
+  courierCodAmount, courierMobile, courierReference, courierStillOpen, DOOR_TO_DOOR, isCourierService, splitCourierAddress, type CourierOrderForm,
+} from "@/lib/courier";
 import { itemName } from "@/lib/orders";
 import { courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
@@ -199,16 +201,17 @@ export async function sendOrderToCourier(saleId: string, form: CourierOrderForm)
 
 // Upaya product categories: Living & Decor ships as household goods, everything else as clothing.
 const UPAYA_CATEGORY = { clothing: 1, household: 6 };
-const DOOR_TO_DOOR = 3;
 
 /**
  * Books a delivery sale with Upaya from what's saved on it: the POS calls this
  * right after "Complete Sale". Goes through sendOrderToCourier, so the same
  * claim and duplicate check apply, and a failure leaves the sale as it is
- * (book it later from the order).
+ * (book it later from the order). The bulk send on the Orders page passes
+ * door to branch for the few orders collected from a branch.
  */
-export async function bookSaleWithUpaya(saleId: string) {
+export async function bookSaleWithUpaya(saleId: string, serviceTypeId: number = DOOR_TO_DOOR) {
   return guarded("Could not send this order to Upaya.", async () => {
+    if (!isCourierService(serviceTypeId)) throw new UserError("Choose door to door or door to branch.");
     const tenant = await requireCourierTenant();
     const sale = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
@@ -229,13 +232,11 @@ export async function bookSaleWithUpaya(saleId: string) {
       address,
       landmark,
       areaId: sale.courierAreaId,
-      serviceTypeId: DOOR_TO_DOOR,
+      serviceTypeId,
       categoryId: sale.brand === "decor" ? UPAYA_CATEGORY.household : UPAYA_CATEGORY.clothing,
       description: sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join(", ").slice(0, 2500),
       declaredValue: Math.max(1, Math.round(goods)),
-      // Paid (QR or marked paid): nothing to collect. Otherwise what's left to pay; website
-      // imports don't record a COD amount, and their total already includes delivery.
-      codAmount: sale.paymentMethod === "QR" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount,
+      codAmount: courierCodAmount(sale),
       weight: 1,
       note: (sale.notes ?? "").slice(0, 250),
     });

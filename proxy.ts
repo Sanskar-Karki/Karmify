@@ -6,7 +6,7 @@ import { updateSession } from '@/utils/supabase/middleware'
 const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/__clerk(.*)'])
 
 // Other servers call these with no login, and each route checks its own secret.
-const isServerToServer = createRouteMatcher(['/api/upaya/webhook/(.*)', '/api/website-orders', '/api/website-products'])
+const isServerToServer = createRouteMatcher(['/api/upaya/webhook/(.*)', '/api/website-orders', '/api/website-products', '/api/cron/sheets-backup'])
 
 export default clerkMiddleware(async (auth, request) => {
   if (isServerToServer(request)) return NextResponse.next()

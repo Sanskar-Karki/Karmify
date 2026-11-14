@@ -16,10 +16,12 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   /** Extra options shown under the description. */
   children?: React.ReactNode;
+  /** Wider when the extra content is a list (e.g. the orders about to be deleted). */
+  size?: "sm" | "md" | "lg";
 }
 
 /** Confirmation for destructive actions. Focus starts on the safe choice. */
-export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel, cancelLabel = "Cancel", children }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, onClose, onConfirm, title, description, confirmLabel, cancelLabel = "Cancel", children, size = "sm" }: ConfirmDialogProps) {
   const [busy, setBusy] = useState(false);
 
   async function confirm() {
@@ -32,7 +34,7 @@ export function ConfirmDialog({ open, onClose, onConfirm, title, description, co
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={title} size="sm" busy={busy} hideHeader>
+    <Modal open={open} onClose={onClose} title={title} size={size} busy={busy} hideHeader>
       <div className="p-5 sm:p-6 space-y-5" style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}>
         <div className="flex items-start gap-4">
           <div className="w-11 h-11 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600 dark:text-red-400 shrink-0">

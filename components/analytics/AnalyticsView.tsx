@@ -10,10 +10,11 @@ import { cn, formatNPR } from "@/lib/utils";
 import { DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
 import { DateRangeCalendar, fromDateKey, shortDay } from "@/components/shared/DateRangeCalendar";
 import { buildAnalytics, change, periodFor, RANGES, type Ranked, type RangeKey } from "@/lib/analytics";
+import { AnalyticsBodyPlaceholder, ChartPlaceholder } from "@/components/skeletons/placeholders";
 
 const SalesTrendChart = dynamic(() => import("@/components/analytics/SalesTrendChart"), {
   ssr: false,
-  loading: () => <div className="h-full w-full animate-pulse rounded-xl bg-muted/50" />,
+  loading: () => <ChartPlaceholder />,
 });
 
 const card = "bg-card border border-border/80 rounded-2xl shadow-sm p-5";
@@ -226,9 +227,7 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-muted/50" />)}
-        </div>
+        <AnalyticsBodyPlaceholder />
       ) : (
         <>
           {/* Headline numbers */}

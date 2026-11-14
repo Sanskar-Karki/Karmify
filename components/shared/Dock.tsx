@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -47,9 +47,55 @@ function liftFor(distance: number) {
   return 0;
 }
 
+const SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
+
+const isActiveFor = (pathname: string, href: string) => pathname === href || pathname.startsWith(href + "/");
+
+/**
+ * The bottom navigation. The highlight slides to the tapped item straight
+ * away (before the page has loaded), the icons magnify around the pointer on
+ * computers, and each press gives a small squeeze so taps feel answered.
+ */
 export function Dock() {
   const pathname = usePathname();
   const [hovered, setHovered] = useState<number | null>(null);
+  // The item just tapped, shown as active until the route catches up.
+  const [pending, setPending] = useState<number | null>(null);
+  const [lastPath, setLastPath] = useState(pathname);
+  if (pathname !== lastPath) {
+    setLastPath(pathname);
+    setPending(null);
+  }
+
+  const routeIndex = dockItems.findIndex(item => isActiveFor(pathname, item.href));
+  const activeIndex = pending ?? routeIndex;
+
+  const chipRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const indicatorRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const lastRect = useRef<DOMRect | null>(null);
+
+  // Slide the highlight from where it was to the new item (a FLIP animation:
+  // the highlight lives in the active chip, so it also follows magnification
+  // and the dock growing/shrinking, and starts drawn at the old spot).
+  useLayoutEffect(() => {
+    const chip = activeIndex >= 0 ? chipRefs.current[activeIndex] : null;
+    const indicator = activeIndex >= 0 ? indicatorRefs.current[activeIndex] : null;
+    if (!chip || !indicator) {
+      lastRect.current = null;
+      return;
+    }
+    const rect = chip.getBoundingClientRect();
+    const from = lastRect.current;
+    lastRect.current = rect;
+    if (!from || from.left === rect.left || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    indicator.animate(
+      [
+        { transform: `translateX(${from.left - rect.left}px) scale(${from.width / rect.width}, ${from.height / rect.height})` },
+        { transform: "none" },
+      ],
+      { duration: 460, easing: SPRING }
+    );
+  }, [activeIndex]);
 
   return (
     <nav
@@ -66,42 +112,65 @@ export function Dock() {
         <div className="absolute inset-x-4 top-0.5 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent pointer-events-none" />
 
         {dockItems.map((item, i) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          const isActive = i === activeIndex;
           const Icon = item.icon;
           const distance = hovered === null ? Infinity : Math.abs(hovered - i);
-          const scale = scaleFor(distance);
-          const lift = liftFor(distance);
 
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-label={item.name}
-              aria-current={isActive ? "page" : undefined}
+              aria-current={i === routeIndex ? "page" : undefined}
               onMouseEnter={() => { setHovered(i); prefetchRoute(item.href); }}
               onTouchStart={() => prefetchRoute(item.href)}
-              className="group relative flex flex-col items-center justify-center"
+              onClick={e => {
+                // New tab/window clicks don't navigate here, so they don't move the highlight.
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+                if (i !== routeIndex) setPending(i);
+              }}
+              className="dock-item group relative flex flex-col items-center justify-center"
               style={{
-                transform: `translateY(${-lift}px) scale(${scale})`,
-                transition: "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+                transform: `translateY(${-liftFor(distance)}px) scale(${scaleFor(distance)})`,
+                transition: `transform 0.35s ${SPRING}`,
               }}
             >
               {/* Tooltip (pointer devices only — hover never fires on touch) */}
-              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 group-hover:opacity-100 group-hover:scale-100 group-focus-visible:opacity-100 group-focus-visible:scale-100 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50 hidden sm:block">
+              <span className="absolute -top-12 px-3 py-2 rounded-lg bg-popover border border-border backdrop-blur-sm text-popover-foreground text-xs font-semibold opacity-0 scale-75 translate-y-1 group-hover:opacity-100 group-hover:scale-100 group-hover:translate-y-0 group-focus-visible:opacity-100 group-focus-visible:scale-100 group-focus-visible:translate-y-0 transition-all duration-200 whitespace-nowrap pointer-events-none shadow-lg z-50 hidden sm:block">
                 {item.name}
               </span>
 
               {/* Icon chip — 44px min touch target on mobile */}
               <div
+                ref={el => { chipRefs.current[i] = el; }}
                 className={cn(
                   "dock-chip relative flex items-center justify-center w-11 h-11 sm:w-10 sm:h-10 rounded-xl border cursor-pointer",
                   isActive
-                    ? "bg-primary border-primary/30 text-primary-foreground shadow-lg shadow-primary/30"
+                    ? "border-primary/30 text-primary-foreground"
                     : "bg-white/35 dark:bg-white/5 border-white/50 dark:border-white/10 text-muted-foreground hover:bg-white/60 dark:hover:bg-white/10 hover:text-foreground"
                 )}
               >
-                <Icon size={18} strokeWidth={2} />
+                {isActive && (
+                  <span
+                    ref={el => { indicatorRefs.current[i] = el; }}
+                    aria-hidden
+                    className="dock-indicator absolute -inset-px rounded-[inherit] bg-primary shadow-lg shadow-primary/30"
+                  />
+                )}
+                {/* Re-keyed on activation so the icon gives a little hop. */}
+                <span key={isActive ? "on" : "off"} className={cn("relative flex", isActive && "dock-pop")}>
+                  <Icon size={18} strokeWidth={isActive ? 2.25 : 2} />
+                </span>
               </div>
+
+              {/* Active dot under the chip (phones, where there are no tooltips) */}
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute -bottom-2 h-1 w-1 rounded-full bg-primary transition-all duration-300 sm:hidden",
+                  isActive ? "opacity-100 scale-100" : "opacity-0 scale-0"
+                )}
+              />
             </Link>
           );
         })}

@@ -68,7 +68,7 @@ export function getNotifications(storeId: string) {
   return db.notification.findMany({
     where: { storeId },
     orderBy: { createdAt: "desc" },
-    take: 30,
+    take: 60,
   });
 }
 

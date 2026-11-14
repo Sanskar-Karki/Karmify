@@ -19,16 +19,18 @@ import { Dropdown } from "@/components/shared/Dropdown";
 import { CustomerLabelDialog } from "@/components/shared/CustomerLabelDialog";
 import { ReceiptDialog } from "@/components/shared/ReceiptDialog";
 import { CourierDialog } from "@/components/shared/CourierDialog";
+import { UpayaBatchDialog, type UpayaBatch, type UpayaServices } from "@/components/shared/UpayaBatchDialog";
 import { ORDER_COLUMNS, PlaceholderRows } from "@/components/skeletons/placeholders";
 import { Pagination, usePagination } from "@/components/shared/Pagination";
 import { useResources } from "@/lib/useResources";
+import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
+import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, itemName } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
-import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatusStyle } from "@/lib/courier";
+import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatusStyle, DOOR_TO_DOOR } from "@/lib/courier";
 import { useStoreProfile } from "@/lib/storeProfile";
 import { channelOf } from "@/lib/analytics";
 import { DateRangeCalendar, shortDay } from "@/components/shared/DateRangeCalendar";
@@ -155,15 +157,18 @@ export default function CustomersPage() {
 
   const [syncing, setSyncing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // The last order ticked or unticked, where a Shift-click range starts.
+  const selectAnchor = useRef<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [deleteCount, setDeleteCount] = useState(0);
+  // The orders shown in the delete confirmation: exactly these are deleted.
+  const [toDelete, setToDelete] = useState<Sale[]>([]);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkLabelsOpen, setBulkLabelsOpen] = useState(false);
   // Receipts to print: one order's (row button) or the ticked ones (bulk).
   const [receiptSales, setReceiptSales] = useState<Sale[]>([]);
   const [restock, setRestock] = useState(false);
   // Bulk "Send to Upaya": the ticked orders that can go, and the rest with why not.
-  const [upayaBatch, setUpayaBatch] = useState<{ ready: Sale[]; skipped: { sale: Sale; reason: string }[] } | null>(null);
+  const [upayaBatch, setUpayaBatch] = useState<UpayaBatch | null>(null);
   const [sendingUpaya, setSendingUpaya] = useState(false);
 
   // Everything except the status, so each status chip can show its own count.
@@ -271,11 +276,26 @@ export default function CustomersPage() {
     if (result.ok && result.data.updated > 0) await refetch();
   }
 
-  function toggleSelected(id: string) {
+  /**
+   * Ticks or unticks one order. With Shift held, every order between the last
+   * one clicked and this one gets the same tick (like a file list or Gmail).
+   */
+  function toggleSelected(id: string, shiftKey = false) {
+    const anchor = selectAnchor.current;
+    selectAnchor.current = id;
+    const checking = !selectedIds.has(id);
+    const from = anchor ? displayed.findIndex(s => s.id === anchor) : -1;
+    const to = displayed.findIndex(s => s.id === id);
+
     setSelectedIds(prev => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      const ids = shiftKey && from !== -1 && to !== -1
+        ? displayed.slice(Math.min(from, to), Math.max(from, to) + 1).map(s => s.id)
+        : [id];
+      for (const rowId of ids) {
+        if (checking) next.add(rowId);
+        else next.delete(rowId);
+      }
       return next;
     });
   }
@@ -318,7 +338,7 @@ export default function CustomersPage() {
   }
 
   /** Books the ready orders one after another, so Upaya isn't flooded and each gets its own answer. */
-  async function sendBatchToUpaya() {
+  async function sendBatchToUpaya(services: UpayaServices) {
     const batch = upayaBatch;
     if (!batch || batch.ready.length === 0) return;
     setUpayaBatch(null);
@@ -329,7 +349,7 @@ export default function CustomersPage() {
     const failed: string[] = [];
     for (const [i, sale] of batch.ready.entries()) {
       toast.loading(`Sending ${i + 1} of ${total} to Upaya…`, { id: toastId });
-      const result = await bookSaleWithUpaya(sale.id).catch(() => null);
+      const result = await bookSaleWithUpaya(sale.id, services[sale.id] ?? DOOR_TO_DOOR).catch(() => null);
       if (result?.ok) booked += 1;
       else failed.push(`${sale.invoiceNumber} (${result && !result.ok ? result.message : "no connection"})`);
       if (i < total - 1) await new Promise(resolve => setTimeout(resolve, 300));
@@ -349,12 +369,12 @@ export default function CustomersPage() {
 
   function askBulkDelete() {
     setRestock(false);
-    setDeleteCount(selectedVisible.length);
+    setToDelete(selectedVisible);
     setConfirmOpen(true);
   }
 
   async function handleBulkDelete() {
-    const ids = selectedVisible.map(s => s.id);
+    const ids = toDelete.map(s => s.id);
     const result = await mutate(() => deleteSales(ids, { restock }), {
       success: data => `Deleted ${data.deleted} order${data.deleted === 1 ? "" : "s"}${data.restocked ? ` and returned ${data.restocked} unit${data.restocked === 1 ? "" : "s"} to stock` : ""}.`,
     });
@@ -364,11 +384,14 @@ export default function CustomersPage() {
     await refetch();
   }
 
+  /** Exports the ticked orders when any are ticked, otherwise every order the filters show. */
   function exportCsv() {
+    const rows = selectedVisible.length > 0 ? selectedVisible : filtered;
+    const which = selectedVisible.length > 0 ? "selected" : "filtered";
     downloadCsv(
-      `karmify-orders-${new Date().toISOString().slice(0, 10)}.csv`,
-      ["Date", "Order ID", "Source", "Customer ID", "Customer", "Phone", "Address", "Total", "COD Amount", "Delivery Amount", "Delivery Status", "Payment Status", "Upaya Tracking Code", "Upaya Status"],
-      filtered.map(s => [
+      `karmify-orders-${which}-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Date", "Order ID", "Source", "Customer ID", "Customer", "Phone", "Address", "Items", "Total", "COD Amount", "Delivery Amount", "Delivery Status", "Payment Status", "Upaya Tracking Code", "Upaya Status"],
+      rows.map(s => [
         new Date(s.createdAt).toLocaleString(),
         s.invoiceNumber,
         s.source,
@@ -376,6 +399,7 @@ export default function CustomersPage() {
         s.customerName,
         s.customerPhone,
         s.customerAddress,
+        s.items.map(item => `${item.quantity} x ${itemName(item)}`).join("; "),
         s.totalAmount,
         s.codAmount,
         s.deliveryAmount,
@@ -385,7 +409,7 @@ export default function CustomersPage() {
         s.courierStatus ? courierStatusLabel(s.courierStatus) : "",
       ])
     );
-    toast.success(`Exported ${filtered.length} order${filtered.length === 1 ? "" : "s"}.`);
+    toast.success(`Exported ${rows.length} ${which} order${rows.length === 1 ? "" : "s"}.`);
   }
 
   function startEdit(sale: Sale) {
@@ -433,6 +457,8 @@ export default function CustomersPage() {
     setEditForm(f => ({ ...f, [field]: e.target.value }));
 
   const hasOpenShipments = sales.some(s => s.courierTrackingCode && !COURIER_FINAL_STATUSES.includes(s.courierStatus ?? ""));
+  // Upaya statuses update in the list on their own, without opening each order's tracking popup.
+  useCourierAutoRefresh(hasOpenShipments, () => refetch({ quiet: true }));
   const iconButton = "w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors";
   // Opaque and sticky, with its bottom line drawn as a shadow (borders don't stick with the cell).
   const stickyTh = "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_hsl(var(--border))]";
@@ -475,7 +501,7 @@ export default function CustomersPage() {
             />
           </div>
           <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px]">
-            <Download size={14} /> Export
+            <Download size={14} /> {selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}
           </Button>
           <Button variant="secondary" onClick={handleSyncWebsiteOrders} disabled={syncing} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap">
             <RefreshCw size={14} className={cn(syncing && "animate-spin")} /> {syncing ? "Syncing..." : "Sync Website"}
@@ -584,6 +610,9 @@ export default function CustomersPage() {
             <Button variant="secondary" onClick={() => setReceiptSales(selectedVisible)} className="px-3 py-1.5 text-xs rounded-lg">
               <Receipt size={13} /> Print receipts
             </Button>
+            <Button variant="secondary" onClick={exportCsv} className="px-3 py-1.5 text-xs rounded-lg">
+              <Download size={13} /> Export
+            </Button>
             <Button variant="secondary" onClick={askBulkUpaya} disabled={sendingUpaya} className="px-3 py-1.5 text-xs rounded-lg">
               <Truck size={13} /> {sendingUpaya ? "Sending…" : "Send to Upaya"}
             </Button>
@@ -631,7 +660,12 @@ export default function CustomersPage() {
                       <input
                         type="checkbox"
                         checked={selectedIds.has(sale.id)}
-                        onChange={() => toggleSelected(sale.id)}
+                        // Click (not change) carries the Shift key; Space on the box fires a click too.
+                        onClick={e => toggleSelected(sale.id, e.shiftKey)}
+                        onChange={() => {}}
+                        // Shift-click would otherwise select the text between the rows.
+                        onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
+                        title="Shift-click to select a range"
                         aria-label={`Select order ${sale.invoiceNumber}`}
                         className="w-4 h-4 rounded border-border cursor-pointer accent-primary"
                       />
@@ -786,45 +820,7 @@ export default function CustomersPage() {
         <CourierDialog key={courierSale.id} open={showCourier} onClose={() => setShowCourier(false)} sale={courierSale} onChanged={() => refetch({ quiet: true })} />
       )}
 
-      <Modal
-        open={upayaBatch !== null}
-        onClose={() => setUpayaBatch(null)}
-        title={upayaBatch && upayaBatch.ready.length > 0 ? `Send ${upayaBatch.ready.length} order${upayaBatch.ready.length === 1 ? "" : "s"} to Upaya?` : "Nothing to send to Upaya"}
-        size="sm"
-      >
-        {upayaBatch && (
-          <div className="p-5 space-y-4 text-sm">
-            {upayaBatch.ready.length > 0 && (
-              <p className="text-muted-foreground">
-                Each is booked door to door with its hub location, COD amount and items, and Upaya will come to collect it.
-              </p>
-            )}
-            {upayaBatch.skipped.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground">Not sent ({upayaBatch.skipped.length})</p>
-                <ul className="mt-1.5 max-h-48 overflow-y-auto space-y-1 text-xs">
-                  {upayaBatch.skipped.map(({ sale, reason }) => (
-                    <li key={sale.id} className="flex gap-2">
-                      <span className="font-mono shrink-0">{sale.invoiceNumber}</span>
-                      <span className="text-muted-foreground min-w-0">{sale.customerName ?? "Walk-in"}: {reason}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            <div className="flex gap-2 pt-1">
-              <Button variant="secondary" onClick={() => setUpayaBatch(null)} className="flex-1">
-                {upayaBatch.ready.length > 0 ? "Cancel" : "Close"}
-              </Button>
-              {upayaBatch.ready.length > 0 && (
-                <Button onClick={sendBatchToUpaya} className="flex-1">
-                  <Truck size={14} /> Send {upayaBatch.ready.length}
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+      <UpayaBatchDialog batch={upayaBatch} onClose={() => setUpayaBatch(null)} onSend={sendBatchToUpaya} />
 
       {receiptSales.length > 0 && (
         <ReceiptDialog open onClose={() => setReceiptSales([])} sales={receiptSales} store={store} />
@@ -840,10 +836,38 @@ export default function CustomersPage() {
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         onConfirm={handleBulkDelete}
-        title={`Delete ${deleteCount} order${deleteCount === 1 ? "" : "s"}?`}
-        description="This can't be undone."
-        confirmLabel="Delete"
+        title={`Delete ${toDelete.length} order${toDelete.length === 1 ? "" : "s"}?`}
+        description="This can't be undone. These are the orders that will be deleted:"
+        confirmLabel={`Delete ${toDelete.length}`}
+        size="lg"
       >
+        <ul className="mt-3 max-h-[50vh] overflow-y-auto divide-y divide-border rounded-lg border border-border text-sm">
+          {toDelete.map(sale => (
+            <li key={sale.id} className="flex items-start justify-between gap-4 px-3.5 py-2.5">
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-mono text-muted-foreground">{sale.invoiceNumber}</span>
+                  <span className="font-semibold text-foreground">{sale.customerName ?? "Walk-in"}</span>
+                </p>
+                <p className="mt-0.5 text-muted-foreground">
+                  {sale.customerPhone ? `${sale.customerPhone} · ` : ""}
+                  {sale.items.reduce((n, i) => n + i.quantity, 0)} item(s) · {new Date(sale.createdAt).toLocaleDateString()}
+                </p>
+                {sale.courierTrackingCode && sale.courierStatus !== "cancelled" && (
+                  <p className="mt-0.5 font-semibold text-amber-700 dark:text-amber-400">
+                    Already with Upaya ({sale.courierTrackingCode}): deleting here doesn&apos;t cancel the pickup.
+                  </p>
+                )}
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span className="font-bold text-foreground">{formatNPR(sale.totalAmount)}</span>
+                <span className={cn("text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
+                  {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
         <label className="mt-3 flex items-start gap-2 text-sm text-foreground cursor-pointer">
           <input
             type="checkbox"

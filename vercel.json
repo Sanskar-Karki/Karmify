@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/cron/sheets-backup", "schedule": "30 18 * * *" }
+  ]
+}

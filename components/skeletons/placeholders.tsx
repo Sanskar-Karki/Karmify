@@ -200,25 +200,6 @@ export function ChartPlaceholder() {
   );
 }
 
-/** A ring and legend in place of the delivery status breakdown. */
-export function DonutPlaceholder() {
-  return (
-    <div aria-hidden="true">
-      <div className="h-44 flex items-center justify-center">
-        <Pulse className="w-36 h-36 rounded-full [mask:radial-gradient(circle,transparent_56%,#000_57%)]" />
-      </div>
-      <div className="space-y-2.5">
-        {WIDTHS.map(width => (
-          <div key={width} className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 flex-1"><Pulse className="w-2.5 h-2.5 rounded-full" /><Pulse className={cn("h-3 max-w-28", width)} /></div>
-            <Pulse className="h-3 w-6" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
     <div>
@@ -256,37 +237,75 @@ const Loading = ({ label, className, children }: { label: string; className?: st
 
 export function DashboardPlaceholder() {
   return (
-    <Loading label="Loading dashboard" className="space-y-6">
-      <div className="p-6 bg-card border border-border rounded-2xl">
-        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-foreground">Welcome back</h1>
-        <p className="text-xs text-muted-foreground mt-1">High-level performance snapshot for your store.</p>
+    <Loading label="Loading dashboard">
+      {/* Greeting + quick actions */}
+      <div className={cn(card, "flex flex-col gap-4 p-5 sm:p-6 md:flex-row md:items-center md:justify-between")}>
+        <div className="space-y-2">
+          <Pulse className="h-2.5 w-36" />
+          <Pulse className="h-6 w-56" />
+          <Pulse className="h-3 w-48" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {["w-24", "w-20", "w-28", "w-24"].map((w, i) => <Pulse key={i} className={cn("h-8 rounded-xl", w)} />)}
+        </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {["Total Sales", "Asset Valuation", "Stock Alerts"].map(label => (
-          <div key={label} className="bg-card p-6 border border-border/80 rounded-2xl space-y-2">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{label}</span>
-            <Pulse className="h-8 w-28" />
-            <Pill className="w-24 rounded-md" />
+
+      {/* Today at a glance */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {["Sales today", "Orders today", "This month", "COD still to collect"].map(label => (
+          <div key={label} className={cn(card, "p-5")}>
+            <div className="flex items-start justify-between">
+              <span className="text-xs font-semibold text-muted-foreground">{label}</span>
+              <Pulse className="h-8 w-8 rounded-lg" />
+            </div>
+            <Pulse className="mt-1 h-8 w-28" />
+            <Pulse className="mt-2 h-4 w-36" />
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {["Today's Orders", "In Transit", "Inventory Units", "Products"].map(label => (
-          <div key={label} className="bg-card p-4 border border-border/60 rounded-xl">
-            <p className="text-xs text-muted-foreground font-semibold mb-2">{label}</p>
-            <Pulse className="h-7 w-16" />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className={cn(card, "p-5 sm:p-6")}>
+          <h2 className="mb-3 text-base font-bold text-foreground">Needs attention</h2>
+          <div className="space-y-1">
+            {WIDTHS.concat(WIDTHS.slice(0, 2)).map((w, i) => (
+              <div key={i} className="flex items-center gap-3 px-2.5 py-2.5">
+                <Pulse className="h-9 w-9 shrink-0 rounded-lg" />
+                <div className="flex-1"><Lines first={w} second="w-1/2" /></div>
+                <Pulse className="h-6 w-8 rounded-md" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className={cn(card, "space-y-4 p-5 sm:p-6 lg:col-span-2")}>
+          <div className="flex items-start justify-between gap-3">
+            <CardTitle title="Sales" subtitle="Cancelled orders left out" />
+            <Pulse className="h-8 w-56 max-w-[50%] rounded-lg" />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {["Revenue", "Orders", "Average order"].map(label => (
+              <div key={label} className="rounded-xl bg-muted/40 px-3 py-2.5">
+                <p className="text-[11px] text-muted-foreground">{label}</p>
+                <Pulse className="mt-1 h-5 w-16" />
+              </div>
+            ))}
+          </div>
+          <div className="h-60"><ChartPlaceholder /></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {["Where orders are", "Best sellers", "Low stock"].map(title => (
+          <div key={title} className={cn(card, "space-y-4 p-5 sm:p-6")}>
+            <h2 className="text-base font-bold text-foreground">{title}</h2>
+            {Array.from({ length: 4 }, (_, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="flex justify-between"><Pulse className={cn("h-3", WIDTHS[i])} /><Pulse className="h-3 w-8" /></div>
+                {title === "Where orders are" && <Pulse className="h-2 w-full rounded-full" />}
+              </div>
+            ))}
           </div>
         ))}
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className={cn(card, "p-6 lg:col-span-2 space-y-3")}>
-          <CardTitle title="Revenue Trend" subtitle="Checkout value over time" />
-          <div className="h-64"><ChartPlaceholder /></div>
-        </div>
-        <div className={cn(card, "p-6")}>
-          <CardTitle title="Delivery Status" subtitle="Order fulfillment breakdown" />
-          <DonutPlaceholder />
-        </div>
       </div>
     </Loading>
   );
@@ -352,9 +371,26 @@ export function PurchasesPlaceholder() {
 export function CustomersPlaceholder() {
   return (
     <Loading label="Loading orders">
-      <PageHeading title="Customers & Orders" subtitle="Every order placed, with delivery & payment status" />
-      <Pulse className="h-28 w-full rounded-2xl" />
-      <StatCards labels={["Total Orders", "Total Revenue", "Pending Deliveries"]} valueClassName="h-8 xl:h-9" />
+      {/* Title with its one-line summary, and the toolbar */}
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-extrabold tracking-tight">Customers &amp; Orders</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-muted-foreground">
+            {["orders", "revenue", "to deliver", "unpaid"].map(label => (
+              <span key={label} className="flex items-center gap-1.5"><Pulse className="h-3.5 w-10" />{label}</span>
+            ))}
+          </div>
+        </div>
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto">
+          <Pulse className="h-9 min-w-full flex-1 rounded-lg sm:min-w-56 xl:w-64 xl:flex-none" />
+          {["w-20", "w-28", "w-28", "w-24"].map((w, i) => <Pulse key={i} className={cn("h-9 flex-1 rounded-lg sm:flex-none", w)} />)}
+        </div>
+      </div>
+      {/* Status chips and filters */}
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <Pulse className="h-9 w-full max-w-xl rounded-xl" />
+        <div className="flex gap-1.5">{["w-32", "w-36", "w-32"].map((w, i) => <Pulse key={i} className={cn("h-8 rounded-lg", w)} />)}</div>
+      </div>
       <div className={cn(card, "overflow-hidden")}><PlaceholderTable columns={ORDER_COLUMNS} /></div>
     </Loading>
   );
@@ -362,30 +398,66 @@ export function CustomersPlaceholder() {
 
 export function CustomerDetailPlaceholder() {
   return (
-    <Loading label="Loading customer" className="space-y-6">
+    <Loading label="Loading customer">
       <div className="flex items-center gap-3">
-        <Pulse className="w-9 h-9 rounded-xl shrink-0" />
-        <div className="flex-1"><Lines first="w-48 h-5" second="w-40" /></div>
+        <Pulse className="h-9 w-9 shrink-0 rounded-xl" />
+        <Pulse className="h-3 w-48" />
       </div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="p-5 sm:p-6 border-b border-border/60"><h2 className="font-bold text-base">Customer Details</h2></div>
-        <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-3 gap-5">
-          {["Name", "Phone", "Address"].map(label => (
-            <div key={label} className="space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-              <Pulse className="h-4 w-3/4" />
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+        {/* Profile */}
+        <div className="space-y-4">
+          <div className={cn(card, "overflow-hidden")}>
+            <div className="flex items-start gap-4 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-5">
+              <Pulse className="h-14 w-14 shrink-0 rounded-2xl" />
+              <div className="flex-1 space-y-2">
+                <Pulse className="h-5 w-40" />
+                <Pulse className="h-4 w-24 rounded-md" />
+                <Pulse className="h-2.5 w-32" />
+              </div>
             </div>
-          ))}
+            <div className="space-y-3 border-t border-border/60 p-5">
+              <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contact</p>
+              {["Phone", "Address"].map(label => (
+                <div key={label} className="flex items-start gap-3">
+                  <Pulse className="h-8 w-8 shrink-0 rounded-lg" />
+                  <div className="flex-1 space-y-1.5">
+                    <p className="text-[11px] text-muted-foreground">{label}</p>
+                    <Pulse className="h-3.5 w-3/4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className={cn(card, "grid grid-cols-2 gap-px overflow-hidden bg-border/60")}>
+            {["Orders", "Spent", "Average order", "Last order", "Returns", "Unpaid"].map(label => (
+              <div key={label} className="bg-card p-3.5">
+                <p className="text-[11px] font-semibold text-muted-foreground">{label}</p>
+                <Pulse className="mt-1 h-5 w-16" />
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className={cn(card, "overflow-hidden")}>
-        <div className="p-5 sm:p-6 border-b border-border/60"><h2 className="font-bold text-base">Sales History</h2></div>
-        <div className="divide-y divide-border/40">
+
+        {/* Orders */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold">Orders</h2>
+            <div className="flex gap-1.5">{["w-12", "w-20", "w-16"].map(w => <Pulse key={w} className={cn("h-6 rounded-full", w)} />)}</div>
+          </div>
           {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="p-5 flex items-center gap-4">
-              <div className="flex-1"><IconAndLines width="w-32" /></div>
-              <Pill className="hidden sm:block" />
-              <Pulse className="h-4 w-16" />
+            <div key={i} className={cn(card, "overflow-hidden")}>
+              <div className="flex items-start justify-between gap-4 p-4 sm:p-5">
+                <div className="flex-1"><IconAndLines width="w-32" size="h-10 w-10" /></div>
+                <Lines first="w-20" second="w-14" end />
+              </div>
+              <div className="flex items-center justify-between border-y border-border/50 bg-muted/30 px-4 py-2.5 sm:px-5">
+                <Pulse className="h-8 w-44 rounded-lg" />
+                <div className="flex gap-1.5"><Pulse className="h-8 w-8 rounded-lg" /><Pulse className="h-8 w-8 rounded-lg" /><Pulse className="h-8 w-14 rounded-lg" /></div>
+              </div>
+              <div className="space-y-2 p-4 sm:p-5">
+                <div className="flex justify-between"><Pulse className={cn("h-3", WIDTHS[i])} /><Pulse className="h-3 w-14" /></div>
+                <Pulse className="h-2.5 w-28" />
+              </div>
             </div>
           ))}
         </div>
@@ -404,6 +476,54 @@ export function SettingsPlaceholder() {
           <div key={i} className="space-y-2"><Pulse className="h-3 w-24" /><Pulse className="h-10 w-full rounded-xl" /></div>
         ))}
       </div>
+    </Loading>
+  );
+}
+
+const ANALYTICS_KPIS = ["Sales", "Orders", "Average order", "Items sold", "Gross profit", "Repeat customers", "Returns", "Awaiting payment"];
+
+/** The Analytics page's numbers, chart and breakdowns while sales load. */
+export function AnalyticsBodyPlaceholder() {
+  return (
+    <div aria-hidden="true" className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {ANALYTICS_KPIS.map(label => (
+          <div key={label} className={cn(card, "p-5")}>
+            <p className="text-xs font-semibold text-muted-foreground">{label}</p>
+            <Pulse className="mt-2 h-7 w-24" />
+            <Pulse className="mt-2 h-3 w-20" />
+          </div>
+        ))}
+      </div>
+      <div className={cn(card, "space-y-3 p-5")}>
+        <Pulse className="h-4 w-32" />
+        <div className="h-64"><ChartPlaceholder /></div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {Array.from({ length: 4 }, (_, n) => (
+          <div key={n} className={cn(card, "space-y-3 p-5")}>
+            <Pulse className="h-4 w-36" />
+            {WIDTHS.map((w, i) => (
+              <div key={i} className="space-y-1.5">
+                <div className="flex justify-between"><Pulse className={cn("h-3", w)} /><Pulse className="h-3 w-12" /></div>
+                <Pulse className="h-1.5 w-full rounded-full" />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function AnalyticsPlaceholder() {
+  return (
+    <Loading label="Loading analytics">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <PageHeading title="Analytics" subtitle="Sales from the shop and the website" />
+        <div className="flex flex-wrap gap-1.5">{["w-14", "w-16", "w-16", "w-20", "w-20"].map((w, i) => <Pulse key={i} className={cn("h-7 rounded-full", w)} />)}</div>
+      </div>
+      <AnalyticsBodyPlaceholder />
     </Loading>
   );
 }

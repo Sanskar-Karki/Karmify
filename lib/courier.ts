@@ -108,3 +108,23 @@ export type CourierTracking = {
   serviceChargeStatus: string | null;
   history: { at: string | null; status: string | null; by: string | null; hub: string | null; remarks: string | null }[];
 };
+
+export const DOOR_TO_DOOR = 3;
+export const DOOR_TO_BRANCH = 9;
+
+/** The two services a batch can use: almost every order is door to door, a few are collected from a branch. */
+export const BATCH_COURIER_SERVICES = [
+  { id: DOOR_TO_DOOR, label: "Door to door", short: "Door" },
+  { id: DOOR_TO_BRANCH, label: "Door to branch", short: "Branch" },
+] as const;
+
+export const isCourierService = (id: number) => COURIER_SERVICES.some(s => Number(s.value) === id);
+
+/**
+ * What Upaya collects on delivery. Paid orders (QR, or marked paid) collect
+ * nothing; otherwise what's left to pay. Website imports don't record a COD
+ * amount, and their total already includes delivery.
+ */
+export function courierCodAmount(sale: { paymentMethod: string; paymentStatus: string; codAmount: number; totalAmount: number }) {
+  return sale.paymentMethod === "QR" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount;
+}

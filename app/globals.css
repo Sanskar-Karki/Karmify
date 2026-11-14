@@ -186,16 +186,28 @@
 .animate-bounce { animation: bounce 1s infinite; }
 .duration-3000 { animation-duration: 3s; }
 
-/* Placeholder shimmer while data loads. */
+/* Placeholder shimmer while data loads. The highlight is sized to the screen
+   and fixed to it, so every placeholder on the page shares one wave sweeping
+   across instead of each block flickering on its own. Placeholders fade in
+   after a moment, so a quick load never flashes grey boxes. */
 @keyframes skeleton-shimmer {
-  from { background-position: 100% 0; }
-  to { background-position: -100% 0; }
+  from { background-position: 150vw 0; }
+  to { background-position: -50vw 0; }
+}
+@keyframes skeleton-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .skeleton-shimmer {
   background-color: hsl(var(--muted));
-  background-image: linear-gradient(100deg, transparent 30%, hsl(var(--foreground) / 0.07) 50%, transparent 70%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s linear infinite;
+  background-image: linear-gradient(100deg, transparent 0%, hsl(var(--foreground) / 0.075) 50%, transparent 100%);
+  background-size: 50vw 100%;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite, skeleton-in 0.35s ease-out 0.12s both;
+}
+.dark .skeleton-shimmer {
+  background-image: linear-gradient(100deg, transparent 0%, hsl(var(--foreground) / 0.06) 50%, transparent 100%);
 }
 
 /* Floating UI. Exit timings must stay within OVERLAY_EXIT_MS. */
@@ -211,7 +223,7 @@
   .overlay-backdrop, .overlay-panel, .popover-panel {
     animation-duration: 0.01ms !important;
   }
-  .skeleton-shimmer { animation: none; }
+  .skeleton-shimmer { animation: skeleton-in 0.35s ease-out 0.12s both; background-image: none; }
 }
 
 /* Toasts: a floating card with a tinted icon. Sonner injects its CSS after this file, hence the extra specificity. */
@@ -406,6 +418,31 @@ div.data-row:hover {
 .dock-chip svg {
   transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1), height 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* A quick squeeze while pressed, springing back on release. */
+.dock-item .dock-chip {
+  transition-property: width, height, border-radius, background-color, border-color, color, box-shadow, transform;
+  transition-duration: 0.4s, 0.4s, 0.4s, 0.3s, 0.3s, 0.3s, 0.3s, 0.35s;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1), cubic-bezier(0.22, 1, 0.36, 1), ease, ease, ease, ease, ease,
+    cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.dock-item:active .dock-chip {
+  transform: scale(0.86);
+  transition-duration: 0.4s, 0.4s, 0.4s, 0.3s, 0.3s, 0.3s, 0.3s, 0.1s;
+}
+/* The sliding highlight: scaled from its left edge, so the FLIP lines up. */
+.dock-indicator {
+  transform-origin: left center;
+}
+/* The newly selected icon hops once. */
+@keyframes dock-pop {
+  0% { transform: translateY(0) scale(1); }
+  35% { transform: translateY(-3px) scale(1.18); }
+  70% { transform: translateY(0.5px) scale(0.96); }
+  100% { transform: translateY(0) scale(1); }
+}
+.dock-pop {
+  animation: dock-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
 @media (hover: hover) and (pointer: fine) {
   .dock:not(:hover):not(:has(:focus-visible)) .dock-bar {
     padding: 0.3125rem 0.5rem;
@@ -427,5 +464,48 @@ div.data-row:hover {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .dock-bar, .dock-chip, .dock-chip svg { transition: none; }
+  .dock-bar, .dock-chip, .dock-item .dock-chip, .dock-chip svg { transition: none; }
+  .dock-pop { animation: none; }
+  .dock-item:active .dock-chip { transform: none; }
+}
+
+/*
+ * Custom cursor, the same arrow as the Karmalu website (karmalu/app/globals.css):
+ * dark with a white outline, olive over anything clickable. Text fields keep
+ * the text cursor. Unlayered so it wins over Tailwind's cursor utilities.
+ */
+html {
+  --cursor-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cpath d='M4 3.5 21.2 12.4 12.5 14.5 8.6 22.6Z' fill='%23141414' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") 4 4, auto;
+  --cursor-hand: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 26 26'%3E%3Cpath d='M4 3.5 21.2 12.4 12.5 14.5 8.6 22.6Z' fill='%2359634a' stroke='%23fff' stroke-width='1.6' stroke-linejoin='round'/%3E%3C/svg%3E") 4 4, pointer;
+}
+html,
+html body {
+  cursor: var(--cursor-arrow);
+}
+html :is(a[href], button:not(:disabled), [role="button"], label, summary, select, .cursor-pointer, [data-cursor="hover"]),
+html :is(a[href], button:not(:disabled), [role="button"], label, summary, .cursor-pointer, [data-cursor="hover"]) * {
+  cursor: var(--cursor-hand);
+}
+html :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="button"]):not([type="submit"]), textarea, [contenteditable="true"]) {
+  cursor: text;
+}
+html :is(button:disabled, [aria-disabled="true"]) {
+  cursor: not-allowed;
+}
+
+/* Notification bell: a short ring when something new arrives. */
+@keyframes bell-ring {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(14deg); }
+  30% { transform: rotate(-12deg); }
+  45% { transform: rotate(9deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+.bell-ring {
+  transform-origin: 50% 2px;
+  animation: bell-ring 0.9s ease-in-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bell-ring { animation: none; }
 }

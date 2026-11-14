@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import {
   Settings, Store, Users, Plus, ShieldCheck, Shield, Save, MapPin, Phone, Mail, Globe,
-  Truck, Edit2, Trash2,
+  Truck, Edit2, Trash2, Sheet, CheckCircle2, XCircle, CloudUpload, Clock,
 } from "lucide-react";
 import { toast } from "sonner";
-import { deleteSupplier, saveSupplier } from "@/app/actions";
+import { backupToSheetsNow, deleteSupplier, getBackupStatus, saveSupplier } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import { SupplierRowPlaceholder } from "@/components/skeletons/placeholders";
 import { Modal } from "@/components/shared/Modal";
@@ -24,6 +24,7 @@ const TABS = [
   { key: "store", label: "Store Identity", icon: Store },
   { key: "suppliers", label: "Suppliers", icon: Truck },
   { key: "team", label: "Team", icon: Users },
+  { key: "backup", label: "Backup", icon: Sheet },
 ];
 
 const STORE_FIELDS = [
@@ -286,7 +287,108 @@ export default function SettingsPage() {
       {activeTab === "store" && <StoreTab />}
       {activeTab === "suppliers" && <SuppliersTab />}
       {activeTab === "team" && <TeamTab />}
+      {activeTab === "backup" && <BackupTab />}
       </div>
 </>
+  );
+}
+
+type BackupStatus = { configured: boolean; daily: boolean; last: { ok: boolean; details: string; at: string } | null };
+
+/** Google Sheets backup: how the last one went, and buttons to send one now. */
+function BackupTab() {
+  const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [running, setRunning] = useState<"today" | "yesterday" | null>(null);
+
+  async function load() {
+    const result = await getBackupStatus().catch(() => null);
+    setStatus(result?.ok ? result.data : null);
+    setLoaded(true);
+  }
+
+  useEffect(() => {
+    let alive = true;
+    getBackupStatus()
+      .catch(() => null)
+      .then(result => {
+        if (!alive) return;
+        setStatus(result?.ok ? result.data : null);
+        setLoaded(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function run(day: "today" | "yesterday") {
+    setRunning(day);
+    const result = await mutate(() => backupToSheetsNow(day), {
+      loading: `Backing up ${day} to Google Sheets…`,
+      success: data => `Backed up ${data.date}: ${data.orders} order${data.orders === 1 ? "" : "s"} and ${data.customers} customers.`,
+    });
+    setRunning(null);
+    if (result.ok || status) await load();
+  }
+
+  return (
+    <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="p-5 sm:p-6 border-b border-border/60">
+        <h2 className="font-bold text-base">Google Sheets backup</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Every night at 00:15 Nepal time, the day&apos;s orders are added to the Sheet&apos;s Orders tab and the Customers tab is refreshed.
+        </p>
+      </div>
+
+      <div className="p-5 sm:p-6 space-y-5">
+        {!loaded ? (
+          <div className="space-y-2"><div className="skeleton-shimmer h-4 w-48 rounded" /><div className="skeleton-shimmer h-3 w-72 rounded" /></div>
+        ) : !status?.configured ? (
+          <div className="rounded-xl border border-amber-300/60 bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <p className="font-semibold">Not set up yet</p>
+            <p className="mt-1 text-xs">
+              Create the Sheet and its script, then add SHEETS_BACKUP_URL, SHEETS_BACKUP_SECRET, SHEETS_BACKUP_STORE_ID and CRON_SECRET to
+              the server&apos;s environment. The steps are in <span className="font-mono">docs/google-sheets-backup.md</span>.
+            </p>
+          </div>
+        ) : (
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-border/60 p-4">
+              <dt className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground"><Clock size={12} /> Daily backup</dt>
+              <dd className={cn("mt-1 text-sm font-bold", status.daily ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>
+                {status.daily ? "On, every night at 00:15" : "Off for this store"}
+              </dd>
+              {!status.daily && <dd className="mt-0.5 text-[11px] text-muted-foreground">Set SHEETS_BACKUP_STORE_ID to this store and add CRON_SECRET.</dd>}
+            </div>
+            <div className="rounded-xl border border-border/60 p-4">
+              <dt className="text-xs font-semibold text-muted-foreground">Last backup</dt>
+              {status.last ? (
+                <>
+                  <dd className={cn("mt-1 flex items-center gap-1.5 text-sm font-bold", status.last.ok ? "text-foreground" : "text-red-600 dark:text-red-400")}>
+                    {status.last.ok ? <CheckCircle2 size={14} className="text-emerald-500" /> : <XCircle size={14} />}
+                    {new Date(status.last.at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                  </dd>
+                  <dd className="mt-0.5 text-[11px] text-muted-foreground break-words">{status.last.details}</dd>
+                </>
+              ) : (
+                <dd className="mt-1 text-sm text-muted-foreground">None yet</dd>
+              )}
+            </div>
+          </dl>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => run("today")} loading={running === "today"} disabled={running !== null || !status?.configured}>
+            {running !== "today" && <CloudUpload size={15} />} Back up today
+          </Button>
+          <Button variant="secondary" onClick={() => run("yesterday")} loading={running === "yesterday"} disabled={running !== null || !status?.configured}>
+            Back up yesterday
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Sending a day again replaces that day&apos;s rows in the Sheet, so nothing is duplicated. &quot;Today&quot; includes orders so far.
+        </p>
+      </div>
+    </div>
   );
 }
