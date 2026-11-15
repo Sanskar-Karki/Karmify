@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Search, Users, ChevronRight, Plus, Edit2, X, Calendar, RefreshCw, Globe, Trash2,
-  ShoppingBag, Wallet, Truck, Download, Tag, Receipt,
+  ShoppingBag, Wallet, Truck, Download, Tag, Receipt, ClipboardList,
 } from "lucide-react";
+import { PackingListDialog } from "@/components/orders/PackingListDialog";
 import { toast } from "sonner";
 import { updateDeliveryStatuses, updateSaleDetails, syncWebsiteOrders, deleteSales, refreshCourierShipments, bookSaleWithUpaya } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
@@ -168,6 +169,7 @@ export default function CustomersPage() {
   const [toDelete, setToDelete] = useState<Sale[]>([]);
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkLabelsOpen, setBulkLabelsOpen] = useState(false);
+  const [packingOpen, setPackingOpen] = useState(false);
   // Receipts to print: one order's (row button) or the ticked ones (bulk).
   const [receiptSales, setReceiptSales] = useState<Sale[]>([]);
   const [restock, setRestock] = useState(false);
@@ -612,6 +614,9 @@ export default function CustomersPage() {
               className="w-36"
               triggerClassName="px-3 py-1.5 text-xs rounded-lg"
             />
+            <Button variant="secondary" onClick={() => setPackingOpen(true)} className="px-3 py-1.5 text-xs rounded-lg">
+              <ClipboardList size={13} /> Packing list
+            </Button>
             <Button variant="secondary" onClick={() => setBulkLabelsOpen(true)} className="px-3 py-1.5 text-xs rounded-lg">
               <Tag size={13} /> Print labels
             </Button>
@@ -664,16 +669,19 @@ export default function CustomersPage() {
                 const key = customerKey(sale);
                 return (
                   <tr key={sale.id} onClick={(e) => openCustomer(e, key)} className={cn("data-row cursor-pointer", selectedIds.has(sale.id) && "bg-primary/5")}>
-                    <td className="px-5 py-3.5">
+                    {/* The whole cell ticks the box (a click on the box lands here too), so a Shift-click
+                        just beside the small box still selects the range instead of doing nothing. */}
+                    <td
+                      className="px-5 py-3.5 cursor-pointer"
+                      onClick={e => { e.stopPropagation(); toggleSelected(sale.id, e.shiftKey); }}
+                      // Shift-click would otherwise select the text between the rows.
+                      onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
+                      title="Shift-click to select a range"
+                    >
                       <input
                         type="checkbox"
                         checked={selectedIds.has(sale.id)}
-                        // Click (not change) carries the Shift key; Space on the box fires a click too.
-                        onClick={e => toggleSelected(sale.id, e.shiftKey)}
                         onChange={() => {}}
-                        // Shift-click would otherwise select the text between the rows.
-                        onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
-                        title="Shift-click to select a range"
                         aria-label={`Select order ${sale.invoiceNumber}`}
                         className="w-4 h-4 rounded border-border cursor-pointer accent-primary"
                       />
@@ -843,6 +851,9 @@ export default function CustomersPage() {
 
       {receiptSales.length > 0 && (
         <ReceiptDialog open onClose={() => setReceiptSales([])} sales={receiptSales} store={store} />
+      )}
+      {packingOpen && selectedVisible.length > 0 && (
+        <PackingListDialog open={packingOpen} onClose={() => setPackingOpen(false)} orders={selectedVisible} />
       )}
       {bulkLabelsOpen && selectedVisible.length > 0 && (
         <CustomerLabelDialog open={bulkLabelsOpen} onClose={() => setBulkLabelsOpen(false)} orders={selectedVisible} store={store} />

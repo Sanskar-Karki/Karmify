@@ -107,10 +107,12 @@ export default function ProductsPage() {
   const selectedIds = products.filter(p => selected.has(p.id)).map(p => p.id);
   /** Ticks/unticks one row; with Shift held, every shown row from the last one clicked to this one follows it. */
   const pickRow = (id: string, shiftKey: boolean, rows: { id: string }[]) => {
+    // Read the last-clicked row now: the update below runs after it has moved on to this one.
+    const anchor = lastPicked.current;
     setSelected(current => {
       const next = new Set(current);
       const turnOn = !current.has(id);
-      const from = shiftKey && lastPicked.current ? rows.findIndex(r => r.id === lastPicked.current) : -1;
+      const from = shiftKey && anchor ? rows.findIndex(r => r.id === anchor) : -1;
       const to = rows.findIndex(r => r.id === id);
       const range = from >= 0 && to >= 0 ? rows.slice(Math.min(from, to), Math.max(from, to) + 1) : [{ id }];
       for (const row of range) {
@@ -245,7 +247,7 @@ export default function ProductsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
-                <th className="w-10 pl-5 pr-0 py-3.5">
+                <th className="w-12 pl-5 pr-3 py-3.5">
                   <input
                     type="checkbox"
                     aria-label="Select all shown products"
@@ -337,13 +339,20 @@ export default function ProductsPage() {
                     onClick={e => openProduct(e, p.id)}
                     className={cn("data-row group cursor-pointer", open && "bg-muted/20 border-b-0", selected.has(p.id) && "bg-primary/5")}
                   >
-                    <td data-no-open className="w-10 pl-5 pr-0 py-4">
+                    {/* The whole cell ticks the box and carries the Shift key (a change event doesn't). */}
+                    <td
+                      data-no-open
+                      className="w-12 pl-5 pr-3 py-4 cursor-pointer"
+                      onClick={e => pickRow(p.id, e.shiftKey, displayed)}
+                      onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
+                      title="Shift-click to select a range"
+                    >
                       <input
                         type="checkbox"
                         aria-label={`Select ${p.name}`}
                         className="h-4 w-4 accent-[var(--primary)] cursor-pointer align-middle"
                         checked={selected.has(p.id)}
-                        onChange={e => pickRow(p.id, (e.nativeEvent as MouseEvent).shiftKey === true, displayed)}
+                        onChange={() => {}}
                       />
                     </td>
                     <td className="px-5 py-4">

@@ -363,6 +363,14 @@
   .label-print-root, .label-print-root * { visibility: visible; }
 }
 
+/* The packing list prints alone, the same way. */
+.packing-print-root { display: none; }
+@media print {
+  body:has(> .packing-print-root) > :not(.packing-print-root) { display: none !important; }
+  .packing-print-root { display: block; }
+  .packing-print-root, .packing-print-root * { visibility: visible; }
+}
+
 /* Receipts (one or many) print alone, the same way. */
 .receipt-print-root { display: none; }
 @media print {

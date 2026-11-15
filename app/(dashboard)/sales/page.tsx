@@ -425,7 +425,14 @@ export default function SalesPage() {
       deliveryVia: instant,
       // The shop being sold from; under "All shops", the cart's products' shop.
       brand: shop !== "all" ? shop : shopOfProducts(products.filter(p => cart.some(c => c.productId === p.id))),
-    }));
+    }), {
+      success: sale => {
+        const who = sale.customerName?.trim();
+        if (sale.kind === "pr") return `PR order ${sale.invoiceNumber} recorded for ${who}.`;
+        if (walkIn) return `Sale ${sale.invoiceNumber} completed${who ? ` for ${who}` : ""} · ${formatNPR(sale.totalAmount)}.`;
+        return `Order ${sale.invoiceNumber} added for ${who} · ${sale.paymentMethod === "COD" ? `COD ${formatNPR(sale.codAmount)}` : "paid"}.`;
+      },
+    });
     setSubmitting(false);
 
     if (!result.ok) {
