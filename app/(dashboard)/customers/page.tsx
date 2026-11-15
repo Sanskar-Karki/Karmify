@@ -27,7 +27,8 @@ import { useResources } from "@/lib/useResources";
 import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, instantCourierLabel, isPR, itemName, codToCollect } from "@/lib/orders";
+import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, instantCourierLabel, isPR, itemName, codToCollect, referralLabel, isFromAd,
+} from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -58,6 +59,7 @@ const SOURCE_FILTERS = [
   { value: "instant", label: "Sent with Yango" },
   { value: "store", label: "In store" },
   { value: "pr", label: "PR (given free)" },
+  { value: "ad", label: "From an ad" },
 ];
 
 const PAYMENT_FILTERS = [
@@ -74,6 +76,7 @@ function matchesSource(sale: Sale, source: string) {
   if (source === "upaya") return Boolean(sale.courierTrackingCode);
   if (source === "instant") return Boolean(sale.deliveryVia);
   if (source === "pr") return sale.kind === "pr";
+  if (source === "ad") return isFromAd(sale.referral);
   return channelOf(sale) === "store";
 }
 
@@ -736,6 +739,9 @@ export default function CustomersPage() {
                       <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
                         {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
                       </span>
+                      {referralLabel(sale.referral) && (
+                        <p className="mt-1 text-[10px] font-bold text-violet-700 dark:text-violet-300 whitespace-nowrap" title={sale.referral ?? ""}>from {referralLabel(sale.referral)}</p>
+                      )}
                       {instantCourierLabel(sale.deliveryVia) && (
                         <p className="mt-1 text-[10px] font-bold text-sky-700 dark:text-sky-300 whitespace-nowrap">via {instantCourierLabel(sale.deliveryVia)}</p>
                       )}

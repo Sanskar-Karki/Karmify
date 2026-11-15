@@ -55,7 +55,17 @@ type WebsiteAddress = {
   upayaLocationId?: number;
   upayaAreaTitle?: string;
   upayaHub?: string;
+  /** Where the customer came from (UTM tags / referring site), saved by the website at checkout. */
+  source?: { source?: string; medium?: string; campaign?: string; content?: string; landing?: string };
 };
+
+/** "instagram · paid · hoodie-reel · /product/x" from the website's source, or null. */
+function referralText(address: WebsiteAddress | null) {
+  const s = address?.source;
+  if (!s || typeof s !== "object" || typeof s.source !== "string" || !s.source.trim()) return null;
+  const part = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 80) : "");
+  return [part(s.source), part(s.medium), part(s.campaign), part(s.content), part(s.landing)].filter(Boolean).join(" · ").slice(0, 300);
+}
 
 export type WebsiteOrderRow = {
   order_id: string;
@@ -284,6 +294,7 @@ export function importWebsiteOrder(storeId: string, warehouseId: string, row: We
         brand: row.brand === "decor" ? "decor" : row.brand === "originals" || row.brand === "activewear" ? "originals" : null,
         externalOrderId: row.order_id,
         notes: row.notes?.trim().slice(0, 1000) || null,
+        referral: referralText(row.address),
         createdAt: new Date(row.created_at),
         items: { create: itemsData.map(({ productId, quantity, unitPrice, variant, variantId }) => ({ productId, quantity, unitPrice, variant, variantId })) },
       },

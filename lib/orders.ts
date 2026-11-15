@@ -85,6 +85,22 @@ export const PAYMENT_STYLES: Record<string, string> = {
 export const codToCollect = (sale: { paymentMethod: string; paymentStatus?: string | null; codAmount: number; totalAmount: number }) =>
   sale.paymentMethod !== "COD" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount;
 
+const SITE_NAMES: Record<string, string> = { instagram: "Instagram", ig: "Instagram", facebook: "Facebook", fb: "Facebook", meta: "Meta", tiktok: "TikTok", google: "Google", youtube: "YouTube", whatsapp: "WhatsApp" };
+const PAID = /^(paid|cpc|ppc|ads?|paid[_ -]?social|sponsored)$/i;
+
+/** True when a website order came from a paid ad (UTM medium "paid", "cpc"…). */
+export const isFromAd = (referral?: string | null) => Boolean(referral && PAID.test(referral.split(" · ")[1] ?? ""));
+
+/** "Instagram ad", "Facebook", "Google search"…, from Sale.referral; null when unknown. */
+export function referralLabel(referral?: string | null) {
+  if (!referral) return null;
+  const [source = "", medium = ""] = referral.split(" · ");
+  const site = SITE_NAMES[source.toLowerCase()] ?? source;
+  if (PAID.test(medium)) return `${site} ad`;
+  if (medium === "search") return `${site} search`;
+  return site;
+}
+
 /** Website imports prefix the address with a "[Brand]" tag that isn't part of it. */
 export const deliveryAddress = (address?: string | null) => (address ?? "").replace(/^\[[^\]]*\]\s*/, "");
 

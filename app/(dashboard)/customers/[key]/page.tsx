@@ -4,7 +4,7 @@ import React, { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Users, X, Zap,
+  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, Megaphone, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Users, X, Zap,
 } from "lucide-react";
 import { ReturnDialog } from "@/components/orders/ReturnDialog";
 import { toast } from "sonner";
@@ -15,7 +15,7 @@ import { useResources } from "@/lib/useResources";
 import { mutate } from "@/lib/mutate";
 import {
   contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, INSTANT_COURIERS, instantCourierLabel,
-  isPR, itemOptionsText, PAYMENT_STYLES, codToCollect,
+  isPR, itemOptionsText, PAYMENT_STYLES, codToCollect, referralLabel,
 } from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
@@ -439,6 +439,11 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
                   <Gift size={10} /> PR · free
                 </span>
               )}
+              {referralLabel(sale.referral) && (
+                <span title={sale.referral ?? ""} className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                  <Megaphone size={10} /> {referralLabel(sale.referral)}
+                </span>
+              )}
               {instantCourierLabel(sale.deliveryVia) && (
                 <span className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
                   <Zap size={10} /> {instantCourierLabel(sale.deliveryVia)}
@@ -595,6 +600,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
             </p>
             {sale.courierAreaTitle && <p className="pl-[18px] text-[11px] text-muted-foreground">Hub: {sale.courierAreaTitle}</p>}
             {instantCourierLabel(sale.deliveryVia) && <p className="pl-[18px] text-[11px] text-muted-foreground">Sent with {instantCourierLabel(sale.deliveryVia)} (instant delivery)</p>}
+            {sale.referral && <p className="pl-[18px] text-[11px] text-muted-foreground break-words">Came from: {sale.referral}</p>}
             {isPR(sale) && (
               <p className="pl-[18px] text-[11px] text-muted-foreground">
                 Given free: {formatNPR(sale.items.reduce((n, i) => n + i.quantity * i.unitPrice, 0))} of goods, not counted as a sale.

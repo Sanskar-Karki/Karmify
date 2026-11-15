@@ -300,6 +300,7 @@ model Sale {
   brand           String? // "originals" | "decor": which shop the sale belongs to (null = not set)
   kind            String         @default("sale") // "sale" | "pr" (given away free for promotion: stock goes out, no money comes in)
   deliveryVia     String? // "yango": a walk-in paid at the till and sent with Yango (null = studio, Upaya or other)
+  referral        String? // Website orders: where the customer came from, "source · medium · campaign · /landing" (e.g. "instagram · paid · hoodie-reel · /product/x")
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
