@@ -134,6 +134,10 @@ const SHOP_COLOURS: Record<string, string> = {
   nude: "#e3bc9a", camel: "#c19a6b", mocha: "#6f4e37", sage: "#9caf88", mint: "#9ad8c2",
   "army green": "#4b5320", "bottle green": "#006a4e", denim: "#3b5b92", lilac: "#c8a2c8",
   "dusty pink": "#d8a7b1", "baby pink": "#f4c2c2",
+  // Everyday names, listed so their dot is the same when drawn on the server.
+  black: "#111111", white: "#ffffff", navy: "#1f2a44", grey: "#8a8a8a", gray: "#8a8a8a", beige: "#e8dcc4",
+  brown: "#6b4423", maroon: "#800000", olive: "#708238", khaki: "#c3b091", red: "#c62828", blue: "#1e5bb8",
+  green: "#2e7d32", pink: "#f06292", yellow: "#f2c94c", purple: "#6a1b9a", orange: "#ef6c00",
 };
 const NOT_COLOURS = new Set(["inherit", "initial", "unset", "revert", "currentcolor", "transparent"]);
 
@@ -147,7 +151,8 @@ function swatchFor(colour: string): string | null {
   return typeof CSS !== "undefined" && CSS.supports("color", word) ? word : null;
 }
 
-function Swatch({ colour }: { colour: string }) {
+/** A small dot in the colour named (dashed when the name isn't a known colour). */
+export function Swatch({ colour }: { colour: string }) {
   const fill = swatchFor(colour);
   return (
     <span
@@ -308,6 +313,86 @@ export function VariantMatrix({
             <Edit2 size={12} /> Edit stock
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Picking a size/colour to sell: colours down the side, sizes across the top,
+ * so every size sits in its own column and every colour on its own row. Each
+ * cell is a button with what's left; sizes a colour doesn't come in show "–".
+ */
+export function VariantPicker({
+  variants,
+  available,
+  onPick,
+}: {
+  variants: VariantStockRow[];
+  /** What can still be sold of one stock row (its stock less what's already in the cart). */
+  available: (variantId: string) => number;
+  onPick: (variantId: string) => void;
+}) {
+  const grid = buildGrid(variants);
+  const hasSizes = grid.sizes.some(s => s.key);
+  const hasColours = grid.colours.some(c => c.key);
+  // Sizes only: no colour column. Colours only: one "Add" column beside the colour names.
+  const columns = `${hasColours ? "minmax(5rem, auto) " : ""}repeat(${grid.sizes.length}, minmax(3.5rem, 1fr))`;
+  const quiet = "text-[11px] font-bold uppercase tracking-wider text-muted-foreground";
+
+  return (
+    <div className="overflow-x-auto">
+      <div role="grid" aria-label="Choose size and colour" className="grid gap-1.5 min-w-max sm:min-w-0" style={{ gridTemplateColumns: columns }}>
+        <div role="row" className="contents">
+          {hasColours && <div role="columnheader" className={cn("self-end pb-1", quiet)}>Colour</div>}
+          {grid.sizes.map(s => (
+            <div key={s.key} role="columnheader" className="self-end pb-1 text-center text-sm font-extrabold text-foreground">
+              {s.key ? s.label : hasSizes ? "One size" : ""}
+            </div>
+          ))}
+        </div>
+        {grid.colours.map(c => (
+          <div key={c.key} role="row" className="contents">
+            {hasColours && (
+              <div role="rowheader" className="flex items-center gap-2 pr-2 text-sm font-semibold text-foreground whitespace-nowrap">
+                {c.key ? <><Swatch colour={c.label} />{c.label}</> : "No colour"}
+              </div>
+            )}
+            {grid.sizes.map(s => {
+              const id = grid.ids.get(cellKey(c.key, s.key));
+              const name = optionName(s, c) || "this product";
+              if (!id) {
+                return (
+                  <div key={s.key} role="gridcell" title={`${name}: not stocked`} className="flex h-14 items-center justify-center rounded-xl border border-dashed border-border/40 text-muted-foreground/40">
+                    –
+                  </div>
+                );
+              }
+              const left = available(id);
+              return (
+                <div key={s.key} role="gridcell">
+                  <button
+                    type="button"
+                    disabled={left <= 0}
+                    onClick={() => onPick(id)}
+                    aria-label={`${name}: ${left <= 0 ? "sold out" : `${left} left`}`}
+                    className={cn(
+                      "flex h-14 w-full flex-col items-center justify-center rounded-xl border px-1 transition-all",
+                      left <= 0
+                        ? "cursor-not-allowed border-border/40 bg-muted/40 text-muted-foreground/60"
+                        : "cursor-pointer border-border/80 bg-card hover:border-primary/60 hover:bg-primary/5 active:scale-[0.97]"
+                    )}
+                  >
+                    <span className="text-sm font-extrabold leading-tight">{s.key ? s.label : "Add"}</span>
+                    <span className={cn("text-[11px] font-semibold tabular-nums leading-tight", left <= 0 ? "" : left <= LOW_VARIANT_STOCK ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+                      {left <= 0 ? "Sold out" : `${left} left`}
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -20,11 +20,18 @@ import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, deliveryAddress, itemOptionsText, PAYMENT_STYLES } from "@/lib/orders";
+import { countsAsSale, deliveryAddress, itemOptions, itemOptionsText, PAYMENT_STYLES } from "@/lib/orders";
 import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
 import { shopOfProducts, useShop } from "@/lib/shop";
-import { sortVariants } from "@/components/shared/VariantStock";
+import { Swatch, VariantPicker } from "@/components/shared/VariantStock";
+
+/** "size", "colour" or "colour and size": what a product makes you choose. */
+const pickAxes = (p: { variants: { size: string; color: string }[] }) => {
+  const sizes = p.variants.some(v => v.size.trim());
+  const colours = p.variants.some(v => v.color.trim());
+  return sizes && colours ? "colour and size" : colours ? "colour" : "size";
+};
 import type { ActionResult, Product, Sale } from "@/lib/types";
 
 interface CartItem {
@@ -807,7 +814,7 @@ export default function SalesPage() {
             </div>
 
             {/* Cart Items */}
-            <div className="divide-y divide-border/30 max-h-64 overflow-y-auto">
+            <div className="divide-y divide-border/40 max-h-[28rem] overflow-y-auto">
               {cart.length === 0 ? (
                 <div className="flex flex-col items-center py-10 text-center text-muted-foreground gap-2">
                   <ShoppingCart size={28} className="opacity-30" />
@@ -815,49 +822,88 @@ export default function SalesPage() {
                   <p className="text-[11px]">Tap a product or scan a barcode to add it.</p>
                 </div>
               ) : (
-                cart.map(item => (
-                  <div key={lineKey(item)} className="flex items-center gap-2 sm:gap-3 px-4 py-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold leading-snug break-words">{item.name}</p>
-                      {item.variantLabel && (
-                        <p className="text-[11px] font-medium text-muted-foreground">{itemOptionsText({ variant: item.variantLabel })}</p>
-                      )}
-                      <div className="mt-1 flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          inputMode="decimal"
-                          min={0}
-                          max={item.listPrice}
-                          value={item.unitPrice}
-                          onChange={e => setPrice(item, parseFloat(e.target.value))}
-                          onFocus={e => e.target.select()}
-                          aria-label={`Price of ${item.name}`}
-                          title="Lower the price to give a discount"
-                          className="w-20 h-7 px-2 text-[12px] font-semibold rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        />
-                        {item.unitPrice < item.listPrice && (
-                          <span className="text-[11px] text-muted-foreground line-through">{formatNPR(item.listPrice)}</span>
-                        )}
+                cart.map(item => {
+                  const product = products.find(p => p.id === item.productId);
+                  const { size, color } = itemOptions({ variant: item.variantLabel });
+                  const inStock = lineStock(item);
+                  const discounted = item.unitPrice < item.listPrice;
+                  return (
+                    <div key={lineKey(item)} className="px-4 py-3.5 space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="w-12 h-12 shrink-0 rounded-lg bg-primary/10 border border-border/40 flex items-center justify-center overflow-hidden">
+                          {product?.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={product.imageUrl} alt="" loading="lazy" className="w-full h-full object-cover" />
+                          ) : (
+                            <Package size={16} className="text-primary/70" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold leading-snug text-foreground break-words">{item.name}</p>
+                          {(size || color) && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {size && (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] text-muted-foreground">
+                                  Size <span className="font-extrabold text-foreground">{size}</span>
+                                </span>
+                              )}
+                              {color && (
+                                <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-[11px] font-bold text-foreground">
+                                  <Swatch colour={color} /> {color}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          <p className="mt-1 text-[11px] text-muted-foreground">
+                            {formatNPR(item.listPrice)} each · <span className={cn(inStock - item.quantity <= 0 && "font-semibold text-amber-600 dark:text-amber-400")}>{inStock} in stock</span>
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => removeFromCart(item)} aria-label={`Remove ${item.name}`} title="Remove" className="w-8 h-8 -mr-1 -mt-1 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-500/10 shrink-0"><X size={15} /></button>
+                      </div>
+                      <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2 sm:pl-[3.75rem]">
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Price</span>
+                          <span className="relative">
+                            <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">Rs</span>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min={0}
+                              max={item.listPrice}
+                              value={item.unitPrice}
+                              onChange={e => setPrice(item, parseFloat(e.target.value))}
+                              onFocus={e => e.target.select()}
+                              aria-label={`Price of ${item.name}`}
+                              title="Lower the price to give a discount"
+                              className={cn("w-24 h-9 pl-7 pr-2 text-[13px] font-semibold rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none", discounted ? "border-primary/50" : "border-border")}
+                            />
+                          </span>
+                        </label>
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Qty</span>
+                          <div className="flex items-center gap-1">
+                            <button type="button" onClick={() => updateQty(item, -1)} disabled={item.quantity <= 1} aria-label={`Decrease ${item.name}`} className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70 disabled:opacity-40"><Minus size={12} /></button>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={1}
+                              value={item.quantity}
+                              onChange={e => setQty(item, parseInt(e.target.value, 10))}
+                              onFocus={e => e.target.select()}
+                              aria-label={`Quantity of ${item.name}`}
+                              className="w-11 h-9 text-center text-sm font-bold rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                            <button type="button" onClick={() => updateQty(item, 1)} aria-label={`Increase ${item.name}`} className="w-9 h-9 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70"><Plus size={12} /></button>
+                          </div>
+                        </div>
+                        <div className="ml-auto text-right">
+                          {discounted && <p className="text-[11px] text-muted-foreground line-through">{formatNPR(item.listPrice * item.quantity)}</p>}
+                          <p className="text-sm font-extrabold text-foreground tabular-nums">{formatNPR(item.unitPrice * item.quantity)}</p>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button type="button" onClick={() => updateQty(item, -1)} disabled={item.quantity <= 1} aria-label={`Decrease ${item.name}`} className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70 disabled:opacity-40"><Minus size={11} /></button>
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min={1}
-                        value={item.quantity}
-                        onChange={e => setQty(item, parseInt(e.target.value, 10))}
-                        onFocus={e => e.target.select()}
-                        aria-label={`Quantity of ${item.name}`}
-                        className="w-10 h-8 text-center text-xs font-bold rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                      />
-                      <button type="button" onClick={() => updateQty(item, 1)} aria-label={`Increase ${item.name}`} className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center hover:bg-muted/70"><Plus size={11} /></button>
-                    </div>
-                    <span className="text-xs font-bold w-20 text-right shrink-0">{formatNPR(item.unitPrice * item.quantity)}</span>
-                    <button type="button" onClick={() => removeFromCart(item)} aria-label={`Remove ${item.name}`} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-500/10 shrink-0"><X size={14} /></button>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
@@ -955,25 +1001,22 @@ export default function SalesPage() {
       )}
 
       {/* Size / colour picker */}
-      <Modal open={picking !== null} onClose={() => setPicking(null)} title={picking ? `${picking.name}: pick size` : "Pick size"} size="sm">
+      <Modal
+        open={picking !== null}
+        onClose={() => setPicking(null)}
+        title={picking ? `${picking.name}: pick ${pickAxes(picking)}` : "Pick size"}
+        size={picking && new Set(picking.variants.map(v => v.size.trim().toLowerCase())).size > 4 ? "lg" : "md"}
+      >
         {picking && (
-          <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {sortVariants(picking.variants).map(v => {
-              const label = [v.size, v.color].filter(Boolean).join(" · ") || "Standard";
-              const left = v.quantity - (cart.find(c => c.variantId === v.id)?.quantity ?? 0);
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  disabled={left <= 0}
-                  onClick={() => addToCart(picking, v)}
-                  className={cn("flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-xl border text-left transition-all", left <= 0 ? "opacity-40 cursor-not-allowed border-border/40" : "border-border/80 hover:border-primary/50 hover:bg-primary/5 cursor-pointer")}
-                >
-                  <span className="text-sm font-bold">{label}</span>
-                  <span className="text-[11px] text-muted-foreground">{left <= 0 ? "Sold out" : `${left} left`}</span>
-                </button>
-              );
-            })}
+          <div className="p-4 sm:p-5">
+            <VariantPicker
+              variants={picking.variants}
+              available={id => (picking.variants.find(v => v.id === id)?.quantity ?? 0) - (cart.find(c => c.variantId === id)?.quantity ?? 0)}
+              onPick={id => {
+                const v = picking.variants.find(x => x.id === id);
+                if (v) addToCart(picking, v);
+              }}
+            />
           </div>
         )}
       </Modal>
