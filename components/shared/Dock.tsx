@@ -11,7 +11,6 @@ import {
   Package,
   ArrowLeftRight,
   ShoppingCart,
-  TrendingUp,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -25,10 +24,10 @@ interface DockItem {
 const dockItems: DockItem[] = [
   { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { name: "Analytics", href: "/analytics", icon: ChartColumn },
-  { name: "Customers", href: "/customers", icon: Users },
-  { name: "Products", href: "/products", icon: Package },
   { name: "Inventory", href: "/inventory", icon: ArrowLeftRight },
-  { name: "Purchases", href: "/purchases", icon: TrendingUp },
+  { name: "Products", href: "/products", icon: Package },
+  { name: "Customers", href: "/customers", icon: Users },
+  // Purchases is hidden for now (the page still exists at /purchases).
   { name: "POS & Sales", href: "/sales", icon: ShoppingCart },
 ];
 

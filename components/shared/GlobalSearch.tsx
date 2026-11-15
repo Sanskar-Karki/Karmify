@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExtern
 import { useRouter } from "next/navigation";
 import {
   Search, Package, Receipt, Truck, LayoutDashboard, ChartColumn, ArrowLeftRight,
-  ShoppingCart, TrendingUp, Settings, Users, User, CornerDownLeft, X, type LucideIcon,
+  ShoppingCart, Settings, Users, User, CornerDownLeft, X, type LucideIcon,
 } from "lucide-react";
 import { cn, formatNPR } from "@/lib/utils";
 import { Popover } from "@/components/shared/Popover";
@@ -32,11 +32,10 @@ interface SearchIndex {
 const PAGES: SearchResult[] = [
   { id: "p-dashboard", type: "Page", label: "Dashboard", sub: "Overview & stats", href: "/dashboard", icon: LayoutDashboard },
   { id: "p-analytics", type: "Page", label: "Analytics", sub: "Sales in depth", href: "/analytics", icon: ChartColumn },
-  { id: "p-products", type: "Page", label: "Products", sub: "Catalog management", href: "/products", icon: Package },
   { id: "p-inventory", type: "Page", label: "Inventory", sub: "Stock & movements", href: "/inventory", icon: ArrowLeftRight },
-  { id: "p-sales", type: "Page", label: "POS & Sales", sub: "Checkout terminal", href: "/sales", icon: ShoppingCart },
-  { id: "p-purchases", type: "Page", label: "Purchases", sub: "Purchase orders", href: "/purchases", icon: TrendingUp },
+  { id: "p-products", type: "Page", label: "Products", sub: "Catalog management", href: "/products", icon: Package },
   { id: "p-customers", type: "Page", label: "Customers", sub: "Customers & orders", href: "/customers", icon: Users },
+  { id: "p-sales", type: "Page", label: "POS & Sales", sub: "Checkout terminal", href: "/sales", icon: ShoppingCart },
   { id: "p-settings", type: "Page", label: "Settings", sub: "Store & suppliers", href: "/settings", icon: Settings },
 ];
 
