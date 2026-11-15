@@ -3,11 +3,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search, Plus, Edit2, Trash2, Package, AlertTriangle, CheckCircle2,
-  ChevronDown, ChevronsUpDown, ChevronsDownUp,
+  ChevronDown, ChevronsUpDown, ChevronsDownUp, Tags, PackagePlus,
 } from "lucide-react";
+import { CategoryManager } from "@/components/products/CategoryManager";
+import { RestockDialog } from "@/components/products/RestockDialog";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ProductEditor, type EditorTarget } from "@/components/products/ProductEditor";
 import { toast } from "sonner";
 import {
-  saveProduct, deleteProduct, deleteProducts, ensureDefaultCategories,
+  deleteProduct, deleteProducts, ensureDefaultCategories,
 } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
@@ -15,78 +20,15 @@ import { PlaceholderRows, PRODUCT_COLUMNS } from "@/components/skeletons/placeho
 import { EmptyState } from "@/components/shared/EmptyState";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
-import { Dropdown } from "@/components/shared/Dropdown";
 import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
-import { Modal } from "@/components/shared/Modal";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Button } from "@/components/shared/Button";
 import { mutate } from "@/lib/mutate";
 import { useUrlState } from "@/lib/useUrlState";
 import type { Product } from "@/lib/types";
-import { SHOP_BRAND, productShop, useShop } from "@/lib/shop";
-import { VariantMatrix, summarizeVariants, variantCountLabel } from "@/components/shared/VariantStock";
-
-type ProductForm = {
-  name: string; sku: string; barcode: string; description: string; brand: string;
-  categoryId: string; supplierId: string; costPrice: number; sellingPrice: number;
-  stockQuantity: number; minStockLevel: number; status: string;
-};
-
-/** Stock for one size/colour combination. */
-type VariantRow = { size: string; color: string; quantity: number };
-
-// Sizes saved by the old editor (hidden in the description), kept readable so
-// they can be carried over the first time such a product is opened.
-type LegacyOption = { name: string; quantity: number; childGroups?: { name: string; options: LegacyOption[] }[] };
-type LegacyGroup = { name: string; options: LegacyOption[] };
-
-const STATUS_OPTIONS = [
-  { value: "active", label: "Active (shown in POS)" },
-  { value: "inactive", label: "Inactive (hidden from POS)" },
-];
-
-const emptyProduct: ProductForm = {
-  name: "", sku: "", barcode: "", description: "", brand: "",
-  categoryId: "", supplierId: "", costPrice: 0, sellingPrice: 0,
-  stockQuantity: 0, minStockLevel: 5, status: "active"
-};
-
-const generateSku = (name: string, categoryName?: string) => {
-  const safeName = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const safeCategory = (categoryName || "PRD").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  const base = safeName || "ITEM";
-  const category = safeCategory || "PRD";
-  const suffix = Math.floor(1000 + Math.random() * 9000);
-  return `${category}-${base}-${suffix}`.slice(0, 24);
-};
-
-const parseVariantPayload = (value: string) => {
-  const parts = value.split("\n").filter(Boolean);
-  const variantPart = parts.find(part => part.startsWith("__VARIANTS__:"));
-  const description = parts.filter(part => !part.startsWith("__VARIANTS__:")).join("\n");
-  if (!variantPart) return { description, variantGroups: [] as LegacyGroup[] };
-
-  try {
-    const parsed = JSON.parse(variantPart.replace("__VARIANTS__:", ""));
-    return { description, variantGroups: parsed as LegacyGroup[] };
-  } catch {
-    return { description, variantGroups: [] as LegacyGroup[] };
-  }
-};
-
-/** Old groups as rows: "Size: M → Colour: Navy (3)" becomes { size: "M", color: "Navy", quantity: 3 }. */
-const legacyRows = (groups: LegacyGroup[]): VariantRow[] => {
-  const first = groups[0];
-  if (!first) return [];
-  return first.options.flatMap(option => {
-    const child = option.childGroups?.[0];
-    return child?.options.length
-      ? child.options.map(c => ({ size: option.name, color: c.name, quantity: Number(c.quantity) || 0 }))
-      : [{ size: option.name, color: "", quantity: Number(option.quantity) || 0 }];
-  }).filter(row => row.size || row.color);
-};
-
-const splitList = (text: string) => [...new Set(text.split(/[,\n]/).map(s => s.trim()).filter(Boolean))];
+import { SHOP_BRAND, useShop } from "@/lib/shop";
+import { summarizeVariants, variantCountLabel } from "@/components/shared/VariantStock";
+import { StockTableEditor } from "@/components/products/StockTableEditor";
 
 export default function ProductsPage() {
   const { products, categories, suppliers, stocks, loading, refetch } = useResources({
@@ -98,14 +40,9 @@ export default function ProductsPage() {
   const [search, setSearch] = useUrlState("q");
   const shop = useShop();
   const [activeTab, setActiveTab] = useState("all");
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ProductForm>(emptyProduct);
-  const [variantRows, setVariantRows] = useState<VariantRow[]>([]);
-  const [sizesText, setSizesText] = useState("");
-  const [colorsText, setColorsText] = useState("");
-  const [formSnapshot, setFormSnapshot] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [restockTarget, setRestockTarget] = useState<Product | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   // Bulk actions: ticked products (by id) and the bulk-delete confirmation.
@@ -153,98 +90,17 @@ export default function ProductsPage() {
     });
   const toggleAllStock = () => setStockOpen(allStockOpen ? new Set() : new Set(withSizes.map(p => p.id)));
 
-  const formIsDirty = JSON.stringify({ form, variantRows }) !== formSnapshot;
-  const variantTotal = variantRows.reduce((sum, v) => sum + (Number(v.quantity) || 0), 0);
-  const hasVariants = variantRows.length > 0;
+  // New products go to the shop being viewed.
+  const openAdd = () => setEditorTarget({ mode: "add", brand: shop === "all" ? "" : SHOP_BRAND[shop] });
+  const openEdit = (p: Product) => setEditorTarget({ mode: "edit", product: p });
 
-  function openAdd() {
-    // New products go to the shop being viewed.
-    const next = {
-      ...emptyProduct,
-      categoryId: categories[0]?.id ?? "",
-      supplierId: suppliers[0]?.id ?? "",
-      brand: shop === "all" ? "" : SHOP_BRAND[shop],
-    };
-    setEditingId(null);
-    setForm(next);
-    setVariantRows([]);
-    setSizesText("");
-    setColorsText("");
-    setFormSnapshot(JSON.stringify({ form: next, variantRows: [] }));
-    setShowModal(true);
-  }
-
-  function openEdit(p: Product) {
-    setEditingId(p.id);
-    const { description, variantGroups: parsedGroups } = parseVariantPayload(p.description ?? "");
-    const next: ProductForm = {
-      name: p.name,
-      sku: p.sku,
-      barcode: p.barcode ?? "",
-      description,
-      brand: p.brand ?? "",
-      categoryId: p.categoryId,
-      supplierId: p.supplierId,
-      costPrice: p.costPrice,
-      sellingPrice: p.sellingPrice,
-      stockQuantity: getTotalStock(p.id),
-      minStockLevel: p.minStockLevel,
-      status: p.status,
-    };
-    setForm(next);
-    // Real rows win; otherwise carry over anything saved by the old editor.
-    const rows: VariantRow[] = p.variants.length
-      ? p.variants.map(v => ({ size: v.size, color: v.color, quantity: v.quantity }))
-      : legacyRows(parsedGroups);
-    setVariantRows(rows);
-    setSizesText("");
-    setColorsText("");
-    setFormSnapshot(JSON.stringify({ form: next, variantRows: rows }));
-    setShowModal(true);
-  }
-
-  async function handleSave() {
-    const missing: string[] = [];
-    if (!form.name.trim()) missing.push("Product Name");
-    if (!form.categoryId) missing.push("Category");
-    if (!(form.costPrice > 0)) missing.push("Cost Price");
-    if (!(form.sellingPrice > 0)) missing.push("Selling Price");
-    // A product that has sold out still has to be editable, so 0 is only
-    // rejected when creating one.
-    if (!editingId && !hasVariants && !(form.stockQuantity > 0)) missing.push("Stock");
-    if (variantRows.some(v => !v.size.trim() && !v.color.trim())) {
-      toast.error("Every size/colour row needs a size or a colour (or remove the empty row).");
-      return;
-    }
-    if (missing.length > 0) {
-      toast.error(`Please fill required fields: ${missing.join(", ")}`);
-      return;
-    }
-
-    const supplierId = form.supplierId || suppliers[0]?.id || "";
-
-    if (form.sellingPrice < form.costPrice) {
-      toast.warning("Selling price is below cost. Saving anyway.", { id: "below-cost" });
-    }
-
-    setSaving(true);
-    const result = await mutate(
-      () => saveProduct({
-        ...form,
-        description: form.description.trim(),
-        // With sizes, stock is their total; the old hidden variant text is dropped on save.
-        stockQuantity: hasVariants ? variantTotal : form.stockQuantity,
-        variants: variantRows,
-        supplierId,
-        sku: form.sku.trim() || generateSku(form.name, categoryById.get(form.categoryId)?.name),
-      }, editingId),
-      { success: editingId ? "Product updated." : "Product created." }
-    );
-    if (result.ok) {
-      setShowModal(false);
-      await refetch();
-    }
-    setSaving(false);
+  // A click anywhere on a row opens the product's page, except on its own controls.
+  const router = useRouter();
+  function openProduct(e: React.MouseEvent, id: string) {
+    if ((e.target as HTMLElement).closest("button, a, input, label, select, textarea, [data-no-open]")) return;
+    if (window.getSelection()?.toString()) return; // selecting text, not opening
+    if (e.metaKey || e.ctrlKey) window.open(`/products/${id}`, "_blank");
+    else router.push(`/products/${id}`);
   }
 
   // Only ids that still exist count (a product may have been deleted elsewhere).
@@ -309,246 +165,6 @@ export default function ProductsPage() {
       .catch(error => console.error("Failed to create default categories", error));
   }, [categories.length, loading, refetch]);
 
-  /** Adds every size × colour typed above that isn't in the table yet (at 0). */
-  function addCombinations() {
-    const sizes = splitList(sizesText);
-    const colors = splitList(colorsText);
-    if (sizes.length === 0 && colors.length === 0) {
-      toast.error("Type some sizes and/or colours first, e.g. S, M, L.");
-      return;
-    }
-    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
-    setVariantRows(current => {
-      const next = [...current];
-      for (const size of sizes.length ? sizes : [""]) {
-        for (const color of colors.length ? colors : [""]) {
-          if (!next.some(v => same(v.size, size) && same(v.color, color))) next.push({ size, color, quantity: 0 });
-        }
-      }
-      return next;
-    });
-    setSizesText("");
-    setColorsText("");
-  }
-  const updateRow = (index: number, patch: Partial<VariantRow>) =>
-    setVariantRows(current => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-
-  const productModal = (
-    <Modal
-      open={showModal}
-      onClose={() => setShowModal(false)}
-      title={editingId ? "Edit Product" : "Add New Product"}
-      size="lg"
-      busy={saving}
-      dirty={formIsDirty}
-      footer={
-        <>
-          <Button variant="secondary" onClick={() => setShowModal(false)} disabled={saving} className="flex-1">Cancel</Button>
-          <Button onClick={handleSave} loading={saving} className="flex-1">
-            {saving ? "Saving…" : editingId ? "Save Changes" : "Create Product"}
-          </Button>
-        </>
-      }
-    >
-        <div className="p-5 sm:p-6 space-y-4">
-          {/* Required fields */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="text-xs font-semibold text-muted-foreground">Product Name <span className="text-primary">*</span></label>
-              <input
-                type="text"
-                data-autofocus
-                aria-label="Product Name"
-                placeholder="e.g. ProBook Laptop 14-inch"
-                value={form.name}
-                onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">SKU</label>
-              <input
-                type="text"
-                readOnly
-                value={form.sku || "Generated when saved"}
-                aria-label="SKU"
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-muted/40 text-foreground text-sm cursor-not-allowed"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Category <span className="text-primary">*</span></label>
-              <Dropdown
-                aria-label="Category"
-                value={form.categoryId}
-                onChange={v => setForm(f => ({ ...f, categoryId: v }))}
-                disabled={categories.length === 0}
-                placeholder={categories.length === 0 ? "Setting up categories..." : "Select category..."}
-                options={categoryOptions.map(c => ({ value: c.id, label: c.name }))}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Cost Price (Rs.) <span className="text-primary">*</span></label>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.01"
-                aria-label="Cost Price"
-                placeholder="0.00"
-                value={form.costPrice || ""}
-                onChange={e => setForm(f => ({ ...f, costPrice: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40  focus:border-primary/30 transition-all hover:border-border/80"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Selling Price (Rs.) <span className="text-primary">*</span></label>
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.01"
-                aria-label="Selling Price"
-                placeholder="0.00"
-                value={form.sellingPrice || ""}
-                onChange={e => setForm(f => ({ ...f, sellingPrice: parseFloat(e.target.value) || 0 }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Stock <span className="text-primary">*</span></label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                aria-label="Stock"
-                placeholder="0"
-                value={hasVariants ? variantTotal : form.stockQuantity || ""}
-                onChange={e => setForm(f => ({ ...f, stockQuantity: Math.max(0, parseInt(e.target.value) || 0) }))}
-                disabled={hasVariants}
-                title={hasVariants ? "Total of the sizes/colours below" : undefined}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="product-min-stock" className="text-xs font-semibold text-muted-foreground">Low-stock alert at</label>
-              <input
-                id="product-min-stock"
-                type="number"
-                inputMode="numeric"
-                min={0}
-                value={form.minStockLevel}
-                onChange={e => setForm(f => ({ ...f, minStockLevel: Math.max(0, parseInt(e.target.value) || 0) }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Status</label>
-              <Dropdown aria-label="Status" value={form.status} onChange={v => setForm(f => ({ ...f, status: v }))} options={STATUS_OPTIONS} />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="product-barcode" className="text-xs font-semibold text-muted-foreground">Barcode</label>
-              <input
-                id="product-barcode"
-                value={form.barcode}
-                onChange={e => setForm(f => ({ ...f, barcode: e.target.value }))}
-                placeholder="Scan or type"
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="product-brand" className="text-xs font-semibold text-muted-foreground">Shop</label>
-              <select
-                id="product-brand"
-                value={productShop(form.brand) ? SHOP_BRAND[productShop(form.brand)!] : form.brand}
-                onChange={e => setForm(f => ({ ...f, brand: e.target.value }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 transition-all hover:border-border/80"
-              >
-                <option value="">Not set (shows under All shops only)</option>
-                <option value={SHOP_BRAND.originals}>{SHOP_BRAND.originals}</option>
-                <option value={SHOP_BRAND.decor}>{SHOP_BRAND.decor}</option>
-                {form.brand && !productShop(form.brand) && <option value={form.brand}>{form.brand}</option>}
-              </select>
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-              <label className="text-xs font-semibold text-muted-foreground">Description</label>
-              <textarea
-                rows={3}
-                placeholder="Add product description..."
-                value={form.description ?? ""}
-                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 resize-none transition-all hover:border-border/80"
-              />
-            </div>
-          </div>
-
-          <div className="border-t border-border/50 pt-3 space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">Sizes &amp; colours</h3>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                For clothing: stock per size and colour. The product&apos;s stock becomes their total, and sales take from the exact size sold.
-              </p>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
-              <label className="space-y-1">
-                <span className="text-[12px] font-semibold text-muted-foreground">Sizes</span>
-                <input value={sizesText} onChange={e => setSizesText(e.target.value)} placeholder="S, M, L, XL" className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
-              </label>
-              <label className="space-y-1">
-                <span className="text-[12px] font-semibold text-muted-foreground">Colours</span>
-                <input value={colorsText} onChange={e => setColorsText(e.target.value)} placeholder="Black, Navy" className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40" />
-              </label>
-              <button type="button" onClick={addCombinations} className="px-3 py-2 rounded-lg text-xs font-semibold bg-primary/10 text-primary hover:bg-primary/15 cursor-pointer whitespace-nowrap">
-                Create combinations
-              </button>
-            </div>
-
-            {hasVariants && (
-              <div className="rounded-xl border border-border/60 overflow-hidden">
-                <div className="grid grid-cols-[1fr_1fr_6rem_2rem] gap-2 px-3 py-2 bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                  <span>Size</span><span>Colour</span><span className="text-right">Stock</span><span />
-                </div>
-                <div className="divide-y divide-border/40 max-h-64 overflow-y-auto">
-                  {variantRows.map((row, i) => (
-                    <div key={i} className="grid grid-cols-[1fr_1fr_6rem_2rem] gap-2 px-3 py-1.5 items-center">
-                      <input value={row.size} onChange={e => updateRow(i, { size: e.target.value })} placeholder="—" aria-label={`Size ${i + 1}`} className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 py-1.5" />
-                      <input value={row.color} onChange={e => updateRow(i, { color: e.target.value })} placeholder="—" aria-label={`Colour ${i + 1}`} className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 py-1.5" />
-                      <input
-                        type="number" inputMode="numeric" min={0}
-                        value={row.quantity}
-                        onChange={e => updateRow(i, { quantity: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                        onFocus={e => e.target.select()}
-                        aria-label={`Stock for ${[row.size, row.color].filter(Boolean).join(" ") || "row " + (i + 1)}`}
-                        className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 py-1.5 text-right"
-                      />
-                      <button type="button" onClick={() => setVariantRows(rows => rows.filter((_, j) => j !== i))} aria-label="Remove row" className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 cursor-pointer">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between px-3 py-2 bg-muted/30 text-xs">
-                  <button type="button" onClick={() => setVariantRows(rows => [...rows, { size: "", color: "", quantity: 0 }])} className="font-semibold text-primary hover:underline cursor-pointer">
-                    + Add row
-                  </button>
-                  <span className="font-semibold">Total stock: {variantTotal}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-    </Modal>
-  );
-
   const bulkDeleteModal = (
     <ConfirmDialog
       open={bulkOpen}
@@ -579,10 +195,16 @@ export default function ProductsPage() {
           <h1 className="text-2xl font-extrabold tracking-tight">Product Catalog</h1>
           {loading ? <Pulse className="h-3 w-44 mt-1.5" /> : <p className="text-xs text-muted-foreground mt-0.5">{products.length} total SKUs across all categories</p>}
         </div>
-        <Button onClick={openAdd} className="shrink-0">
-          <Plus size={16} />
-          Add New Product
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button variant="secondary" onClick={() => setCategoriesOpen(true)} disabled={loading}>
+            <Tags size={16} />
+            Categories
+          </Button>
+          <Button onClick={openAdd}>
+            <Plus size={16} />
+            Add New Product
+          </Button>
+        </div>
       </div>
 
       {/* Search & Category Tabs */}
@@ -711,8 +333,11 @@ export default function ProductsPage() {
                 );
                 return (
                   <React.Fragment key={p.id}>
-                  <tr className={cn("data-row group", open && "bg-muted/20 border-b-0", selected.has(p.id) && "bg-primary/5")}>
-                    <td className="w-10 pl-5 pr-0 py-4">
+                  <tr
+                    onClick={e => openProduct(e, p.id)}
+                    className={cn("data-row group cursor-pointer", open && "bg-muted/20 border-b-0", selected.has(p.id) && "bg-primary/5")}
+                  >
+                    <td data-no-open className="w-10 pl-5 pr-0 py-4">
                       <input
                         type="checkbox"
                         aria-label={`Select ${p.name}`}
@@ -727,7 +352,7 @@ export default function ProductsPage() {
                           <Package size={16} className="text-primary/70" />
                         </div>
                         <div className="min-w-0">
-                          <p className="font-semibold text-foreground truncate max-w-[180px]">{p.name}</p>
+                          <Link href={`/products/${p.id}`} className="block font-semibold text-foreground truncate max-w-[180px] hover:text-primary hover:underline">{p.name}</Link>
                           <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{p.sku}</p>
                           {/* Category + stock surfaced here on mobile, where their dedicated columns are hidden */}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1 md:hidden">
@@ -776,6 +401,9 @@ export default function ProductsPage() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity justify-end">
+                        <button type="button" onClick={() => setRestockTarget(p)} title="Restock" aria-label={`Restock ${p.name}`} className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-muted-foreground hover:text-emerald-600 transition-colors cursor-pointer">
+                          <PackagePlus size={13} />
+                        </button>
                         <button type="button" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`} className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                           <Edit2 size={13} />
                         </button>
@@ -788,7 +416,7 @@ export default function ProductsPage() {
                   {open && (
                     <tr id={`stock-${p.id}`} className={cn("bg-muted/20", selected.has(p.id) && "bg-primary/5")}>
                       <td colSpan={8} className="px-5 pt-0 pb-4">
-                        <VariantMatrix variants={p.variants} onEdit={() => openEdit(p)} className="md:ml-10 w-fit max-w-full" />
+                        <StockTableEditor productId={p.id} variants={p.variants} onSaved={() => refetch({ quiet: true })} className="md:ml-10" />
                       </td>
                     </tr>
                   )}
@@ -801,7 +429,28 @@ export default function ProductsPage() {
         {!loading && <ShowMoreButton remaining={remaining} step={step} onClick={showMore} />}
       </div>
 
-      {productModal}
+      <ProductEditor
+        target={editorTarget}
+        categories={categories}
+        suppliers={suppliers}
+        currentStock={getTotalStock}
+        onClose={() => setEditorTarget(null)}
+        onSaved={() => refetch()}
+        onSuppliersChanged={() => refetch({ quiet: true })}
+      />
+      <CategoryManager
+        open={categoriesOpen}
+        onClose={() => setCategoriesOpen(false)}
+        categories={categories}
+        products={products}
+        onChanged={() => refetch({ quiet: true })}
+      />
+      <RestockDialog
+        product={restockTarget}
+        currentStock={restockTarget ? getTotalStock(restockTarget.id) : 0}
+        onClose={() => setRestockTarget(null)}
+        onDone={() => refetch({ quiet: true })}
+      />
       {deleteModal}
       {bulkDeleteModal}
 </>

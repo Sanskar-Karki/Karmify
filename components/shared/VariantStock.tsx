@@ -51,7 +51,8 @@ export function sortVariants<T extends { size: string; color: string }>(variants
 }
 
 type Axis = { key: string; label: string }[];
-type Grid = { sizes: Axis; colours: Axis; cells: Map<string, number> };
+/** `ids`: the stock row behind each cell, so a cell can be edited. */
+type Grid = { sizes: Axis; colours: Axis; cells: Map<string, number>; ids: Map<string, string> };
 
 const cellKey = (colour: string, size: string) => `${colour}\n${size}`;
 
@@ -60,6 +61,7 @@ function buildGrid(variants: VariantStockRow[]): Grid {
   const sizes = new Map<string, string>();
   const colours = new Map<string, string>();
   const cells = new Map<string, number>();
+  const ids = new Map<string, string>();
   for (const v of variants) {
     const s = compact(v.size);
     const c = keyOf(v.color);
@@ -67,6 +69,7 @@ function buildGrid(variants: VariantStockRow[]): Grid {
     if (!colours.has(c)) colours.set(c, v.color);
     const key = cellKey(c, s);
     cells.set(key, (cells.get(key) ?? 0) + v.quantity);
+    if (!ids.has(key)) ids.set(key, v.id);
   }
   return {
     sizes: [...sizes]
@@ -77,6 +80,7 @@ function buildGrid(variants: VariantStockRow[]): Grid {
       .sort((a, b) => Number(!a[0]) - Number(!b[0]) || a[0].localeCompare(b[0]))
       .map(([key, raw]) => ({ key, label: colourLabel(raw) })),
     cells,
+    ids,
   };
 }
 
@@ -176,13 +180,26 @@ function LegendDot({ className, label }: { className: string; label: string }) {
 export function VariantMatrix({
   variants,
   onEdit,
+  edit,
   className,
 }: {
   variants: VariantStockRow[];
   onEdit?: () => void;
+  /** Editing in place: each cell becomes a number box. `values` holds what was typed, by stock row id. */
+  edit?: { values: Record<string, string>; onChange: (variantId: string, value: string) => void };
   className?: string;
 }) {
-  const grid = buildGrid(variants);
+  const base = buildGrid(variants);
+  // While editing, totals follow what's typed.
+  const grid: Grid = edit
+    ? {
+        ...base,
+        cells: new Map([...base.cells].map(([key, quantity]) => {
+          const typed = edit.values[base.ids.get(key) ?? ""];
+          return [key, typed === undefined || typed.trim() === "" ? quantity : Math.max(0, Math.floor(Number(typed) || 0))];
+        })),
+      }
+    : base;
   const hasSizes = grid.sizes.some(s => s.key);
   const hasColours = grid.colours.some(c => c.key);
   const rowTotals = grid.sizes.length > 1;
@@ -230,7 +247,22 @@ export function VariantMatrix({
                   const name = optionName(s, c);
                   return (
                     <td key={s.key} className="p-0 text-center">
-                      {quantity === undefined ? (
+                      {quantity !== undefined && edit ? (
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={0}
+                          value={edit.values[grid.ids.get(cellKey(c.key, s.key)) ?? ""] ?? String(quantity)}
+                          onChange={e => edit.onChange(grid.ids.get(cellKey(c.key, s.key)) ?? "", e.target.value)}
+                          onFocus={e => e.target.select()}
+                          aria-label={`Stock for ${name || "this product"}`}
+                          className={cn(
+                            "h-8 w-14 rounded-lg border border-border bg-background px-1 text-center text-xs font-bold tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/40",
+                            "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+                            Number(edit.values[grid.ids.get(cellKey(c.key, s.key)) ?? ""] ?? quantity) !== base.cells.get(cellKey(c.key, s.key)) && "border-primary bg-primary/5"
+                          )}
+                        />
+                      ) : quantity === undefined ? (
                         <span title={`${name}: not stocked`} className="inline-flex h-7 min-w-11 items-center justify-center text-muted-foreground/40">
                           –
                         </span>
@@ -267,7 +299,7 @@ export function VariantMatrix({
         <LegendDot className="bg-amber-500" label={`Below ${LOW_VARIANT_STOCK + 1}`} />
         <LegendDot className="bg-red-500" label="Sold out" />
         {gaps && <span><span className="font-bold">–</span> not stocked</span>}
-        {onEdit && (
+        {onEdit && !edit && (
           <button
             type="button"
             onClick={onEdit}

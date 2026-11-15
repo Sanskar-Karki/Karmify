@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { guessClothingCategory } from "@/lib/categories";
 import { getDefaultWarehouseIdFor, logActivity, notify } from "@/lib/actions/helpers";
 import { ensureVariants, syncStockTotal } from "@/lib/variants";
 
@@ -126,7 +127,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, id: existing.id });
     }
 
+    // The clothing category the name points to (a "… Hoodie" goes to Hoodies), else Apparel, else any.
+    const guessed = guessClothingCategory(name);
     const category =
+      (guessed ? await db.category.findFirst({ where: { storeId, name: { equals: guessed, mode: "insensitive" } }, select: { id: true } }) : null) ??
       (await db.category.findFirst({ where: { storeId, name: "Apparel" }, select: { id: true } })) ??
       (await db.category.findFirst({ where: { storeId }, select: { id: true } })) ??
       (await db.category.create({ data: { storeId, name: "Apparel" }, select: { id: true } }));

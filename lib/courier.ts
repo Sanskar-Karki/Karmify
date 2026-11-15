@@ -126,5 +126,5 @@ export const isCourierService = (id: number) => COURIER_SERVICES.some(s => Numbe
  * amount, and their total already includes delivery.
  */
 export function courierCodAmount(sale: { paymentMethod: string; paymentStatus: string; codAmount: number; totalAmount: number }) {
-  return sale.paymentMethod === "QR" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount;
+  return sale.paymentMethod !== "COD" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount;
 }

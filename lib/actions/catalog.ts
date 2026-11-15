@@ -6,26 +6,10 @@ import { requireTenant } from "@/lib/tenant";
 import { logActivity, getDefaultWarehouseIdFor } from "@/lib/actions/helpers";
 import { replaceVariants, type VariantRow } from "@/lib/variants";
 import { guarded, isForeignKeyConflict, isUniqueConflict, UserError } from "@/lib/actions/result";
+import { CLOTHING_CATEGORIES, guessClothingCategory } from "@/lib/categories";
 import { revalidatePath } from "next/cache";
 
-const DEFAULT_CATEGORIES = [
-  { name: "Lamp", description: "Decorative and functional lamps" },
-  { name: "Light", description: "Lighting fixtures and bulbs" },
-  { name: "Soft Toys", description: "Plush toys and kids' soft products" },
-  { name: "Electronics Decor", description: "Decorative electronics and gadget accessories" },
-  { name: "Home Decor", description: "Decorative items for living spaces" },
-  { name: "Kitchen", description: "Kitchenware and home essentials" },
-  { name: "Fashion", description: "Clothing and accessories" },
-  { name: "Electronics", description: "Phones, gadgets, and accessories" },
-  { name: "Furniture", description: "Tables, chairs, and home furniture" },
-  { name: "Beauty", description: "Cosmetics and personal care items" },
-  { name: "Sports", description: "Athletic gear and outdoor equipment" },
-  { name: "Books", description: "Printed and digital reading materials" },
-  { name: "Toys", description: "Children's toys and entertainment products" },
-  { name: "Pet Supplies", description: "Pet food, toys, and accessories" },
-  { name: "Health", description: "Wellness and personal health products" },
-  { name: "Other", description: "Miscellaneous products" },
-];
+const DEFAULT_CATEGORIES = CLOTHING_CATEGORIES.map(({ name, description }) => ({ name, description }));
 
 /** Gives a brand-new store a starter category list. Safe to call repeatedly. */
 export async function ensureDefaultCategories() {
@@ -61,12 +45,13 @@ export async function saveSupplier(form: SupplierForm, editingId?: string | null
     const data = { ...form, companyName, notes: form.notes?.trim() || null };
 
     const tenant = await requireTenant();
+    let id: string;
     try {
       if (editingId) {
-        await db.supplier.update({ where: { id: editingId, storeId: tenant.storeId }, data });
+        ({ id } = await db.supplier.update({ where: { id: editingId, storeId: tenant.storeId }, data, select: { id: true } }));
         await logActivity(tenant, "Supplier Updated", `Supplier "${companyName}" was edited.`);
       } else {
-        await db.supplier.create({ data: { ...data, storeId: tenant.storeId } });
+        ({ id } = await db.supplier.create({ data: { ...data, storeId: tenant.storeId }, select: { id: true } }));
         await logActivity(tenant, "Supplier Created", `Supplier "${companyName}" was added.`);
       }
     } catch (err) {
@@ -75,6 +60,8 @@ export async function saveSupplier(form: SupplierForm, editingId?: string | null
     }
     revalidatePath("/settings");
     revalidatePath("/purchases");
+    revalidatePath("/products");
+    return { id };
   });
 }
 
@@ -286,5 +273,102 @@ export async function deleteProduct(id: string) {
     }
     revalidatePath("/products");
     revalidatePath("/inventory");
+  });
+}
+
+/**
+ * Switches the store to the clothing categories: adds any that are missing,
+ * moves products whose name clearly points to one (e.g. "Pu Leather Jacket" →
+ * Jackets) out of the old general categories, then removes old categories that
+ * are left empty. Products that match nothing stay where they are.
+ */
+export async function setUpClothingCategories() {
+  return guarded("Could not set up the clothing categories.", async () => {
+    const tenant = await requireTenant();
+    const storeId = tenant.storeId;
+    const clothingNames = new Set<string>(CLOTHING_CATEGORIES.map(c => c.name.toLowerCase()));
+
+    const result = await db.$transaction(async (tx) => {
+      await tx.category.createMany({
+        data: DEFAULT_CATEGORIES.map(c => ({ ...c, storeId })),
+        skipDuplicates: true,
+      });
+      const categories = await tx.category.findMany({ where: { storeId }, select: { id: true, name: true } });
+      const idByName = new Map(categories.map(c => [c.name.toLowerCase(), c.id]));
+      const oldIds = categories.filter(c => !clothingNames.has(c.name.toLowerCase())).map(c => c.id);
+
+      const products = await tx.product.findMany({
+        where: { storeId, categoryId: { in: oldIds } },
+        select: { id: true, name: true },
+      });
+      const moved: string[] = [];
+      for (const product of products) {
+        const target = guessClothingCategory(product.name);
+        const targetId = target ? idByName.get(target.toLowerCase()) : undefined;
+        if (!targetId) continue;
+        await tx.product.update({ where: { id: product.id }, data: { categoryId: targetId } });
+        moved.push(`${product.name} → ${target}`);
+      }
+
+      const stillUsed = new Set(
+        (await tx.product.groupBy({ by: ["categoryId"], where: { storeId, categoryId: { in: oldIds } } })).map(g => g.categoryId)
+      );
+      const emptyOld = categories.filter(c => oldIds.includes(c.id) && !stillUsed.has(c.id));
+      if (emptyOld.length) await tx.category.deleteMany({ where: { storeId, id: { in: emptyOld.map(c => c.id) } } });
+      return { moved, removed: emptyOld.map(c => c.name) };
+    }, { timeout: 20_000, maxWait: 10_000 });
+
+    await logActivity(
+      tenant,
+      "Categories Updated",
+      `Switched to clothing categories. Moved ${result.moved.length} product(s)${result.removed.length ? `; removed empty: ${result.removed.join(", ")}` : ""}.`
+    );
+    revalidatePath("/products");
+    return result;
+  });
+}
+
+/** Adds a category, or renames one when `editingId` is given. */
+export async function saveCategory(name: string, editingId?: string | null) {
+  return guarded("Could not save this category.", async () => {
+    const clean = name.trim().replace(/\s+/g, " ").slice(0, 60);
+    if (!clean) throw new UserError("Category name is required.");
+    const tenant = await requireTenant();
+    try {
+      if (editingId) {
+        const before = await db.category.findFirst({ where: { id: editingId, storeId: tenant.storeId }, select: { name: true } });
+        if (!before) throw new UserError("That category no longer exists. Refresh and try again.");
+        await db.category.update({ where: { id: editingId, storeId: tenant.storeId }, data: { name: clean } });
+        await logActivity(tenant, "Category Renamed", `Category "${before.name}" renamed to "${clean}".`);
+      } else {
+        await db.category.create({ data: { storeId: tenant.storeId, name: clean } });
+        await logActivity(tenant, "Category Created", `Category "${clean}" was added.`);
+      }
+    } catch (err) {
+      if (isUniqueConflict(err)) throw new UserError(`A category named "${clean}" already exists.`);
+      throw err;
+    }
+    revalidatePath("/products");
+  });
+}
+
+/** Deletes a category that has no products. */
+export async function deleteCategory(id: string) {
+  return guarded("Could not delete this category.", async () => {
+    const tenant = await requireTenant();
+    const category = await db.category.findFirst({
+      where: { id, storeId: tenant.storeId },
+      select: { name: true, _count: { select: { products: true } } },
+    });
+    if (!category) throw new UserError("That category no longer exists. Refresh and try again.");
+    if (category._count.products > 0) {
+      throw new UserError(`"${category.name}" still has ${category._count.products} product(s). Move them to another category first.`);
+    }
+    if ((await db.category.count({ where: { storeId: tenant.storeId } })) <= 1) {
+      throw new UserError("Keep at least one category: every product needs one.");
+    }
+    await db.category.delete({ where: { id, storeId: tenant.storeId } });
+    await logActivity(tenant, "Category Deleted", `Category "${category.name}" was deleted.`);
+    revalidatePath("/products");
   });
 }

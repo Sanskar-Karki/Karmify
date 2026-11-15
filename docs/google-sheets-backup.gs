@@ -22,13 +22,17 @@ function doPost(e) {
     if (!secret || data.secret !== secret) return reply({ ok: false, error: "Wrong or missing secret." });
     if (!/^\d{4}-\d{2}-\d{2}$/.test(data.date || "")) return reply({ ok: false, error: "Missing date." });
 
-    var book = SpreadsheetApp.getActiveSpreadsheet();
+    // SHEET_ID (optional script property) pins the spreadsheet; otherwise the
+    // one this script was created from (Extensions → Apps Script) is used.
+    var sheetId = PropertiesService.getScriptProperties().getProperty("SHEET_ID");
+    var book = sheetId ? SpreadsheetApp.openById(sheetId) : SpreadsheetApp.getActiveSpreadsheet();
+    if (!book) return reply({ ok: false, error: "No spreadsheet: add a SHEET_ID script property." });
     writeOrders(book, data.date, data.orderColumns, data.orders || []);
     writeCustomers(book, data.customerColumns, data.customers || []);
     sheet(book, "Backup log", ["Received", "Day", "Orders", "Customers"])
       .appendRow([new Date(), data.date, (data.orders || []).length, (data.customers || []).length]);
 
-    return reply({ ok: true, date: data.date, orders: (data.orders || []).length });
+    return reply({ ok: true, date: data.date, orders: (data.orders || []).length, spreadsheet: book.getName(), url: book.getUrl() });
   } catch (err) {
     return reply({ ok: false, error: String(err && err.message || err) });
   } finally {

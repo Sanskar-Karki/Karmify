@@ -41,7 +41,7 @@ function initialForm(sale: Sale) {
     description: sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join(", ").slice(0, 2500),
     declaredValue: String(Math.max(1, Math.round(goods))),
     // Website imports don't record a COD amount; the order total is what's due.
-    cod: sale.paymentMethod === "QR" ? "0" : String(sale.codAmount || sale.totalAmount),
+    cod: sale.paymentMethod !== "COD" ? "0" : String(sale.codAmount || sale.totalAmount),
     weight: "1",
     // The customer's own note from the website (e.g. "call before delivery"); editable before booking.
     note: (sale.notes ?? "").slice(0, 250),
@@ -240,8 +240,8 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
         </div>
         <div className="space-y-1.5">
           <label htmlFor="courier-cod" className={labelClass}>Cash to collect (Rs.)</label>
-          <input id="courier-cod" type="number" inputMode="decimal" min={0} max={500000} value={form.cod} onChange={update("cod")} disabled={sale.paymentMethod === "QR"} className={cn(fieldClass, "disabled:opacity-60")} />
-          {sale.paymentMethod === "QR" && <p className="text-[12px] text-muted-foreground">Paid by QR, so the rider collects nothing.</p>}
+          <input id="courier-cod" type="number" inputMode="decimal" min={0} max={500000} value={form.cod} onChange={update("cod")} disabled={sale.paymentMethod !== "COD"} className={cn(fieldClass, "disabled:opacity-60")} />
+          {sale.paymentMethod !== "COD" && <p className="text-[12px] text-muted-foreground">Already paid, so the rider collects nothing.</p>}
         </div>
         <div className="space-y-1.5">
           <label htmlFor="courier-declared" className={labelClass}>Declared value (Rs.)</label>

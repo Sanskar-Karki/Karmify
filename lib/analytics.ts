@@ -12,6 +12,8 @@ type AnalyticsSale = {
   customer: { code: string } | null;
   customerAddress: string | null;
   courierTrackingCode: string | null;
+  deliveryVia?: string | null;
+  kind?: string | null;
   discount: number;
   deliveryAmount: number;
   paymentMethod: string;
@@ -104,6 +106,8 @@ export type Totals = {
   grossProfit: number; unitsWithoutCost: number; discounts: number; delivery: number;
   returns: number; returnedOrders: number; returnRate: number; cancelledOrders: number;
   awaitingPayment: number; repeatShare: number;
+  /** PR orders: given free, so left out of everything above. */
+  prOrders: number; prValue: number;
 };
 
 function totalsFor(sales: AnalyticsSale[], costOf: Map<string, number>, orderCountByCustomer: Map<string, number>): Totals {
@@ -133,9 +137,21 @@ function totalsFor(sales: AnalyticsSale[], costOf: Map<string, number>, orderCou
     sales: goods, orders, averageOrder: orders ? goods / orders : 0, units,
     grossProfit: goods - cost, unitsWithoutCost, discounts, delivery,
     returns, returnedOrders, returnRate: orders ? returnedOrders / orders : 0,
-    cancelledOrders: sales.length - counted.length,
+    cancelledOrders: sales.filter(s => s.deliveryStatus === "CANCELLED").length,
+    ...prTotals(sales),
     awaitingPayment: awaiting, repeatShare: orders ? repeatOrders / orders : 0,
   };
+}
+
+/** What was given away as PR (not cancelled): orders and the goods' list value. */
+function prTotals(sales: AnalyticsSale[]) {
+  let prOrders = 0, prValue = 0;
+  for (const sale of sales) {
+    if (sale.kind !== "pr" || sale.deliveryStatus === "CANCELLED") continue;
+    prOrders += 1;
+    prValue += sale.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
+  }
+  return { prOrders, prValue };
 }
 
 const inPeriod = (sale: AnalyticsSale, start: Date, end: Date) => {
@@ -161,24 +177,27 @@ function bucketLabel(d: Date, bucket: Bucket) {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-export type ChannelKey = "website" | "upaya" | "store" | "delivery";
+export type ChannelKey = "website" | "upaya" | "instant" | "store" | "delivery";
 export const CHANNEL_LABELS: Record<ChannelKey, string> = {
   website: "Website orders",
   upaya: "Upaya delivery",
+  instant: "Yango",
   store: "In store",
   delivery: "Other shop delivery",
 };
 export const CHANNEL_NOTES: Record<ChannelKey, string> = {
   website: "Placed on karmaluoriginals.com",
   upaya: "Shop orders sent with Upaya",
+  instant: "Walk-in sales sent with Yango",
   store: "Walk-in sales at the till",
-  delivery: "Shop deliveries not sent with Upaya",
+  delivery: "Other shop deliveries",
 };
 
 /** Which channel an order belongs to. Website orders stay "website" even when Upaya delivers them. */
-export function channelOf(sale: Pick<AnalyticsSale, "source" | "courierTrackingCode" | "customerAddress" | "deliveryAmount">): ChannelKey {
+export function channelOf(sale: Pick<AnalyticsSale, "source" | "courierTrackingCode" | "customerAddress" | "deliveryAmount" | "deliveryVia">): ChannelKey {
   if (sale.source === "website") return "website";
   if (sale.courierTrackingCode) return "upaya";
+  if (sale.deliveryVia) return "instant";
   if (!sale.customerAddress?.trim() && !(sale.deliveryAmount > 0)) return "store";
   return "delivery";
 }
@@ -296,7 +315,7 @@ export function buildAnalytics(
       if (color) add(colourMap, color.toLowerCase(), titleCase(color), item.quantity);
     }
     add(brandMap, sale.brand ?? "none", sale.brand === "decor" ? "Living & Decor" : sale.brand === "originals" ? "Originals" : "Not set", value, 1);
-    add(paymentMap, sale.paymentMethod, sale.paymentMethod === "QR" ? "QR payment" : "Cash on delivery", value, 1);
+    add(paymentMap, sale.paymentMethod, sale.paymentMethod === "QR" ? "QR payment" : sale.paymentMethod === "CASH" ? "Cash at the till" : "Cash on delivery", value, 1);
     if (sale.customerName || sale.customerPhone || sale.customerEmail) {
       const key = customerKey(sale);
       add(customerMap, key, sale.customerName || sale.customerPhone || "Customer", value, 1, `/customers/${encodeURIComponent(key)}`);

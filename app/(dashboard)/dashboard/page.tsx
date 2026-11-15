@@ -11,7 +11,7 @@ import dynamic from "next/dynamic";
 import { useUser } from "@clerk/nextjs";
 import {
   Activity, AlertTriangle, ArrowDownRight, ArrowRight, ArrowUpRight, BarChart3, CheckCircle2, CircleDollarSign, Globe,
-  MapPinOff, PackageX, PlusCircle, ReceiptText, RotateCcw, ShoppingBag, ShoppingCart, Store, Truck, Wallet,
+  BellRing, EyeOff, MapPinOff, PackageX, PlusCircle, ReceiptText, RotateCcw, ShoppingBag, ShoppingCart, Store, Truck, Wallet,
 } from "lucide-react";
 import { cn, formatNPR } from "@/lib/utils";
 import { Pulse } from "@/components/shared/Pulse";
@@ -21,6 +21,10 @@ import { resources } from "@/lib/resources";
 import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, itemName } from "@/lib/orders";
 import { COURIER_FINAL_STATUSES, courierCodAmount } from "@/lib/courier";
 import { buildBuckets, RangeSelector, type RangeKey } from "@/components/dashboard/RangeSelector";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { lowStockLines, lowStockName, type LowStockLine } from "@/lib/lowStock";
+import { setLowStockIgnored } from "@/app/actions";
+import { mutate } from "@/lib/mutate";
 
 const RevenueChart = dynamic(() => import("@/components/dashboard/Charts").then(m => m.RevenueChart), {
   ssr: false,
@@ -108,13 +112,15 @@ function StatCard({
 }
 
 export default function Dashboard() {
-  const { products, sales, stocks, activities, loading } = useResources({
+  const { products, sales, stocks, activities, loading, refetch } = useResources({
     products: resources.products,
     sales: resources.sales,
     stocks: resources.stocks,
     activities: resources.activities,
   });
   const { user } = useUser();
+  const [ignoreTarget, setIgnoreTarget] = useState<LowStockLine | null>(null);
+  const [showIgnored, setShowIgnored] = useState(false);
   const [range, setRange] = useState<RangeKey>("week");
   const [customStart, setCustomStart] = useState<Date | null>(null);
   const [customEnd, setCustomEnd] = useState<Date | null>(null);
@@ -175,6 +181,8 @@ export default function Dashboard() {
       if (sale.deliveryStatus === "IN_PROCESS") {
         if (withCourier) {
           if (!COURIER_FINAL_STATUSES.includes(sale.courierStatus ?? "")) onTheWay += 1;
+        } else if (sale.deliveryVia) {
+          // Sent with Yango: nothing to do with Upaya.
         } else if (sale.courierAreaId) readyForUpaya += 1;
         else if (sale.customerAddress) missingHub += 1;
       }
@@ -185,19 +193,19 @@ export default function Dashboard() {
       }
     }
 
-    const low: { id: string; name: string; sku: string; quantity: number; min: number }[] = [];
     let outOfStock = 0;
     const qtyByProduct = new Map<string, number>();
     for (const stock of stocks) qtyByProduct.set(stock.productId, (qtyByProduct.get(stock.productId) ?? 0) + stock.quantity);
     for (const product of products) {
       if (product.status !== "active") continue;
-      const quantity = qtyByProduct.get(product.id) ?? 0;
-      if (quantity <= 0) outOfStock += 1;
-      if (quantity < product.minStockLevel) low.push({ id: product.id, name: product.name, sku: product.sku, quantity, min: product.minStockLevel });
+      if ((qtyByProduct.get(product.id) ?? 0) <= 0) outOfStock += 1;
     }
-    low.sort((a, b) => a.quantity - b.quantity);
+    // Per size and colour, so one sold-out size shows even when the total looks fine.
+    const lines = lowStockLines(products, qtyByProduct);
+    const low = lines.filter(l => !l.ignored);
+    const ignoredLow = lines.filter(l => l.ignored);
 
-    return { readyForUpaya, missingHub, onTheWay, returns, unpaidDelivered, unpaidAmount, low, outOfStock };
+    return { readyForUpaya, missingHub, onTheWay, returns, unpaidDelivered, unpaidAmount, low, ignoredLow, outOfStock };
   }, [sales, stocks, products]);
 
   /* ── The chosen period ── */
@@ -253,10 +261,18 @@ export default function Dashboard() {
       note: attention.unpaidAmount > 0 ? `${formatNPR(attention.unpaidAmount)} to reconcile` : "Match against Upaya's COD payout",
       count: attention.unpaidDelivered, icon: Wallet, href: "/customers?status=DELIVERED", tone: "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950/40",
     },
-    { label: "Low on stock", note: "Below their minimum level", count: attention.low.length, icon: AlertTriangle, href: "/inventory", tone: "text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-950/40" },
+    { label: "Low on stock", note: "Sizes and colours below their minimum", count: attention.low.length, icon: AlertTriangle, href: "/inventory", tone: "text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-950/40" },
     { label: "Out of stock", note: "Active products with nothing left", count: attention.outOfStock, icon: PackageX, href: "/inventory", tone: "text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-950/40" },
   ];
   const openTasks = tasks.filter(t => t.count > 0).length;
+
+  async function toggleIgnored(line: LowStockLine, ignore: boolean) {
+    const result = await mutate(
+      () => setLowStockIgnored({ productId: line.productId, variantId: line.variantId, ignore }),
+      { success: ignore ? `Ignoring ${lowStockName(line)} until it's restocked.` : `Low-stock alert for ${lowStockName(line)} is back on.` }
+    );
+    if (result.ok) await refetch();
+  }
 
   return (
     <div className="space-y-5 animate-fade-in">
@@ -463,7 +479,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h2 id="low-title" className="text-base font-bold text-foreground">Low stock</h2>
-              <p className="text-[11px] text-muted-foreground">Below the minimum you set</p>
+              <p className="text-[11px] text-muted-foreground">Each size and colour below the minimum you set</p>
             </div>
             <Link href="/inventory" className="flex items-center gap-0.5 text-[11px] font-semibold text-primary hover:underline">
               Inventory <ArrowRight size={10} />
@@ -479,11 +495,14 @@ export default function Dashboard() {
               </li>
             ) : (
               attention.low.slice(0, 8).map(item => (
-                <li key={item.id}>
-                  <Link href={`/inventory?q=${encodeURIComponent(item.name)}`} className="flex items-center gap-3 rounded-xl border border-border/60 px-3 py-2 transition-colors hover:bg-muted/50">
+                <li key={item.key} className="flex items-center gap-1.5 rounded-xl border border-border/60 pr-1.5 transition-colors hover:bg-muted/50">
+                  <Link href={`/inventory?q=${encodeURIComponent(item.name)}`} className="flex min-w-0 flex-1 items-center gap-3 py-2 pl-3">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-semibold text-foreground">{item.name}</span>
-                      <span className="block text-[11px] text-muted-foreground">{item.sku} · min {item.min}</span>
+                      <span className="block truncate text-[11px] text-muted-foreground">
+                        {item.variant ? <span className="font-semibold text-foreground/80">{item.variant}</span> : item.sku}
+                        {" · "}min {item.min}
+                      </span>
                     </span>
                     <span
                       className={cn(
@@ -494,13 +513,66 @@ export default function Dashboard() {
                       {item.quantity <= 0 ? "Out" : `${item.quantity} left`}
                     </span>
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => setIgnoreTarget(item)}
+                    title="Ignore until restocked"
+                    aria-label={`Ignore low stock for ${lowStockName(item)}`}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground cursor-pointer"
+                  >
+                    <EyeOff size={13} />
+                  </button>
                 </li>
               ))
             )}
             {!loading && attention.low.length > 8 && (
               <li className="pt-1 text-center text-[11px] text-muted-foreground">and {attention.low.length - 8} more</li>
             )}
+            {!loading && showIgnored && attention.ignoredLow.map(item => (
+              <li key={item.key} className="flex items-center gap-2 rounded-xl border border-dashed border-border/60 py-1.5 pl-3 pr-1.5 opacity-70">
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-semibold text-foreground">{lowStockName(item)}</span>
+                  <span className="block text-[11px] text-muted-foreground">Ignored · {item.quantity <= 0 ? "out" : `${item.quantity} left`} · min {item.min}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleIgnored(item, false)}
+                  title="Show this alert again"
+                  aria-label={`Turn the low-stock alert back on for ${lowStockName(item)}`}
+                  className="flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 cursor-pointer"
+                >
+                  <BellRing size={12} /> Restore
+                </button>
+              </li>
+            ))}
           </ul>
+          {!loading && attention.ignoredLow.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowIgnored(v => !v)}
+              aria-expanded={showIgnored}
+              className="mt-2 w-full text-center text-[11px] font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              {showIgnored ? "Hide ignored" : `${attention.ignoredLow.length} ignored · show`}
+            </button>
+          )}
+          <ConfirmDialog
+            open={ignoreTarget !== null}
+            onClose={() => setIgnoreTarget(null)}
+            onConfirm={async () => {
+              if (ignoreTarget) await toggleIgnored(ignoreTarget, true);
+              setIgnoreTarget(null);
+            }}
+            title={`Ignore low stock for ${ignoreTarget ? lowStockName(ignoreTarget) : "this item"}?`}
+            description={
+              ignoreTarget
+                ? `It has ${ignoreTarget.quantity <= 0 ? "none" : ignoreTarget.quantity} left (minimum ${ignoreTarget.min}). The alert will stay hidden until this ${ignoreTarget.variant ? "size/colour" : "product"} is restocked, then come back if it runs low again. You can restore it from "ignored" below the list.`
+                : ""
+            }
+            confirmLabel="Ignore alert"
+            cancelLabel="Keep alert"
+          />
+
         </section>
       </div>
 

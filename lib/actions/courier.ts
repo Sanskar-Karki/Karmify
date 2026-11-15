@@ -8,7 +8,7 @@ import { guarded, UserError } from "@/lib/actions/result";
 import {
   courierCodAmount, courierMobile, courierReference, courierStillOpen, DOOR_TO_DOOR, isCourierService, splitCourierAddress, type CourierOrderForm,
 } from "@/lib/courier";
-import { itemName } from "@/lib/orders";
+import { instantCourierLabel, itemName } from "@/lib/orders";
 import { courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
   createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError,
@@ -164,7 +164,7 @@ export async function sendOrderToCourier(saleId: string, form: CourierOrderForm)
     });
     if (!sale) throw new UserError("That order no longer exists. Refresh the page and try again.");
     if (sale.deliveryStatus !== "IN_PROCESS") throw new UserError("Only orders still in process can be sent to Upaya.");
-    const order = validated(form, sale.paymentMethod === "QR");
+    const order = validated(form, sale.paymentMethod !== "COD");
 
     // One claim at a time, so a double click or a second till can't book twice.
     const claimed = await db.sale.updateMany({
@@ -216,12 +216,13 @@ export async function bookSaleWithUpaya(saleId: string, serviceTypeId: number = 
     const sale = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
       select: {
-        customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, notes: true,
+        customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, notes: true, deliveryVia: true,
         paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true,
         items: { select: { quantity: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
       },
     });
     if (!sale) throw new UserError("That order no longer exists. Refresh the page and try again.");
+    if (sale.deliveryVia) throw new UserError(`This order was sent with ${instantCourierLabel(sale.deliveryVia) ?? "a ride app"}, not Upaya. Change that in Edit first if Upaya should take it.`);
     if (!sale.courierAreaId) throw new UserError("Choose the Upaya hub location for this order, then book it.");
 
     const { address, landmark } = splitCourierAddress(sale.customerAddress);

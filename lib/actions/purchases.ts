@@ -131,7 +131,7 @@ export async function receivePurchaseOrder(poId: string) {
           data: {
             storeId,
             title: "Split received stock by size",
-            message: `PO ${po.orderNumber} added stock to ${sized.map(p => `"${p.name}"`).join(", ")}. Open each in Products → Edit and enter the new stock per size and colour.`,
+            message: `PO ${po.orderNumber} added stock to ${sized.map(p => `"${p.name}"`).join(", ")}. Open each in Products and use Restock to add the new stock per size and colour.`,
             type: "warning",
           },
         });

@@ -26,7 +26,7 @@ import { useResources } from "@/lib/useResources";
 import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, itemName } from "@/lib/orders";
+import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, instantCourierLabel, isPR, itemName } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -54,7 +54,9 @@ const SOURCE_FILTERS = [
   { value: "website", label: "Website" },
   { value: "pos", label: "Shop (POS)" },
   { value: "upaya", label: "Sent with Upaya" },
+  { value: "instant", label: "Sent with Yango" },
   { value: "store", label: "In store" },
+  { value: "pr", label: "PR (given free)" },
 ];
 
 const PAYMENT_FILTERS = [
@@ -69,6 +71,8 @@ function matchesSource(sale: Sale, source: string) {
   if (source === "website") return sale.source === "website";
   if (source === "pos") return sale.source !== "website";
   if (source === "upaya") return Boolean(sale.courierTrackingCode);
+  if (source === "instant") return Boolean(sale.deliveryVia);
+  if (source === "pr") return sale.kind === "pr";
   return channelOf(sale) === "store";
 }
 
@@ -324,6 +328,8 @@ export default function CustomersPage() {
       const withUpaya = Boolean(sale.courierTrackingCode) && sale.courierStatus !== "cancelled";
       const reason = withUpaya
         ? "already with Upaya"
+        : sale.deliveryVia
+          ? `sent with ${instantCourierLabel(sale.deliveryVia) ?? "a ride app"}`
         : sale.deliveryStatus !== "IN_PROCESS"
           ? "not in process"
           : !sale.courierAreaId
@@ -682,6 +688,9 @@ export default function CustomersPage() {
                             <Globe size={9} /> Website
                           </span>
                         )}
+                        {isPR(sale) && (
+                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300" title="Given free for promotion">PR</span>
+                        )}
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()}</p>
                     </td>
@@ -711,6 +720,9 @@ export default function CustomersPage() {
                       <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
                         {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
                       </span>
+                      {instantCourierLabel(sale.deliveryVia) && (
+                        <p className="mt-1 text-[10px] font-bold text-sky-700 dark:text-sky-300 whitespace-nowrap">via {instantCourierLabel(sale.deliveryVia)}</p>
+                      )}
                       {sale.courierStatus && (
                         <p className="mt-1">
                           <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap", courierStatusStyle(sale.courierStatus))}>
@@ -721,7 +733,7 @@ export default function CustomersPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center justify-end gap-1.5">
-                        {(sale.courierTrackingCode || sale.deliveryStatus === "IN_PROCESS") && (
+                        {(sale.courierTrackingCode || (sale.deliveryStatus === "IN_PROCESS" && !sale.deliveryVia)) && (
                           <button
                             type="button"
                             onClick={() => openCourier(sale)}

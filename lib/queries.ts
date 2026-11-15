@@ -19,7 +19,7 @@ export function getProducts(storeId: string) {
     where: { storeId },
     orderBy: { name: "asc" },
     // Stock per size and colour, for clothing.
-    include: { variants: { select: { id: true, size: true, color: true, quantity: true }, orderBy: [{ size: "asc" }, { color: "asc" }] } },
+    include: { variants: { select: { id: true, size: true, color: true, quantity: true, lowStockIgnoredQty: true }, orderBy: [{ size: "asc" }, { color: "asc" }] } },
   });
 }
 
@@ -42,7 +42,7 @@ export function getStockMovements(storeId: string) {
 const saleInclude = {
   customer: { select: { code: true } },
   warehouse: { select: { name: true } },
-  items: { select: { id: true, productId: true, quantity: true, unitPrice: true, variant: true, product: { select: { name: true, sku: true } } } },
+  items: { select: { id: true, productId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true, sku: true } } } },
 } as const;
 
 export function getSales(storeId: string) {

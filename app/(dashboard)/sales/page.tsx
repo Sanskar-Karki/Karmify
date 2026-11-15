@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingCart, Search, Plus, Minus, X, CheckCircle, User, Phone, MapPin,
-  Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote,
+  Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { bookSaleWithUpaya, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
@@ -54,8 +54,14 @@ const CUSTOMER_FIELDS = [
 
 const BLANK_CUSTOMER = { name: "", address: "", phone: "" };
 
-/** Walk-in: sold over the counter and paid now. Delivery: sent to the customer, usually cash on delivery. */
-type SaleMode = "walkin" | "delivery";
+/**
+ * Walk-in: sold over the counter and paid now. Delivery: sent to the customer,
+ * usually cash on delivery. PR: given free to someone for promotion, so stock
+ * goes out but nothing is charged or counted as a sale.
+ */
+type SaleMode = "walkin" | "delivery" | "pr";
+/** Walk-in: handed over at the studio, or paid now and sent with Yango. */
+type WalkInVia = "studio" | "yango";
 
 // The sale in progress survives a reload or a closed tab on this device.
 const DRAFT_KEY = "karmify-pos-draft";
@@ -63,6 +69,7 @@ type Draft = {
   cart: CartItem[];
   customer: typeof BLANK_CUSTOMER;
   mode: SaleMode;
+  walkInVia?: WalkInVia;
   deliveryAmount: number;
   /** Delivery: the Upaya hub location chosen. */
   hub?: CourierArea | null;
@@ -88,12 +95,13 @@ export default function SalesPage() {
   const [deliveryAmount, setDeliveryAmount] = useState(0);
   // null means "follow the computed total"; a string is a manual override.
   const [codOverride, setCodOverride] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<"COD" | "QR">("COD");
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "QR">("CASH");
   // Delivery orders: nothing paid yet, an advance paid, or paid in full.
   const [deliveryPay, setDeliveryPay] = useState<"cod" | "partial" | "paid">("cod");
   const [advance, setAdvance] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState<SaleMode>("delivery");
+  const [walkInVia, setWalkInVia] = useState<WalkInVia>("studio");
   const [cashReceived, setCashReceived] = useState("");
   const [receiptExtras, setReceiptExtras] = useState<{
     walkIn: boolean;
@@ -145,7 +153,8 @@ export default function SalesPage() {
         const d = JSON.parse(raw) as Partial<Draft>;
         if (Array.isArray(d.cart)) setCart(d.cart.map(c => ({ ...c, listPrice: c.listPrice ?? c.unitPrice })));
         if (d.customer) setCustomer({ ...BLANK_CUSTOMER, ...d.customer });
-        if (d.mode === "walkin" || d.mode === "delivery") setMode(d.mode);
+        if (d.mode === "walkin" || d.mode === "delivery" || d.mode === "pr") setMode(d.mode);
+        if (d.walkInVia === "studio" || d.walkInVia === "yango") setWalkInVia(d.walkInVia);
         if (typeof d.deliveryAmount === "number") setDeliveryAmount(d.deliveryAmount);
         if (d.hub && Number.isInteger(d.hub.areaId)) setHub(d.hub);
       }
@@ -159,12 +168,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, deliveryAmount, hub };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, deliveryAmount, hub]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -326,16 +335,22 @@ export default function SalesPage() {
   }
 
   const walkIn = mode === "walkin";
+  const pr = mode === "pr";
+  // PR orders may be handed over (no address) or sent like a delivery.
+  const sending = mode === "delivery" || (pr && customer.address.trim() !== "");
+  // A walk-in sent with Yango: paid in full now, so nothing to charge for delivery or collect.
+  const instant = walkIn && walkInVia === "yango" ? "yango" : null;
+  const instantLabel = instant ? "Yango" : null;
   const subtotal = cart.reduce((a, c) => a + c.listPrice * c.quantity, 0);
   const discountAmount = cart.reduce((a, c) => a + Math.max(0, c.listPrice - c.unitPrice) * c.quantity, 0);
   const total = subtotal - discountAmount;
-  const delivery = walkIn ? 0 : deliveryAmount;
+  const delivery = walkIn || pr ? 0 : deliveryAmount;
   const grandTotal = total + delivery;
   // QR orders are paid up front, so the rider collects nothing.
   // Walk-in picks Cash or QR; a paid-in-full delivery is recorded like a QR prepayment (nothing to collect).
-  const method: "COD" | "QR" = walkIn ? paymentMethod : deliveryPay === "paid" ? "QR" : "COD";
-  const advancePaid = deliveryPay === "partial" ? Math.max(0, parseFloat(advance) || 0) : 0;
-  const codAmount = walkIn || method === "QR"
+  const method: "COD" | "QR" | "CASH" = walkIn ? paymentMethod : deliveryPay === "paid" ? "QR" : "COD";
+  const advancePaid = !pr && deliveryPay === "partial" ? Math.max(0, parseFloat(advance) || 0) : 0;
+  const codAmount = walkIn || pr || method === "QR"
     ? "0"
     : deliveryPay === "partial"
       ? Math.max(0, grandTotal - advancePaid).toFixed(2)
@@ -345,7 +360,7 @@ export default function SalesPage() {
   const cashGiven = parseFloat(cashReceived);
   const received = walkIn && Number.isFinite(cashGiven) && cashGiven >= 0 ? cashGiven : null;
   const shortDiscount = received !== null && received < grandTotal ? grandTotal - received : 0;
-  const amountDue = grandTotal - shortDiscount;
+  const amountDue = pr ? 0 : grandTotal - shortDiscount;
   const change = received !== null && received > grandTotal ? received - grandTotal : null;
   const cartUnits = cart.reduce((a, c) => a + c.quantity, 0);
 
@@ -364,7 +379,9 @@ export default function SalesPage() {
     if (fieldErrors.name) return void toast.error(fieldErrors.name);
     if (fieldErrors.phone) return void toast.error(fieldErrors.phone);
     const cod = parseFloat(codAmount) || 0;
-    if (walkIn) {
+    if (pr) {
+      if (!customer.name.trim()) return void toast.error("Enter who the PR order is for.");
+    } else if (walkIn) {
       if (received === 0) return void toast.error("Amount received can't be 0.");
     } else {
       if (!customer.name.trim()) return void toast.error("Customer name is required.");
@@ -376,7 +393,7 @@ export default function SalesPage() {
       if (deliveryPay === "cod" && cod <= 0) return void toast.error("COD amount is required.");
     }
     // Delivery booked with Upaya on completion: it needs a hub location and a mobile number.
-    const booking = !walkIn && upayaEnabled && bookUpaya;
+    const booking = sending && upayaEnabled && bookUpaya;
     if (booking) {
       if (!hub) return void toast.error("Choose the Upaya hub location for this delivery.");
       if (!courierMobile(customer.phone)) return void toast.error("Upaya needs a 10-digit mobile number (98…) to book this delivery.");
@@ -387,16 +404,18 @@ export default function SalesPage() {
     const result = await mutate(() => createSale({
       customerName: customer.name.trim() || undefined,
       customerPhone: customer.phone.trim() || undefined,
-      customerAddress: walkIn ? undefined : customer.address.trim(),
+      customerAddress: walkIn && !instant ? undefined : customer.address.trim() || undefined,
       items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, unitPrice: c.listPrice, variantId: c.variantId ?? null })),
       discount: discountAmount + shortDiscount,
       deliveryAmount: delivery,
-      codAmount: walkIn ? 0 : cod,
+      codAmount: walkIn || pr ? 0 : cod,
       totalAmount: total - shortDiscount,
       paymentMethod: method,
       walkIn,
-      partial: !walkIn && deliveryPay === "partial",
-      courierArea: !walkIn && hub ? { areaId: hub.areaId, locationId: hub.locationId, title: hub.title } : null,
+      partial: !walkIn && !pr && deliveryPay === "partial",
+      courierArea: sending && hub ? { areaId: hub.areaId, locationId: hub.locationId, title: hub.title } : null,
+      pr,
+      deliveryVia: instant,
       // The shop being sold from; under "All shops", the cart's products' shop.
       brand: shop !== "all" ? shop : shopOfProducts(products.filter(p => cart.some(c => c.productId === p.id))),
     }));
@@ -413,7 +432,7 @@ export default function SalesPage() {
     setReceiptExtras({
       walkIn,
       cashReceived: received,
-      deliveryPay: walkIn ? null : deliveryPay,
+      deliveryPay: walkIn || pr ? null : deliveryPay,
       advance: advancePaid,
     });
     setDeliveryPay("cod");
@@ -424,7 +443,7 @@ export default function SalesPage() {
     setCustomer(BLANK_CUSTOMER);
     setDeliveryAmount(0);
     setCodOverride(null);
-    setPaymentMethod("COD");
+    setPaymentMethod("CASH");
     setHub(null);
     setHubRate(null);
 
@@ -458,7 +477,7 @@ export default function SalesPage() {
           <div className="flex gap-2">
             <div className="rounded-xl border border-border/80 bg-card px-4 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sales today</p>
-              <p className="text-lg font-extrabold leading-tight">{todaySales.length}</p>
+              <p className="text-lg font-extrabold leading-tight">{todaySales.filter(s => s.kind !== "pr").length}</p>
             </div>
             <div className="rounded-xl border border-border/80 bg-card px-4 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Taken today</p>
@@ -473,10 +492,11 @@ export default function SalesPage() {
         <div className="order-2 lg:order-none lg:sticky lg:top-0 min-w-0">
           <div className="bg-card border border-border/80 rounded-2xl shadow-sm p-4 space-y-2.5">
               {/* Sale type */}
-              <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-muted" role="radiogroup" aria-label="Sale type">
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-muted" role="radiogroup" aria-label="Sale type">
                 {([
-                  { value: "walkin", label: "Walk-in (paid now)", icon: Store },
-                  { value: "delivery", label: "Delivery", icon: Truck },
+                  { value: "walkin", label: "Walk-in", icon: Store, title: "Sold over the counter, paid now" },
+                  { value: "delivery", label: "Delivery", icon: Truck, title: "Sent to the customer" },
+                  { value: "pr", label: "PR", icon: Gift, title: "Given free for promotion: stock goes out, no money in" },
                 ] as const).map(option => (
                   <button
                     key={option.value}
@@ -484,27 +504,66 @@ export default function SalesPage() {
                     role="radio"
                     aria-checked={mode === option.value}
                     onClick={() => setMode(option.value)}
-                    className={cn("flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-all", mode === option.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
+                    title={option.title}
+                    className={cn("flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-semibold rounded-lg transition-all", mode === option.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
                   >
                     <option.icon size={12} /> {option.label}
                   </button>
                 ))}
               </div>
 
+              {/* Walk-in: picked up at the studio, or sent with Yango (paid up front, so no delivery charge or COD) */}
+              {walkIn && (
+                <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-muted" role="radiogroup" aria-label="How the walk-in order leaves">
+                    {([
+                      { value: "studio", label: "Studio", icon: Store, title: "Handed over at the studio" },
+                      { value: "yango", label: "Yango", icon: Zap, title: "Paid now and sent with Yango" },
+                    ] as const).map(option => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={walkInVia === option.value}
+                        onClick={() => setWalkInVia(option.value)}
+                        title={option.title}
+                        className={cn("flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg transition-all", walkInVia === option.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
+                      >
+                        <option.icon size={12} /> {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {instant && (
+                    <p className="text-[11px] text-muted-foreground">Paid in full now. Book the Yango ride yourself; no delivery charge or COD is added.</p>
+                  )}
+                </div>
+              )}
+
+              {pr && (
+                <p className="flex items-start gap-2 rounded-xl border border-pink-200 bg-pink-50 px-3 py-2 text-[12px] text-pink-800 dark:border-pink-900/50 dark:bg-pink-950/30 dark:text-pink-200">
+                  <Gift size={14} className="mt-0.5 shrink-0" />
+                  <span>Given free for promotion. Stock goes out, nothing is charged, and it isn&apos;t counted as a sale. Leave the address empty if it&apos;s handed over.</span>
+                </p>
+              )}
+
               <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-                Customer{walkIn && <span className="font-medium normal-case tracking-normal"> · optional</span>}
+                {pr ? "Given to" : "Customer"}{walkIn && <span className="font-medium normal-case tracking-normal"> · optional</span>}
               </p>
               <div className="grid grid-cols-1 gap-2.5">
-                {CUSTOMER_FIELDS.filter(field => !(walkIn && field.key === "address")).map(field => (
+                {CUSTOMER_FIELDS.filter(field => !(walkIn && !instant && field.key === "address")).map(field => {
+                  // Delivery needs everything; PR needs only the name; walk-in needs nothing.
+                  const required = mode === "delivery" || (pr && field.key === "name");
+                  const placeholder = pr && field.key === "name" ? "Name (e.g. the influencer)" : field.placeholder;
+                  return (
                   <div key={field.key}>
                   <div className="relative">
                     <field.icon size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
-                      required={!walkIn}
+                      required={required}
                       type={field.type}
                       value={customer[field.key]}
                       onChange={e => setCustomer(c => ({ ...c, [field.key]: e.target.value }))}
-                      placeholder={walkIn ? `${field.placeholder} (optional)` : `${field.placeholder} *`}
+                      placeholder={required ? `${placeholder} *` : `${placeholder} (optional)`}
                       aria-label={field.label}
                       onBlur={field.key === "phone" ? fillReturningCustomer : undefined}
                       inputMode={field.key === "phone" ? "tel" : undefined}
@@ -516,11 +575,12 @@ export default function SalesPage() {
                     <p className="mt-1 text-[11px] font-medium text-red-600">{fieldErrors[field.key]}</p>
                   )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Upaya courier: the hub location, and booking on "Complete Sale" */}
-              {!walkIn && upayaEnabled && (
+              {sending && upayaEnabled && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2 pt-1">
                     <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -553,6 +613,7 @@ export default function SalesPage() {
                 </div>
               )}
 
+              {!pr && (<>
               <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Payment</p>
               <div className={cn("grid gap-2", walkIn ? "grid-cols-1" : "grid-cols-2")}>
                 {walkIn && (
@@ -609,7 +670,7 @@ export default function SalesPage() {
               {walkIn ? (
                 <div className="flex items-center gap-2" role="radiogroup" aria-label="Payment method">
                   {([
-                    { value: "COD", label: "Cash", icon: Banknote },
+                    { value: "CASH", label: "Cash", icon: Banknote },
                     { value: "QR", label: "QR", icon: QrCode },
                   ] as const).map(option => (
                     <button
@@ -644,6 +705,7 @@ export default function SalesPage() {
                   ))}
                 </div>
               )}
+              </>)}
           </div>
         </div>
 
@@ -803,6 +865,11 @@ export default function SalesPage() {
             <div className="p-4 border-t border-border/60 space-y-2.5">
               {/* Billing Summary */}
               <div className="bg-muted/30 rounded-xl p-3 space-y-1.5 text-xs">
+                {pr ? (<>
+                <div className="flex justify-between text-muted-foreground"><span>Value of goods given</span><span>{formatNPR(total)}</span></div>
+                <div className="flex justify-between font-extrabold text-base text-foreground pt-1 border-t border-border/60"><span>Charged</span><span>{formatNPR(0)}</span></div>
+                {instantLabel && <div className="flex justify-between text-muted-foreground"><span>Sent with</span><span>{instantLabel}</span></div>}
+                </>) : (<>
                 {discountAmount + shortDiscount > 0 && (
                   <div className="flex justify-between text-emerald-600">
                     <span>Discount{shortDiscount > 0 && " (paid less)"}</span><span>−{formatNPR(discountAmount + shortDiscount)}</span>
@@ -817,6 +884,8 @@ export default function SalesPage() {
                     <span>Change to give</span><span>{formatNPR(change)}</span>
                   </div>
                 )}
+                {instantLabel && <div className="flex justify-between text-muted-foreground"><span>Sent with</span><span>{instantLabel}</span></div>}
+                </>)}
               </div>
 
               <Button
@@ -825,8 +894,10 @@ export default function SalesPage() {
                 loading={submitting}
                 className="w-full py-3 font-bold"
               >
-                {!submitting && <Receipt size={15} />}
-                {submitting ? "Completing sale…" : `${walkIn ? "Complete Sale" : "Complete Sale & Invoice"} · ${formatNPR(amountDue)}`}
+                {!submitting && (pr ? <Gift size={15} /> : <Receipt size={15} />)}
+                {submitting
+                  ? pr ? "Recording PR order…" : "Completing sale…"
+                  : pr ? `Record PR order · ${cartUnits} item${cartUnits === 1 ? "" : "s"} free` : `${walkIn ? "Complete Sale" : "Complete Sale & Invoice"} · ${formatNPR(amountDue)}`}
               </Button>
             </div>
           </div>
@@ -853,6 +924,9 @@ export default function SalesPage() {
                         <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400">
                           Website
                         </span>
+                      )}
+                      {s.kind === "pr" && (
+                        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">PR</span>
                       )}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate">{s.customerName ?? "Walk-in"} · {new Date(s.createdAt).toLocaleDateString()}</p>
@@ -923,7 +997,9 @@ export default function SalesPage() {
               <div className="flex justify-between gap-3"><span className="text-muted-foreground">Customer</span><span className="font-semibold text-right">{lastSale.customerName ?? "Walk-in Customer"}</span></div>
               {lastSale.customer && <div className="flex justify-between gap-3"><span className="text-muted-foreground">Customer ID</span><span className="font-semibold font-mono text-right">{lastSale.customer.code}</span></div>}
               <div className="flex justify-between gap-3"><span className="text-muted-foreground">Date</span><span className="font-semibold text-right">{new Date(lastSale.createdAt).toLocaleString()}</span></div>
-              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Payment</span><span className="font-semibold text-right">{receiptExtras.walkIn
+              <div className="flex justify-between gap-3"><span className="text-muted-foreground">Payment</span><span className="font-semibold text-right">{lastSale.kind === "pr"
+                ? "PR · given free"
+                : receiptExtras.walkIn
                 ? (lastSale.paymentMethod === "QR" ? "QR (paid)" : "Cash (paid)")
                 : receiptExtras.deliveryPay === "paid" ? "Fully paid" : receiptExtras.deliveryPay === "partial" ? "Partially paid" : "Cash on Delivery"}</span></div>
               {courierBooking && (

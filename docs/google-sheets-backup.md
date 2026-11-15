@@ -15,6 +15,7 @@ Settings → Backup in Karmify shows the last backup and has **Back up now** but
 3. **Set the secret.** In Apps Script, open **Project Settings** (gear icon) → **Script properties** → **Add script property**:
    - Property: `BACKUP_SECRET`
    - Value: a long random string. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+   Optional: add `SHEET_ID` with the ID from the Sheet's address (the part between `/d/` and `/edit`) to make the script always write to that spreadsheet, even if it was created somewhere else.
 4. **Deploy as a web app.** Click **Deploy → New deployment** → type **Web app**:
    - Execute as: **Me**
    - Who has access: **Anyone**. Karmify has no Google login; the secret is what protects it.

@@ -46,7 +46,22 @@ export const DELIVERY_STATUSES = [
 ];
 
 /** Cancelled orders never happened, so they stay out of revenue totals. */
-export const countsAsSale = (sale: { deliveryStatus?: string | null }) => sale.deliveryStatus !== "CANCELLED";
+/** Counts toward sales and revenue: not cancelled, and not a PR give-away (stock went out, no money came in). */
+export const countsAsSale = (sale: { deliveryStatus?: string | null; kind?: string | null }) =>
+  sale.deliveryStatus !== "CANCELLED" && sale.kind !== "pr";
+
+/** A PR order: given free to someone for promotion. */
+export const isPR = (sale: { kind?: string | null }) => sale.kind === "pr";
+
+/** Walk-in orders paid at the till and sent with a ride app the shop books (only Yango for now). */
+export const INSTANT_COURIERS = [
+  { value: "yango", label: "Yango" },
+] as const;
+export type InstantCourier = (typeof INSTANT_COURIERS)[number]["value"];
+export const isInstantCourier = (value: unknown): value is InstantCourier =>
+  INSTANT_COURIERS.some(c => c.value === value);
+/** "Yango" for "yango"; null when the order wasn't sent with a ride app. */
+export const instantCourierLabel = (value?: string | null) => INSTANT_COURIERS.find(c => c.value === value)?.label ?? null;
 
 export const DELIVERY_STYLES: Record<string, string> = {
   IN_PROCESS: "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400",

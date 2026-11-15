@@ -4,8 +4,9 @@ import React, { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, MessageCircle, Phone, Receipt, Save, Store, Tag, Users, X,
+  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Users, X, Zap,
 } from "lucide-react";
+import { ReturnDialog } from "@/components/orders/ReturnDialog";
 import { toast } from "sonner";
 import { updateCustomerInfo, updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
@@ -13,7 +14,8 @@ import { resources } from "@/lib/resources";
 import { useResources } from "@/lib/useResources";
 import { mutate } from "@/lib/mutate";
 import {
-  contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, itemOptionsText, PAYMENT_STYLES,
+  contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, INSTANT_COURIERS, instantCourierLabel,
+  isPR, itemOptionsText, PAYMENT_STYLES,
 } from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
@@ -30,6 +32,7 @@ type OrderFilter = "all" | DeliveryStatus;
 
 const PAYMENT_METHODS = [
   { value: "COD", label: "Cash on Delivery" },
+  { value: "CASH", label: "Cash (paid at the till)" },
   { value: "QR", label: "QR Payment" },
 ];
 const PAYMENT_LABEL: Record<string, string> = { PAID: "Paid", UNPAID: "Unpaid", PARTIAL: "Part paid" };
@@ -361,8 +364,11 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
   const [saving, setSaving] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
   const [form, setForm] = useState(() => formFor(sale));
+  const [returning, setReturning] = useState(false);
   const address = deliveryAddress(sale.customerAddress);
   const units = sale.items.reduce((n, i) => n + i.quantity, 0);
+  const returnedUnits = sale.items.reduce((n, i) => n + (i.returnedQty ?? 0), 0);
+  const canReturn = sale.deliveryStatus !== "CANCELLED" && returnedUnits < units;
 
   function formFor(s: Sale) {
     return {
@@ -372,6 +378,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
       customerAddress: deliveryAddress(s.customerAddress),
       deliveryStatus: (s.deliveryStatus ?? "IN_PROCESS") as string,
       paymentMethod: (s.paymentMethod ?? "COD") as string,
+      deliveryVia: s.deliveryVia ?? "",
     };
   }
 
@@ -402,7 +409,8 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
         codAmount: amounts[2],
         customerAddress: form.customerAddress.trim() ? tag + form.customerAddress.trim() : "",
         deliveryStatus: form.deliveryStatus as DeliveryStatus,
-        paymentMethod: form.paymentMethod as "COD" | "QR",
+        paymentMethod: form.paymentMethod as "COD" | "QR" | "CASH",
+        deliveryVia: form.deliveryVia || null,
       }),
       { success: `${sale.invoiceNumber} updated.` }
     );
@@ -425,6 +433,16 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
             <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className="font-mono text-sm font-bold">{sale.invoiceNumber}</span>
               <span className="text-[11px] text-muted-foreground">{sale.source === "website" ? "Website order" : "In store"}</span>
+              {isPR(sale) && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-pink-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-pink-700 dark:bg-pink-950/40 dark:text-pink-300">
+                  <Gift size={10} /> PR · free
+                </span>
+              )}
+              {instantCourierLabel(sale.deliveryVia) && (
+                <span className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                  <Zap size={10} /> {instantCourierLabel(sale.deliveryVia)}
+                </span>
+              )}
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               {new Date(sale.createdAt).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -437,7 +455,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           <div className="text-right">
             <p className="text-base font-black">{formatNPR(sale.totalAmount)}</p>
             <p className="mt-0.5 flex items-center justify-end gap-1">
-              <span className="text-[10px] font-semibold text-muted-foreground">{sale.paymentMethod === "QR" ? "QR" : "COD"}</span>
+              <span className="text-[10px] font-semibold text-muted-foreground">{sale.paymentMethod === "QR" ? "QR" : sale.paymentMethod === "CASH" ? "Cash" : "COD"}</span>
               <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-extrabold uppercase", PAYMENT_STYLES[sale.paymentStatus] ?? PAYMENT_STYLES.UNPAID)}>
                 {PAYMENT_LABEL[sale.paymentStatus] ?? sale.paymentStatus}
               </span>
@@ -461,6 +479,17 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           </div>
         </div>
         <div className="flex items-center gap-1.5">
+          {canReturn && (
+            <button
+              type="button"
+              onClick={() => setReturning(true)}
+              disabled={editing}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs font-semibold hover:bg-muted disabled:opacity-50"
+              title="Customer sent items back: put them back in stock"
+            >
+              <RotateCcw size={12} /> Return
+            </button>
+          )}
           <button type="button" onClick={onLabel} className={iconButton} title="Print label" aria-label={`Print label for ${sale.invoiceNumber}`}><Tag size={13} /></button>
           <button type="button" onClick={onReceipt} className={iconButton} title="Print receipt" aria-label={`Print receipt for ${sale.invoiceNumber}`}><Receipt size={13} /></button>
           {!editing && (
@@ -507,6 +536,16 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
               <span className={labelClass}>Delivery status</span>
               <Dropdown aria-label="Delivery status" value={form.deliveryStatus} onChange={v => setForm(f => ({ ...f, deliveryStatus: v }))} options={DELIVERY_STATUSES} triggerClassName="py-2" />
             </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <span className={labelClass}>Sent with</span>
+              <Dropdown
+                aria-label="Sent with"
+                value={form.deliveryVia}
+                onChange={v => setForm(f => ({ ...f, deliveryVia: v }))}
+                options={[{ value: "", label: "Studio / Upaya / other" }, ...INSTANT_COURIERS]}
+                triggerClassName="py-2"
+              />
+            </div>
             <div className="space-y-1.5">
               <span className={labelClass}>Payment method</span>
               <Dropdown aria-label="Payment method" value={form.paymentMethod} onChange={v => setForm(f => ({ ...f, paymentMethod: v }))} options={PAYMENT_METHODS} triggerClassName="py-2" />
@@ -529,6 +568,11 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
                   <div className="min-w-0">
                     <p className="break-words font-semibold text-foreground">{item.product.name}</p>
                     <p className="text-muted-foreground">{[options, `${item.quantity} × ${formatNPR(item.unitPrice)}`].filter(Boolean).join(" · ")}</p>
+                    {(item.returnedQty ?? 0) > 0 && (
+                      <p className="mt-0.5 inline-flex items-center gap-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                        <RotateCcw size={9} /> {item.returnedQty === item.quantity ? "Returned" : `${item.returnedQty} of ${item.quantity} returned`} · back in stock
+                      </p>
+                    )}
                   </div>
                   <span className="shrink-0 font-bold">{formatNPR(item.unitPrice * item.quantity)}</span>
                 </li>
@@ -549,6 +593,12 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
               <span className={cn("break-words", !address && "italic text-muted-foreground")}>{address || "No address (in-store sale)"}</span>
             </p>
             {sale.courierAreaTitle && <p className="pl-[18px] text-[11px] text-muted-foreground">Hub: {sale.courierAreaTitle}</p>}
+            {instantCourierLabel(sale.deliveryVia) && <p className="pl-[18px] text-[11px] text-muted-foreground">Sent with {instantCourierLabel(sale.deliveryVia)} (instant delivery)</p>}
+            {isPR(sale) && (
+              <p className="pl-[18px] text-[11px] text-muted-foreground">
+                Given free: {formatNPR(sale.items.reduce((n, i) => n + i.quantity * i.unitPrice, 0))} of goods, not counted as a sale.
+              </p>
+            )}
             {sale.paymentMethod === "COD" && sale.codAmount > 0 && (
               <p className="pl-[18px] text-[11px] text-muted-foreground">COD: {formatNPR(sale.codAmount)}</p>
             )}
@@ -560,6 +610,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           </div>
         </div>
       )}
+      <ReturnDialog sale={returning ? sale : null} onClose={() => setReturning(false)} onDone={onSaved} />
     </article>
   );
 }

@@ -41,7 +41,7 @@ export interface LabelOrder {
   customerPhone: string | null;
   customerAddress: string | null;
   customer?: { code: string } | null;
-  paymentMethod: "COD" | "QR";
+  paymentMethod: "COD" | "QR" | "CASH";
   codAmount: number;
   totalAmount: number;
   items: { id: string; quantity: number; variant?: string | null; product: { name: string } }[];

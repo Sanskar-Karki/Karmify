@@ -36,8 +36,9 @@ enum PaymentStatus {
 }
 
 enum PaymentMethod {
-  COD
+  COD // Delivery only: the Upaya rider collects at the door
   QR
+  CASH // Walk-in (studio or Yango) paid in cash at the till
 }
 
 enum DeliveryStatus {
@@ -157,6 +158,7 @@ model Product {
   costPrice     Float
   sellingPrice  Float
   minStockLevel Int             @default(5)
+  lowStockIgnoredQty Int?       // Low-stock alert ignored while stock stays at or below this (products without sizes)
   imageUrl      String?
   expiryDate    DateTime?
   status        String          @default("active") // "active" | "inactive"
@@ -296,6 +298,8 @@ model Sale {
   courierAreaTitle    String?
   notes           String? // The customer's note from the website checkout
   brand           String? // "originals" | "decor": which shop the sale belongs to (null = not set)
+  kind            String         @default("sale") // "sale" | "pr" (given away free for promotion: stock goes out, no money comes in)
+  deliveryVia     String? // "yango": a walk-in paid at the till and sent with Yango (null = studio, Upaya or other)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -313,6 +317,7 @@ model SaleItem {
   productId String
   product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
   quantity  Int
+  returnedQty Int    @default(0) // Units of this line returned by the customer and put back in stock
   unitPrice Float
   variant   String? // Size/colour chosen on the website, e.g. "L · Navy"
   variantId String? // The exact size/colour stock row this line took from
@@ -335,6 +340,7 @@ model ProductVariant {
   size      String     @default("") // "" when the product has no sizes
   color     String     @default("") // "" when the product has no colours
   quantity  Int        @default(0)
+  lowStockIgnoredQty Int? // Low-stock alert ignored while stock stays at or below this
   saleItems SaleItem[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt

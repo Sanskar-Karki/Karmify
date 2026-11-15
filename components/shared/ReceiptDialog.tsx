@@ -17,7 +17,7 @@ export interface ReceiptSale {
   customerName: string | null;
   customerAddress?: string | null;
   customer?: { code: string } | null;
-  paymentMethod: "COD" | "QR";
+  paymentMethod: "COD" | "QR" | "CASH";
   paymentStatus: "UNPAID" | "PARTIAL" | "PAID";
   discount: number;
   deliveryAmount: number;
@@ -51,6 +51,7 @@ function readSavedPaper(): Paper {
 function paymentLabel(sale: ReceiptSale) {
   const grand = sale.totalAmount + sale.deliveryAmount;
   if (sale.paymentStatus === "PARTIAL") return "Partially paid";
+  if (sale.paymentMethod === "CASH") return "Cash (paid)";
   if (sale.paymentStatus === "PAID" && sale.paymentMethod === "QR") return sale.customerAddress ? "Fully paid" : "QR (paid)";
   if (sale.paymentStatus === "PAID") return sale.customerAddress && sale.codAmount > 0 ? "Cash on Delivery (collected)" : "Cash (paid)";
   return grand > 0 ? "Cash on Delivery" : "—";

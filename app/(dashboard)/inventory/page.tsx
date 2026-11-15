@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { ArrowLeftRight, Plus, AlertTriangle, CheckCircle2, Package, ArrowRight, ArrowLeft, Wrench, RefreshCw, Search } from "lucide-react";
-import { recordStockMovement } from "@/app/actions";
+import { ArrowLeftRight, Plus, AlertTriangle, CheckCircle2, Package, ArrowRight, ArrowLeft, Wrench, RefreshCw, Search, EyeOff } from "lucide-react";
+import { recordStockMovement, setLowStockIgnored } from "@/app/actions";
 import { cn } from "@/lib/utils";
 import { MOVEMENT_COLUMNS, PlaceholderRows, STOCK_COLUMNS } from "@/components/skeletons/placeholders";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -14,6 +14,8 @@ import { Modal } from "@/components/shared/Modal";
 import { Button } from "@/components/shared/Button";
 import { mutate } from "@/lib/mutate";
 import { useUrlState } from "@/lib/useUrlState";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { lowStockLines, lowStockName, type LowStockLine } from "@/lib/lowStock";
 
 type MovementType = "STOCK_IN" | "STOCK_OUT" | "DAMAGED" | "RETURNED" | "ADJUSTMENT";
 
@@ -59,20 +61,38 @@ export default function InventoryPage() {
 
   const getTotalStock = (productId: string) => stockByProduct.get(productId) ?? 0;
 
+  // Low stock per size and colour (ignored alerts left out), grouped by product.
+  const lowByProduct = useMemo(() => {
+    const map = new Map<string, LowStockLine[]>();
+    for (const line of lowStockLines(products, stockByProduct)) {
+      if (line.ignored) continue;
+      map.set(line.productId, [...(map.get(line.productId) ?? []), line]);
+    }
+    return map;
+  }, [products, stockByProduct]);
+
   const visibleProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
     return products.filter(p => {
-      if (lowOnly && (stockByProduct.get(p.id) ?? 0) >= p.minStockLevel) return false;
+      if (lowOnly && !lowByProduct.has(p.id)) return false;
       return !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
     });
-  }, [products, search, lowOnly, stockByProduct]);
+  }, [products, search, lowOnly, lowByProduct]);
 
   const { visible: displayedProducts, remaining, step, showMore } = useShowMore(visibleProducts);
 
-  const lowCount = useMemo(
-    () => products.filter(p => (stockByProduct.get(p.id) ?? 0) < p.minStockLevel).length,
-    [products, stockByProduct]
-  );
+  // Counts sizes/colours, not products: a jacket low in two sizes is two alerts.
+  const lowCount = useMemo(() => [...lowByProduct.values()].reduce((n, lines) => n + lines.length, 0), [lowByProduct]);
+
+  const [ignoreTarget, setIgnoreTarget] = useState<LowStockLine | null>(null);
+
+  async function ignoreLow(line: LowStockLine) {
+    const result = await mutate(
+      () => setLowStockIgnored({ productId: line.productId, variantId: line.variantId, ignore: true }),
+      { success: `Ignoring ${lowStockName(line)} until it's restocked.` }
+    );
+    if (result.ok) await refetch();
+  }
 
   async function handleSubmit() {
     setError("");
@@ -149,7 +169,9 @@ export default function InventoryPage() {
               )}
               {!loading && displayedProducts.map(prod => {
                 const total = getTotalStock(prod.id);
-                const isLow = total < prod.minStockLevel;
+                const lowLines = lowByProduct.get(prod.id) ?? [];
+                const isLow = lowLines.length > 0;
+                const sized = prod.variants.length > 0;
                 return (
                   <tr key={prod.id} className="data-row">
                     <td className="px-5 py-4">
@@ -160,14 +182,32 @@ export default function InventoryPage() {
                         <div>
                           <p className="font-semibold text-xs text-foreground">{prod.name}</p>
                           <p className="text-[11px] text-muted-foreground font-mono">{prod.sku}</p>
+                          {isLow && (
+                            <ul className="mt-1.5 flex flex-wrap gap-1" aria-label={`Low stock for ${prod.name}`}>
+                              {lowLines.map(line => (
+                                <li key={line.key} className={cn("inline-flex items-center gap-1 rounded-md pl-1.5 pr-0.5 py-0.5 text-[10px] font-bold", line.quantity <= 0 ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400")}>
+                                  {line.variant ? `${line.variant}: ` : ""}{line.quantity <= 0 ? "out" : `${line.quantity} left`}
+                                  <button
+                                    type="button"
+                                    onClick={() => setIgnoreTarget(line)}
+                                    title="Ignore until restocked"
+                                    aria-label={`Ignore low stock for ${lowStockName(line)}`}
+                                    className="flex h-4 w-4 items-center justify-center rounded opacity-70 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
+                                  >
+                                    <EyeOff size={10} />
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <span className="text-xs font-semibold text-muted-foreground">{prod.minStockLevel} units</span>
+                      <span className="text-xs font-semibold text-muted-foreground">{prod.minStockLevel} units{sized && <span className="block text-[10px] font-medium">per size/colour</span>}</span>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      <span className={cn("text-sm font-extrabold", isLow ? "text-red-500" : "text-foreground")}>{total}</span>
+                      <span className={cn("text-sm font-extrabold", isLow && !sized ? "text-red-500" : "text-foreground")}>{total}</span>
                     </td>
                     <td className="px-4 py-4 text-center">
                       <span className={cn("inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full", isLow ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
@@ -303,6 +343,22 @@ export default function InventoryPage() {
               )}
             </div>
       </Modal>
+      <ConfirmDialog
+        open={ignoreTarget !== null}
+        onClose={() => setIgnoreTarget(null)}
+        onConfirm={async () => {
+          if (ignoreTarget) await ignoreLow(ignoreTarget);
+          setIgnoreTarget(null);
+        }}
+        title={`Ignore low stock for ${ignoreTarget ? lowStockName(ignoreTarget) : "this item"}?`}
+        description={
+          ignoreTarget
+            ? `It has ${ignoreTarget.quantity <= 0 ? "none" : ignoreTarget.quantity} left (minimum ${ignoreTarget.min}). The alert will stay hidden until this ${ignoreTarget.variant ? "size/colour" : "product"} is restocked, then come back if it runs low again. You can restore it from the dashboard.`
+            : ""
+        }
+        confirmLabel="Ignore alert"
+        cancelLabel="Keep alert"
+      />
       </div>
 </>
   );

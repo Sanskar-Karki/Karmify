@@ -233,7 +233,7 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
           {/* Headline numbers */}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Kpi hasPrevious={Boolean(p)} label="Sales" value={formatNPR(t.sales)} delta={change(t.sales, p?.sales)} hint="products, after discounts" />
-            <Kpi hasPrevious={Boolean(p)} label="Orders" value={String(t.orders)} delta={change(t.orders, p?.orders)} hint={t.cancelledOrders ? `${t.cancelledOrders} cancelled not counted` : undefined} />
+            <Kpi hasPrevious={Boolean(p)} label="Orders" value={String(t.orders)} delta={change(t.orders, p?.orders)} hint={[t.cancelledOrders ? `${t.cancelledOrders} cancelled` : "", t.prOrders ? `${t.prOrders} PR (${formatNPR(t.prValue)} given free)` : ""].filter(Boolean).join(" · ") + (t.cancelledOrders || t.prOrders ? " not counted" : "") || undefined} />
             <Kpi hasPrevious={Boolean(p)} label="Average order" value={formatNPR(t.averageOrder)} delta={change(t.averageOrder, p?.averageOrder)} />
             <Kpi hasPrevious={Boolean(p)} label="Items sold" value={String(t.units)} delta={change(t.units, p?.units)} />
             <Kpi hasPrevious={Boolean(p)}
