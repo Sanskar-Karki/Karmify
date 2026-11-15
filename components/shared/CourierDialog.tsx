@@ -10,7 +10,7 @@ import { Dropdown } from "@/components/shared/Dropdown";
 import { Pulse } from "@/components/shared/Pulse";
 import { cn, formatNPR } from "@/lib/utils";
 import { mutate } from "@/lib/mutate";
-import { itemName } from "@/lib/orders";
+import { itemName, codToCollect } from "@/lib/orders";
 import {
   COURIER_SERVICES, courierMobile, courierStatusLabel, courierStatusStyle, splitCourierAddress,
   type CourierArea, type CourierCategory, type CourierTracking,
@@ -41,7 +41,7 @@ function initialForm(sale: Sale) {
     description: sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join(", ").slice(0, 2500),
     declaredValue: String(Math.max(1, Math.round(goods))),
     // Website imports don't record a COD amount; the order total is what's due.
-    cod: sale.paymentMethod !== "COD" ? "0" : String(sale.codAmount || sale.totalAmount),
+    cod: String(codToCollect(sale)),
     weight: "1",
     // The customer's own note from the website (e.g. "call before delivery"); editable before booking.
     note: (sale.notes ?? "").slice(0, 250),

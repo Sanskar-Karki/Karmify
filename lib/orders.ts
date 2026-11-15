@@ -77,6 +77,14 @@ export const PAYMENT_STYLES: Record<string, string> = {
   PAID: "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400",
 };
 
+/**
+ * Cash the rider still has to collect. Nothing for orders paid up front (cash at
+ * the till, QR) or once a COD order is paid. Website imports don't record a COD
+ * amount, so their total is what's due.
+ */
+export const codToCollect = (sale: { paymentMethod: string; paymentStatus?: string | null; codAmount: number; totalAmount: number }) =>
+  sale.paymentMethod !== "COD" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount;
+
 /** Website imports prefix the address with a "[Brand]" tag that isn't part of it. */
 export const deliveryAddress = (address?: string | null) => (address ?? "").replace(/^\[[^\]]*\]\s*/, "");
 

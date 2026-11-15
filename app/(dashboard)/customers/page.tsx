@@ -27,7 +27,7 @@ import { useResources } from "@/lib/useResources";
 import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, instantCourierLabel, isPR, itemName } from "@/lib/orders";
+import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, instantCourierLabel, isPR, itemName, codToCollect } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -426,7 +426,7 @@ export default function CustomersPage() {
       customerPhone: sale.customerPhone ?? "",
       customerAddress: sale.customerAddress ?? "",
       // Cash at the till or QR: nothing to collect, so no COD amount is suggested.
-      codAmount: sale.paymentMethod === "COD" ? String(sale.codAmount || sale.totalAmount) : "0",
+      codAmount: String(codToCollect(sale)),
       deliveryAmount: String(sale.deliveryAmount ?? 0),
       deliveryStatus: sale.deliveryStatus ?? "IN_PROCESS",
     };
@@ -721,8 +721,10 @@ export default function CustomersPage() {
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                      {sale.paymentMethod === "COD" ? (
-                        <span className="font-bold text-xs">{formatNPR(sale.codAmount || sale.totalAmount)}</span>
+                      {sale.paymentMethod === "COD" && sale.paymentStatus === "PAID" ? (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400" title="Paid: nothing left to collect">Paid</span>
+                      ) : sale.paymentMethod === "COD" ? (
+                        <span className="font-bold text-xs">{formatNPR(codToCollect(sale))}</span>
                       ) : (
                         <span className="text-xs text-muted-foreground" title={sale.paymentMethod === "QR" ? "Paid by QR: nothing to collect" : "Paid at the till: nothing to collect"}>—</span>
                       )}

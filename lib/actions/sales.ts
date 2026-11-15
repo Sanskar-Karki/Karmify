@@ -233,7 +233,7 @@ export async function updateSaleDetails(saleId: string, data: {
     const current = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
       select: {
-        paymentMethod: true, deliveryStatus: true,
+        paymentMethod: true, deliveryStatus: true, paymentStatus: true,
         customerId: true, customerName: true, customerPhone: true, customerEmail: true,
       },
     });
@@ -243,9 +243,21 @@ export async function updateSaleDetails(saleId: string, data: {
     // changes the payment follows it. QR orders are paid up front.
     const method = data.paymentMethod ?? current.paymentMethod;
     const deliveryChanged = data.deliveryStatus !== undefined && data.deliveryStatus !== current.deliveryStatus;
-    const paymentStatus: PaymentStatus | undefined = deliveryChanged && method === PaymentMethod.COD
+    const byStatus: PaymentStatus | undefined = deliveryChanged && method === PaymentMethod.COD
       ? (data.deliveryStatus === DeliveryStatus.DELIVERED ? PaymentStatus.PAID : PaymentStatus.UNPAID)
       : undefined;
+    // COD changed by hand: 0 means the customer has paid (nothing left to collect);
+    // an amount again on an order not yet delivered means it's still owed.
+    const finalStatus = data.deliveryStatus ?? current.deliveryStatus;
+    const goneBack = finalStatus === DeliveryStatus.RETURNED || finalStatus === DeliveryStatus.RETURN_PROCESS || finalStatus === DeliveryStatus.CANCELLED;
+    const byCod: PaymentStatus | undefined = method !== PaymentMethod.COD || data.codAmount === undefined || goneBack
+      ? undefined
+      : data.codAmount === 0
+        ? PaymentStatus.PAID
+        : current.paymentStatus === PaymentStatus.PAID && finalStatus !== DeliveryStatus.DELIVERED
+          ? PaymentStatus.UNPAID
+          : undefined;
+    const paymentStatus = byCod ?? byStatus;
 
     await db.$transaction(async (tx) => {
       const customerId = await customerAfterEdit(tx, tenant.storeId, current, data);

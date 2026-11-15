@@ -15,7 +15,7 @@ import { useResources } from "@/lib/useResources";
 import { mutate } from "@/lib/mutate";
 import {
   contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, INSTANT_COURIERS, instantCourierLabel,
-  isPR, itemOptionsText, PAYMENT_STYLES,
+  isPR, itemOptionsText, PAYMENT_STYLES, codToCollect,
 } from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
@@ -98,7 +98,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     const dates = customer.sales.map(s => new Date(s.createdAt).getTime());
     const unpaid = customer.sales
       .filter(s => s.deliveryStatus === "DELIVERED" && s.paymentStatus !== "PAID")
-      .reduce((sum, s) => sum + (s.codAmount || s.totalAmount), 0);
+      .reduce((sum, s) => sum + codToCollect(s), 0);
     const byStatus = new Map<string, number>();
     for (const s of customer.sales) byStatus.set(s.deliveryStatus, (byStatus.get(s.deliveryStatus) ?? 0) + 1);
     return {
@@ -374,7 +374,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
     return {
       totalAmount: String(s.totalAmount),
       deliveryAmount: String(s.deliveryAmount ?? 0),
-      codAmount: String(s.codAmount ?? 0),
+      codAmount: String(codToCollect(s)),
       customerAddress: deliveryAddress(s.customerAddress),
       deliveryStatus: (s.deliveryStatus ?? "IN_PROCESS") as string,
       paymentMethod: (s.paymentMethod ?? "COD") as string,
@@ -406,7 +406,8 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
       () => updateSaleDetails(sale.id, {
         totalAmount: amounts[0],
         deliveryAmount: amounts[1],
-        codAmount: amounts[2],
+        // Only when changed: a website order stores 0 here, which would otherwise read as "paid".
+        ...(form.codAmount !== formFor(sale).codAmount && { codAmount: amounts[2] }),
         customerAddress: form.customerAddress.trim() ? tag + form.customerAddress.trim() : "",
         deliveryStatus: form.deliveryStatus as DeliveryStatus,
         paymentMethod: form.paymentMethod as "COD" | "QR" | "CASH",

@@ -6,7 +6,7 @@ import { Check, ClipboardList, MapPin, Package, Phone, Printer, Zap } from "luci
 import { Modal } from "@/components/shared/Modal";
 import { Button } from "@/components/shared/Button";
 import { Swatch, sortVariants } from "@/components/shared/VariantStock";
-import { deliveryAddress, instantCourierLabel, itemOptions } from "@/lib/orders";
+import { codToCollect, deliveryAddress, instantCourierLabel, itemOptions } from "@/lib/orders";
 import { cn, formatNPR } from "@/lib/utils";
 import type { Sale } from "@/lib/types";
 
@@ -76,7 +76,8 @@ function sendNote(sale: Sale) {
   const parts: string[] = [];
   if (via) parts.push(`Send with ${via}`);
   else if (sale.courierTrackingCode) parts.push(`Upaya ${sale.courierTrackingCode}`);
-  if (sale.paymentMethod === "COD" && sale.paymentStatus !== "PAID") parts.push(`Collect ${formatNPR(sale.codAmount || sale.totalAmount)}`);
+  const due = codToCollect(sale);
+  if (due > 0) parts.push(`Collect ${formatNPR(due)}`);
   else parts.push("Paid");
   return parts.join(" · ");
 }

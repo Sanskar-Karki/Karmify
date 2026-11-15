@@ -8,7 +8,7 @@ import { Button } from "@/components/shared/Button";
 import { Dropdown } from "@/components/shared/Dropdown";
 import { Barcode } from "@/components/shared/Barcode";
 import { formatNPR } from "@/lib/utils";
-import { deliveryAddress, itemName } from "@/lib/orders";
+import { codToCollect, deliveryAddress, itemName } from "@/lib/orders";
 import type { StoreProfile } from "@/lib/storeProfile";
 
 type Paper = "label" | "a4";
@@ -42,6 +42,7 @@ export interface LabelOrder {
   customerAddress: string | null;
   customer?: { code: string } | null;
   paymentMethod: "COD" | "QR" | "CASH";
+  paymentStatus?: string | null;
   codAmount: number;
   totalAmount: number;
   items: { id: string; quantity: number; variant?: string | null; product: { name: string } }[];
@@ -54,8 +55,8 @@ function CustomerLabel({ order, store, outlined }: { order: LabelOrder; store: S
   const pieces = order.items.reduce((total, item) => total + item.quantity, 0);
   const customerCode = order.customer?.code;
   const address = deliveryAddress(order.customerAddress);
-  // Website imports don't record a COD amount; the order total is what's due.
-  const cashToCollect = order.codAmount || order.totalAmount;
+  // Nothing once paid; website imports don't record a COD amount, so their total is due.
+  const cashToCollect = codToCollect(order);
 
   return (
     <div
@@ -76,7 +77,7 @@ function CustomerLabel({ order, store, outlined }: { order: LabelOrder; store: S
       </div>
 
       <div className="my-3 border-2 border-black px-3 py-2 text-center">
-        {order.paymentMethod === "COD" ? (
+        {cashToCollect > 0 ? (
           <>
             <p className="text-[9pt] font-bold uppercase tracking-wider">Cash to collect</p>
             <p className="text-[22pt] font-extrabold leading-tight">{formatNPR(cashToCollect)}</p>
