@@ -423,7 +423,8 @@ export default function CustomersPage() {
       customerName: sale.customerName ?? "",
       customerPhone: sale.customerPhone ?? "",
       customerAddress: sale.customerAddress ?? "",
-      codAmount: String(sale.codAmount || sale.totalAmount),
+      // Cash at the till or QR: nothing to collect, so no COD amount is suggested.
+      codAmount: sale.paymentMethod === "COD" ? String(sale.codAmount || sale.totalAmount) : "0",
       deliveryAmount: String(sale.deliveryAmount ?? 0),
       deliveryStatus: sale.deliveryStatus ?? "IN_PROCESS",
     };
@@ -446,8 +447,9 @@ export default function CustomersPage() {
         customerName: editForm.customerName,
         customerPhone: editForm.customerPhone,
         customerAddress: editForm.customerAddress,
-        codAmount: parseFloat(editForm.codAmount) || 0,
-        deliveryAmount: parseFloat(editForm.deliveryAmount) || 0,
+        // Only amounts that were changed are saved, so fixing a name can't rewrite them.
+        ...(editForm.codAmount !== initialEdit.codAmount && { codAmount: parseFloat(editForm.codAmount) || 0 }),
+        ...(editForm.deliveryAmount !== initialEdit.deliveryAmount && { deliveryAmount: parseFloat(editForm.deliveryAmount) || 0 }),
         deliveryStatus: editForm.deliveryStatus as DeliveryStatus,
       }),
       { success: `${editing.invoiceNumber} updated.` }
@@ -711,7 +713,11 @@ export default function CustomersPage() {
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                      <span className="font-bold text-xs">{formatNPR(sale.codAmount || sale.totalAmount)}</span>
+                      {sale.paymentMethod === "COD" ? (
+                        <span className="font-bold text-xs">{formatNPR(sale.codAmount || sale.totalAmount)}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground" title={sale.paymentMethod === "QR" ? "Paid by QR: nothing to collect" : "Paid at the till: nothing to collect"}>—</span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5 text-right hidden lg:table-cell whitespace-nowrap">
                       <span className="font-extrabold text-xs">{formatNPR(sale.deliveryAmount ?? 0)}</span>
@@ -818,7 +824,8 @@ export default function CustomersPage() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="edit-cod" className="text-xs font-semibold text-muted-foreground">COD amount (Rs.)</label>
-            <input id="edit-cod" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.codAmount} onChange={setField("codAmount")} className={fieldClass} />
+            <input id="edit-cod" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.codAmount} onChange={setField("codAmount")} disabled={editing?.paymentMethod !== "COD"} className={cn(fieldClass, "disabled:opacity-60")} />
+            {editing && editing.paymentMethod !== "COD" && <p className="text-[12px] text-muted-foreground">Paid {editing.paymentMethod === "QR" ? "by QR" : "at the till"}, so there&apos;s nothing to collect.</p>}
             {editing?.courierTrackingCode && <p className="text-[12px] text-muted-foreground">Upaya keeps the amount it was booked with. Changing it here doesn&apos;t update the rider.</p>}
           </div>
           <div className="space-y-1.5">

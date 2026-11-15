@@ -274,11 +274,11 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
                 </div>
               ))}
               <div className="flex flex-col gap-1.5 rounded-xl bg-primary p-3.5 text-primary-foreground">
-                <p className="text-[12px] font-semibold text-primary-foreground/85">Total</p>
+                <p className="text-[12px] font-semibold text-primary-foreground">Total</p>
                 <p className="text-xl font-extrabold tracking-tight">{formatNPR(t.sales)}</p>
-                <p className="text-[12px] text-primary-foreground/85">{orders(t.orders)} · all channels</p>
+                <p className="text-[12px] text-primary-foreground">{orders(t.orders)} · all channels</p>
                 <div className="h-1.5 w-full rounded-full bg-primary-foreground/90" />
-                <p className="text-[11px] text-primary-foreground/85">
+                <p className="text-[11px] text-primary-foreground">
                   {p ? `${(change(t.sales, p.sales) ?? 0) >= 0 ? "+" : ""}${Math.round((change(t.sales, p.sales) ?? 0) * 100)}% on the period before` : "All orders so far"}
                 </p>
               </div>

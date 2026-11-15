@@ -764,11 +764,12 @@ export default function SalesPage() {
                   type="button"
                   onClick={() => addToCart(p)}
                   disabled={exhausted}
-                  aria-label={`Add ${p.name} to cart, ${avail} in stock`}
                   className={cn("relative flex flex-col items-start gap-1.5 p-2 bg-card border rounded-xl text-left transition-all", exhausted ? "opacity-50 cursor-not-allowed border-border/40" : "border-border/80 hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 active:scale-[0.98]")}
                 >
+                  {/* Spoken name: "Add to cart: <name> <price> <N left>", the visible text with what it does. */}
+                  <span className="sr-only">Add to cart: </span>
                   {inCart > 0 && (
-                    <span className="absolute top-2 right-2 min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold flex items-center justify-center">{inCart}</span>
+                    <span className="absolute top-2 right-2 min-w-5 h-5 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold flex items-center justify-center" aria-label={`${inCart} in cart`}>{inCart}</span>
                   )}
                   <div className="w-full aspect-[4/3] rounded-lg bg-primary/10 border border-border/40 flex items-center justify-center overflow-hidden">
                     {p.imageUrl ? (

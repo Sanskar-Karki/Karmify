@@ -248,7 +248,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                     <Edit2 size={12} /> Edit
                   </button>
                 </div>
-                <dl className="space-y-3 text-sm">
+                <div className="space-y-3 text-sm">
                   <ContactRow icon={Phone} label="Phone" value={customer.phone}>
                     {customer.phone && (
                       <>
@@ -268,7 +268,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                       <button type="button" onClick={() => copy(address, "address")} className={iconButton} title="Copy" aria-label="Copy address"><Copy size={13} /></button>
                     )}
                   </ContactRow>
-                </dl>
+                </div>
               </div>
             )}
           </section>
@@ -349,10 +349,10 @@ function ContactRow({ icon: Icon, label, value, children }: { icon: typeof Phone
       <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
         <Icon size={14} />
       </span>
-      <div className="min-w-0 flex-1">
+      <dl className="min-w-0 flex-1">
         <dt className="text-[11px] text-muted-foreground">{label}</dt>
         <dd className={cn("break-words text-sm font-semibold", !value && "font-normal italic text-muted-foreground")}>{value || "Not provided"}</dd>
-      </div>
+      </dl>
       {children && <div className="flex shrink-0 gap-1.5">{children}</div>}
     </div>
   );

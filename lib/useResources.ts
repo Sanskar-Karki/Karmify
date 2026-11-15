@@ -46,8 +46,13 @@ const LOAD_ERROR_TOAST = "resource-load-error";
  * resource has data, so a failed load shows a skeleton and a Retry toast
  * rather than an empty page that looks like lost data.
  */
+const subscribeNothing = () => () => {};
+
 export function useResources<R extends Defs>(defs: R) {
   const [stableDefs] = useState(defs);
+  // False while hydrating: the server rendered no data, so the first client
+  // render mustn't either, even if a prefetch already filled the cache.
+  const hydrated = useSyncExternalStore(subscribeNothing, () => true, () => false);
   const version = useSyncExternalStore(subscribeToCache, getCacheVersion, getServerCacheVersion);
   // The shop switch (Originals / Living & Decor / all) filters what every page sees.
   const shop = useShop();
@@ -56,14 +61,14 @@ export function useResources<R extends Defs>(defs: R) {
     const next: Record<string, unknown> = {};
     let complete = true;
     for (const [name, def] of Object.entries(stableDefs)) {
-      const cached = getCached<unknown>(def.key);
+      const cached = hydrated ? getCached<unknown>(def.key) : undefined;
       if (cached === undefined) complete = false;
       next[name] = cached === undefined ? [] : def.select(filterForShop(def.key, cached, shop));
     }
     return { values: next as Values<R>, loading: !complete };
     // version is the signal that the cache changed; the cache itself is external.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stableDefs, version, shop]);
+  }, [stableDefs, version, shop, hydrated]);
 
   const load = useCallback((force: boolean, quiet = false) => {
     async function run(): Promise<void> {

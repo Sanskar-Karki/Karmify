@@ -43,6 +43,9 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           { key: "Content-Security-Policy", value: contentSecurityPolicy },
+          { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+          // The back office is private: keep every page out of search engines.
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

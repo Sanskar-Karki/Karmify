@@ -71,7 +71,7 @@ export default function DashboardLayout({
       >
         {/* Brand */}
         <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0 shrink-0" aria-label="Karmify dashboard">
-          <div className="flex items-center justify-center w-9 h-9 rounded-2xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground font-display font-extrabold text-base shrink-0 shadow-lg shadow-primary/25">
+          <div aria-hidden className="flex items-center justify-center w-9 h-9 rounded-2xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground font-display font-extrabold text-base shrink-0 shadow-lg shadow-primary/25">
             K
           </div>
           <span className="hidden sm:inline font-display text-base font-extrabold tracking-tight text-foreground truncate">

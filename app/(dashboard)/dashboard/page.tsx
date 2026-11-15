@@ -348,13 +348,13 @@ export default function Dashboard() {
                 <li key={task.label}>
                   <Link
                     href={task.href}
-                    className={cn("group flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition-colors hover:bg-muted/60", done && "opacity-60")}
+                    className="group flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition-colors hover:bg-muted/60"
                   >
                     <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", done ? "bg-muted text-muted-foreground" : task.tone)}>
                       {done ? <CheckCircle2 size={16} /> : <Icon size={16} />}
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold text-foreground">{task.label}</span>
+                      <span className={cn("block text-sm font-semibold", done ? "text-muted-foreground" : "text-foreground")}>{task.label}</span>
                       <span className="block truncate text-[11px] text-muted-foreground">{task.note}</span>
                     </span>
                     {loading ? (
