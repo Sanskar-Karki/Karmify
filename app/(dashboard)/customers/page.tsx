@@ -177,7 +177,8 @@ export default function CustomersPage() {
   const [trashOpen, setTrashOpen] = useState(false);
   // Receipts to print: one order's (row button) or the ticked ones (bulk).
   const [receiptSales, setReceiptSales] = useState<Sale[]>([]);
-  const [restock, setRestock] = useState(false);
+  // Deleting puts the items back in stock unless unticked (the usual case).
+  const [restock, setRestock] = useState(true);
   // Bulk "Send to Upaya": the ticked orders that can go, and the rest with why not.
   const [upayaBatch, setUpayaBatch] = useState<UpayaBatch | null>(null);
   const [sendingUpaya, setSendingUpaya] = useState(false);
@@ -381,7 +382,7 @@ export default function CustomersPage() {
   }
 
   function askBulkDelete() {
-    setRestock(false);
+    setRestock(true);
     setToDelete(selectedVisible);
     setConfirmOpen(true);
   }

@@ -8,7 +8,7 @@ import {
 import { toast } from "sonner";
 import { bookSaleWithUpaya, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
 import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
-import { courierMobile, type CourierArea } from "@/lib/courier";
+import { BATCH_COURIER_SERVICES, courierMobile, DOOR_TO_DOOR, type CourierArea } from "@/lib/courier";
 import { cn, formatNPR } from "@/lib/utils";
 import { ProductCardPlaceholder, TransactionRowPlaceholder } from "@/components/skeletons/placeholders";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -76,6 +76,7 @@ type Draft = {
   cart: CartItem[];
   customer: typeof BLANK_CUSTOMER;
   mode: SaleMode;
+  courierService?: number;
   walkInVia?: WalkInVia;
   deliveryAmount: number;
   /** Delivery: the Upaya hub location chosen. */
@@ -128,15 +129,18 @@ export default function SalesPage() {
   const [courierBooking, setCourierBooking] = useState<{ state: "booking" | "booked" | "failed"; text: string } | null>(null);
   // Upaya's delivery charge for the chosen hub, filled into the Delivery field.
   const [hubRate, setHubRate] = useState<{ state: "loading" | "set" | "none"; charge?: number } | null>(null);
+  // Upaya service: the rider brings it to the door (default), or the customer collects it from Upaya's branch.
+  const [courierService, setCourierService] = useState<number>(DOOR_TO_DOOR);
+  const serviceLabel = BATCH_COURIER_SERVICES.find(sv => sv.id === courierService)?.label.toLowerCase() ?? "door to door";
   const rateRequest = useRef(0);
 
-  /** Chooses the hub and fills in Upaya's delivery charge for it (1 kg, door to door, as booked). */
-  async function chooseHub(area: CourierArea | null) {
+  /** Chooses the hub and fills in Upaya's delivery charge for it (1 kg, with the chosen service, as booked). */
+  async function chooseHub(area: CourierArea | null, service = courierService) {
     setHub(area);
     const id = ++rateRequest.current;
     if (!area) return setHubRate(null);
     setHubRate({ state: "loading" });
-    const result = await estimateCourierRate(area.locationId, 1, 3).catch(() => null);
+    const result = await estimateCourierRate(area.locationId, 1, service).catch(() => null);
     if (id !== rateRequest.current) return; // a newer hub was chosen meanwhile
     if (result?.ok && typeof result.data === "number" && result.data > 0) {
       setDeliveryAmount(result.data);
@@ -164,6 +168,7 @@ export default function SalesPage() {
         if (d.walkInVia === "studio" || d.walkInVia === "yango") setWalkInVia(d.walkInVia);
         if (typeof d.deliveryAmount === "number") setDeliveryAmount(d.deliveryAmount);
         if (d.hub && Number.isInteger(d.hub.areaId)) setHub(d.hub);
+        if (BATCH_COURIER_SERVICES.some(sv => sv.id === d.courierService)) setCourierService(d.courierService as number);
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
@@ -175,12 +180,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -460,12 +465,14 @@ export default function SalesPage() {
     setPaymentMethod("CASH");
     setHub(null);
     setHubRate(null);
+    const bookedService = courierService;
+    setCourierService(DOOR_TO_DOOR);
 
     // The sale is saved; now book it with Upaya. A failure leaves the sale as it
     // is, and it can be booked later from the customer's order.
     if (booking) {
       setCourierBooking({ state: "booking", text: "Booking with Upaya…" });
-      const booked = await bookSaleWithUpaya(result.data.id).catch(() => null);
+      const booked = await bookSaleWithUpaya(result.data.id, bookedService).catch(() => null);
       if (booked?.ok) {
         const text = `Booked · tracking ${booked.data.trackingCode}`;
         setCourierBooking({ state: "booked", text });
@@ -610,13 +617,40 @@ export default function SalesPage() {
                       Book on complete
                     </label>
                   </div>
-                  <UpayaHubPicker value={hub} onChange={chooseHub} address={customer.address} />
+                  <div role="radiogroup" aria-label="Upaya delivery service" className="grid grid-cols-2 gap-2">
+                    {BATCH_COURIER_SERVICES.map(sv => {
+                      const on = courierService === sv.id;
+                      return (
+                        <button
+                          key={sv.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          onClick={() => {
+                            if (on) return;
+                            setCourierService(sv.id);
+                            if (hub) void chooseHub(hub, sv.id); // re-price for this service
+                          }}
+                          className={cn(
+                            "flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2 text-left transition-all",
+                            on ? "border-primary/50 bg-primary/10" : "border-border bg-muted hover:border-primary/30"
+                          )}
+                        >
+                          <span className={cn("text-xs font-semibold", on ? "text-primary" : "text-foreground")}>{sv.label}</span>
+                          <span className="text-[10.5px] leading-tight text-muted-foreground">
+                            {sv.id === DOOR_TO_DOOR ? "Rider brings it to the customer" : "Customer collects it at Upaya's branch"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <UpayaHubPicker value={hub} onChange={area => chooseHub(area)} address={customer.address} />
                   {hub && hubRate?.state === "loading" && <p className="text-[11px] text-muted-foreground">Getting Upaya&apos;s delivery charge…</p>}
                   {hub && hubRate?.state === "set" && (
-                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400">Upaya charge {formatNPR(hubRate.charge ?? 0)} filled in as Delivery. You can still change it.</p>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400">Upaya {serviceLabel} charge {formatNPR(hubRate.charge ?? 0)} filled in as Delivery. You can still change it.</p>
                   )}
                   {hub && hubRate?.state === "none" && (
-                    <p className="text-[11px] text-amber-600">Upaya has no price for this hub right now. Enter the delivery charge yourself.</p>
+                    <p className="text-[11px] text-amber-600">Upaya has no {serviceLabel} price for this hub right now. Enter the delivery charge yourself.</p>
                   )}
                   {bookUpaya && customer.phone.trim() && !courierMobile(customer.phone) && (
                     <p className="text-[11px] font-medium text-amber-600">Upaya needs a 10-digit mobile number (98…) to book.</p>
