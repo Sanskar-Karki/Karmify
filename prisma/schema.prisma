@@ -297,6 +297,7 @@ model Sale {
   courierAreaId       Int? // Upaya area the customer chose at website checkout
   courierLocationId   Int?
   courierAreaTitle    String?
+  courierBookedAt     DateTime? // when it was booked with Upaya (for "Sent with Upaya" in Analytics)
   courierServiceId    Int? // Upaya service: 3 = door to door, 9 = door to branch (null = door to door)
   notes           String? // The customer's note from the website checkout
   brand           String? // "originals" | "decor": which shop the sale belongs to (null = not set)

@@ -210,8 +210,11 @@ export async function restockProduct(data: {
   quantity?: number;
   rows?: { variantId: string; quantity: number }[];
   notes?: string;
+  /** "return": units brought back without an order (no customer details); recorded as Returned, not Stock In. */
+  kind?: "restock" | "return";
 }) {
-  return guarded("Could not restock this product.", async () => {
+  const isReturn = data.kind === "return";
+  return guarded(isReturn ? "Could not record this return." : "Could not restock this product.", async () => {
     const tenant = await requireTenant();
     const storeId = tenant.storeId;
     const notes = data.notes?.trim().slice(0, 300) || "";
@@ -229,7 +232,7 @@ export async function restockProduct(data: {
       if (product.variants.length > 0) {
         const rows = (data.rows ?? []).filter(r => r.quantity !== 0);
         if (rows.some(r => !Number.isInteger(r.quantity) || r.quantity < 0)) throw new UserError("Quantities must be whole numbers of 0 or more.");
-        if (rows.length === 0) throw new UserError("Enter how many came in for at least one size or colour.");
+        if (rows.length === 0) throw new UserError(`Enter how many ${isReturn ? "came back" : "came in"} for at least one size or colour.`);
         const parts: string[] = [];
         for (const row of rows) {
           const variant = product.variants.find(v => v.id === row.variantId);
@@ -242,7 +245,7 @@ export async function restockProduct(data: {
         detail = parts.join(", ");
       } else {
         const quantity = data.quantity ?? 0;
-        if (!Number.isInteger(quantity) || quantity <= 0) throw new UserError("Enter how many came in: a whole number above 0.");
+        if (!Number.isInteger(quantity) || quantity <= 0) throw new UserError(`Enter how many ${isReturn ? "came back" : "came in"}: a whole number above 0.`);
         await tx.stock.upsert({
           where: { productId_warehouseId: { productId: data.productId, warehouseId } },
           update: { quantity: { increment: quantity } },
@@ -256,15 +259,21 @@ export async function restockProduct(data: {
           storeId,
           productId: data.productId,
           quantity: added,
-          type: MovementType.STOCK_IN,
+          type: isReturn ? MovementType.RETURNED : MovementType.STOCK_IN,
           destWhId: warehouseId,
-          notes: ["Restock", detail, notes].filter(Boolean).join(" · ").slice(0, 500),
+          notes: [isReturn ? "Return (no order)" : "Restock", detail, notes].filter(Boolean).join(" · ").slice(0, 500),
           userId: tenant.userId,
         },
       });
     }, { timeout: 15_000, maxWait: 10_000 });
 
-    await logActivity(tenant, "Product Restocked", `Restocked "${product.name}" with ${added} unit(s)${detail ? ` (${detail})` : ""}.`);
+    await logActivity(
+      tenant,
+      isReturn ? "Product Returned" : "Product Restocked",
+      isReturn
+        ? `${added} unit(s) of "${product.name}" returned without an order${detail ? ` (${detail})` : ""}${notes ? `: ${notes}` : ""}.`
+        : `Restocked "${product.name}" with ${added} unit(s)${detail ? ` (${detail})` : ""}.`
+    );
     revalidatePath("/products");
     revalidatePath("/inventory");
     revalidatePath("/dashboard");

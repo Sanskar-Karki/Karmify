@@ -61,6 +61,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [filter, setFilter] = useState<MovementFilter>("all");
   const [restocking, setRestocking] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [editing, setEditing] = useState(false);
   // Editing stock in place: typed numbers by size/colour row id (or "total" for a product without sizes).
   const [stockEdit, setStockEdit] = useState<Record<string, string> | null>(null);
@@ -102,6 +103,8 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         revenue += kept * line.unitPrice;
       }
     }
+    // Returns without an order (Return button) count too; returns on orders are counted above.
+    returned += history.movements.filter(m => m.type === "RETURNED" && !m.referenceId).reduce((sum, m) => sum + m.quantity, 0);
     const lastIn = history.movements.find(m => m.type === "STOCK_IN");
     const restocked = history.movements.filter(m => m.type === "STOCK_IN").reduce((sum, m) => sum + m.quantity, 0);
     return { sold, revenue, pr, returned, lastIn: lastIn ? new Date(lastIn.createdAt) : null, restocked };
@@ -197,6 +200,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         </div>
         <div className="flex shrink-0 gap-2">
           <Button variant="secondary" onClick={() => setEditing(true)}><Edit2 size={14} /> Edit</Button>
+          <Button variant="secondary" onClick={() => setReturning(true)} title="Items brought back without an order"><RotateCcw size={14} /> Return</Button>
           <Button onClick={() => setRestocking(true)}><PackagePlus size={15} /> Restock</Button>
         </div>
       </section>
@@ -387,6 +391,13 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
         product={restocking ? product : null}
         currentStock={total}
         onClose={() => setRestocking(false)}
+        onDone={afterRestock}
+      />
+      <RestockDialog
+        mode="return"
+        product={returning ? product : null}
+        currentStock={total}
+        onClose={() => setReturning(false)}
         onDone={afterRestock}
       />
     </div>

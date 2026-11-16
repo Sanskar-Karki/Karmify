@@ -120,6 +120,42 @@ export const BATCH_COURIER_SERVICES = [
 
 export const isCourierService = (id: number) => COURIER_SERVICES.some(s => Number(s.value) === id);
 
+/** Upaya hubs that serve the Kathmandu valley: Kathmandu, Lalitpur and Bhaktapur. */
+const VALLEY_HUB = /^(kathmandu hub|gongabu hub|radhe radhe|pharping hub|\[airport\] - kathmandu international airport)$/i;
+export const isValleyHub = (hub?: string | null) => VALLEY_HUB.test((hub ?? "").replace(/\s+/g, " ").trim());
+
+/**
+ * Upaya locations served by those hubs, from Upaya's list (Nov 2026). Places
+ * Upaya adds later come from its live list (see useValleyLocations).
+ */
+export const VALLEY_LOCATION_IDS: ReadonlySet<number> = new Set([
+  779, 790, 792, 794, 1211, 1320, 1321, 1322, 1361, 1362, 1363, 1364, 1365, 1366, 1367, 1368, 1369, 1370, 1372, 1477,
+  1519, 1521, 1522, 1523, 1524, 1525, 1527, 1537, 1619, 1684, 1690, 1708, 1710, 1904, 1905, 1906, 1907, 1908, 1909,
+  1910, 1911, 1912, 1913, 1914, 2456, 2457, 3552, 3553,
+]);
+
+const VALLEY_DISTRICT = /\b(kathmandu|lalitpur|bhaktapur)\b/i;
+
+/** Inside the Kathmandu valley, outside it, or no hub to tell by. */
+export type Valley = "inside" | "outside" | "none";
+
+export const VALLEY_LABELS: Record<Valley, string> = { inside: "Inside valley", outside: "Outside valley", none: "No hub set" };
+
+/**
+ * Which side of the valley an order goes to, by its Upaya hub location. Yango
+ * only runs inside the valley. `live` adds valley locations from Upaya's
+ * current list to the saved ones.
+ */
+export function valleyOf(
+  sale: { courierLocationId: number | null; courierAreaTitle: string | null; deliveryVia?: string | null },
+  live?: ReadonlySet<number> | null
+): Valley {
+  if (sale.deliveryVia) return "inside";
+  const id = sale.courierLocationId;
+  if (id) return VALLEY_LOCATION_IDS.has(id) || live?.has(id) || VALLEY_DISTRICT.test(sale.courierAreaTitle ?? "") ? "inside" : "outside";
+  return VALLEY_DISTRICT.test(sale.courierAreaTitle ?? "") ? "inside" : "none";
+}
+
 /**
  * What Upaya collects on delivery. Paid orders (QR, or marked paid) collect
  * nothing; otherwise what's left to pay. Website imports don't record a COD

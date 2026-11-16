@@ -1,6 +1,6 @@
 import "server-only";
 
-import { courierStatusSlug, sameCourierReference, type CourierArea, type CourierCategory, type CourierTracking } from "@/lib/courier";
+import { courierStatusSlug, isValleyHub, sameCourierReference, type CourierArea, type CourierCategory, type CourierTracking } from "@/lib/courier";
 
 // Client for the Upaya courier API. The key stays on the server: this module
 // can't be imported by browser code, and neither the key nor request headers
@@ -122,6 +122,12 @@ export async function searchAreas(query: string, limit = 20): Promise<CourierAre
     .sort((a, b) => a.title.length - b.title.length)
     .slice(0, limit)
     .map(publicArea);
+}
+
+/** The location IDs whose hub serves the Kathmandu valley. */
+export async function valleyLocationIds(): Promise<number[]> {
+  const areas = await loadAreas();
+  return [...new Set(areas.filter(area => isValleyHub(area.hub)).map(area => area.locationId))];
 }
 
 /** Areas named in a free-text address, with rarer place names counting for more. */

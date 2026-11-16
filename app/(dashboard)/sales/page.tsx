@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingCart, Search, Plus, Minus, X, CheckCircle, User, Phone, MapPin,
-  Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap,
+  Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap, UserCheck, Users,
 } from "lucide-react";
 import { toast } from "sonner";
 import { bookSaleWithUpaya, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
@@ -20,7 +20,7 @@ import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, deliveryAddress, itemOptions, itemOptionsText, PAYMENT_STYLES } from "@/lib/orders";
+import { countsAsSale, deliveryAddress, findCustomerMatches, itemOptions, itemOptionsText, PAYMENT_STYLES, type CustomerMatch } from "@/lib/orders";
 import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
 import { shopOfProducts, useShop } from "@/lib/shop";
@@ -81,6 +81,8 @@ type Draft = {
   deliveryAmount: number;
   /** Delivery: the Upaya hub location chosen. */
   hub?: CourierArea | null;
+  /** The existing customer this order is linked to. */
+  linkedId?: string | null;
 };
 
 const smallField = "w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20";
@@ -100,6 +102,9 @@ export default function SalesPage() {
 
   const [rawCart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState(BLANK_CUSTOMER);
+  // An existing customer staff confirmed this is, and the ones they said it isn't.
+  const [linkedId, setLinkedId] = useState<string | null>(null);
+  const [notSame, setNotSame] = useState<string[]>([]);
   const [deliveryAmount, setDeliveryAmount] = useState(0);
   // null means "follow the computed total"; a string is a manual override.
   const [codOverride, setCodOverride] = useState<string | null>(null);
@@ -169,6 +174,7 @@ export default function SalesPage() {
         if (typeof d.deliveryAmount === "number") setDeliveryAmount(d.deliveryAmount);
         if (d.hub && Number.isInteger(d.hub.areaId)) setHub(d.hub);
         if (BATCH_COURIER_SERVICES.some(sv => sv.id === d.courierService)) setCourierService(d.courierService as number);
+        if (typeof d.linkedId === "string") setLinkedId(d.linkedId);
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
@@ -180,12 +186,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -335,6 +341,7 @@ export default function SalesPage() {
     const phone = previous.customerPhone ?? "";
     const address = deliveryAddress(previous.customerAddress);
     setCustomer(c => ({ name, phone: c.phone || phone, address: c.address || address }));
+    if (previous.customerId) setLinkedId(previous.customerId);
     toast.info(`Returning customer: ${name}`, { id: "returning-customer", description: previous.customer?.code });
   }
 
@@ -344,6 +351,33 @@ export default function SalesPage() {
     if (!phone || customer.name.trim()) return;
     const previous = sales.find(s => s.customerName && normalizePhone(s.customerPhone) === phone);
     if (previous) fillCustomerFrom(previous);
+  }
+
+  // Someone with this name or phone already in Karmify. One phone match is them;
+  // a name match (or several) is asked about, so their orders build one history.
+  const matches = useMemo(
+    () => findCustomerMatches(sales, { name: customer.name, phone: customer.phone }),
+    [sales, customer.name, customer.phone]
+  );
+  const openMatches = matches.filter(m => !notSame.includes(m.customerId));
+  const phoneMatches = openMatches.filter(m => m.by === "phone");
+  const linkedCustomer =
+    matches.find(m => m.customerId === linkedId) ??
+    (phoneMatches.length === 1 ? phoneMatches[0] : null);
+  const askAbout = linkedCustomer ? [] : openMatches;
+
+  function linkCustomer(match: CustomerMatch) {
+    setLinkedId(match.customerId);
+    // Fill only what's still empty: a new phone or address is kept.
+    setCustomer(c => ({
+      name: c.name.trim() ? c.name : match.name,
+      phone: c.phone.trim() ? c.phone : match.phone ?? "",
+      address: c.address.trim() ? c.address : match.address ?? "",
+    }));
+  }
+  function notThisCustomer(ids: string[]) {
+    setNotSame(prev => [...new Set([...prev, ...ids])]);
+    setLinkedId(null);
   }
 
   const walkIn = mode === "walkin";
@@ -429,6 +463,7 @@ export default function SalesPage() {
       courierServiceId: sending ? courierService : null,
       pr,
       deliveryVia: instant,
+      customerId: linkedCustomer?.customerId ?? null,
       // The shop being sold from; under "All shops", the cart's products' shop.
       brand: shop !== "all" ? shop : shopOfProducts(products.filter(p => cart.some(c => c.productId === p.id))),
     }), {
@@ -461,6 +496,8 @@ export default function SalesPage() {
     setCashReceived("");
     setCart([]);
     setCustomer(BLANK_CUSTOMER);
+    setLinkedId(null);
+    setNotSame([]);
     setDeliveryAmount(0);
     setCodOverride(null);
     setPaymentMethod("CASH");
@@ -600,6 +637,71 @@ export default function SalesPage() {
                   );
                 })}
               </div>
+
+              {/* Same person as an existing customer? Then this order joins their history. */}
+              {linkedCustomer ? (
+                <div className="flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 dark:border-emerald-900/50 dark:bg-emerald-950/30">
+                  <UserCheck size={15} className="mt-0.5 shrink-0 text-emerald-700 dark:text-emerald-400" />
+                  <div className="min-w-0 flex-1 text-[12px] text-emerald-900 dark:text-emerald-100">
+                    <p className="font-semibold">
+                      {linkedCustomer.name} <span className="font-mono text-[11px] font-normal opacity-80">{linkedCustomer.code}</span>
+                    </p>
+                    <p className="text-[11px] opacity-90">
+                      {linkedCustomer.orders} earlier order{linkedCustomer.orders === 1 ? "" : "s"}
+                      {linkedCustomer.by === "phone" && linkedId !== linkedCustomer.customerId ? " · same phone" : ""}. This order goes into their history.
+                    </p>
+                  </div>
+                  {/* A typed phone that matches is the same customer anyway; a link staff picked can be undone. */}
+                  {linkedId === linkedCustomer.customerId && (
+                    <button
+                      type="button"
+                      onClick={() => notThisCustomer([linkedCustomer.customerId])}
+                      className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+                    >
+                      Not them
+                    </button>
+                  )}
+                </div>
+              ) : askAbout.length > 0 && (
+                <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50 p-3 dark:border-sky-900/50 dark:bg-sky-950/30">
+                  <div className="text-[12px] text-sky-900 dark:text-sky-100">
+                    <p className="flex items-center gap-1.5 font-semibold"><Users size={13} /> Is this the same person?</p>
+                    <p className="text-[11px] opacity-90">
+                      {askAbout.length === 1 ? "A customer" : `${askAbout.length} customers`} with this {askAbout.some(m => m.by === "phone") ? "phone or name" : "name"} already {askAbout.length === 1 ? "has" : "have"} orders. Pick them to keep one history.
+                    </p>
+                  </div>
+                  <ul className="space-y-1.5">
+                    {askAbout.map(m => (
+                      <li key={m.customerId}>
+                        <button
+                          type="button"
+                          onClick={() => linkCustomer(m)}
+                          className="flex w-full items-center gap-3 rounded-lg border border-sky-200 bg-card px-3 py-2 text-left transition-colors hover:border-primary/50 hover:bg-primary/5 dark:border-sky-900/50"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-baseline gap-x-1.5 text-xs font-semibold text-foreground">
+                              {m.name}
+                              <span className="font-mono text-[10.5px] font-normal text-muted-foreground">{m.code}</span>
+                              <span className="rounded bg-muted px-1.5 text-[10px] font-semibold text-muted-foreground">Same {m.by}</span>
+                            </span>
+                            <span className="block truncate text-[11px] text-muted-foreground">
+                              {[m.phone, m.address, `${m.orders} order${m.orders === 1 ? "" : "s"}`, `last ${new Date(m.lastOrderAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`].filter(Boolean).join(" · ")}
+                            </span>
+                          </span>
+                          <span className="shrink-0 rounded-md bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground">Same person</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    onClick={() => notThisCustomer(askAbout.map(m => m.customerId))}
+                    className="text-[11px] font-semibold text-sky-800 underline-offset-2 hover:underline dark:text-sky-300"
+                  >
+                    No, this is someone new
+                  </button>
+                </div>
+              )}
 
               {/* Upaya courier: the hub location, and booking on "Complete Sale" */}
               {sending && upayaEnabled && (

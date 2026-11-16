@@ -2,10 +2,12 @@
 
 import React, { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ClipboardList, MapPin, Package, Phone, Printer, Zap } from "lucide-react";
+import { ArrowLeft, Building2, Check, ChevronRight, ClipboardList, MapPin, MapPinOff, Mountain, Package, Phone, Printer, Zap } from "lucide-react";
 import { Modal } from "@/components/shared/Modal";
 import { Button } from "@/components/shared/Button";
 import { Swatch, sortVariants } from "@/components/shared/VariantStock";
+import { VALLEY_LABELS, valleyOf, type Valley } from "@/lib/courier";
+import { useValleyLocations } from "@/lib/useValleyLocations";
 import { codToCollect, deliveryAddress, instantCourierLabel, itemOptions } from "@/lib/orders";
 import { cn, formatNPR } from "@/lib/utils";
 import type { Sale } from "@/lib/types";
@@ -82,11 +84,39 @@ function sendNote(sale: Sale) {
   return parts.join(" · ");
 }
 
+const AREA_CHOICES: { key: Valley; hint: string; icon: typeof MapPin }[] = [
+  { key: "inside", hint: "Kathmandu, Lalitpur and Bhaktapur hubs, and Yango", icon: Building2 },
+  { key: "outside", hint: "Every other Upaya hub", icon: Mountain },
+  { key: "none", hint: "Orders without an Upaya hub location", icon: MapPinOff },
+];
+
 export function PackingListDialog({ open, onClose, orders }: { open: boolean; onClose: () => void; orders: Sale[] }) {
-  const { pick, packOrders, skipped, pieces } = useMemo(() => buildList(orders), [orders]);
+  const live = useValleyLocations();
+  // Inside and outside the valley go out separately, so each has its own list.
+  const byArea = useMemo(() => {
+    const groups: Record<Valley, Sale[]> = { inside: [], outside: [], none: [] };
+    for (const sale of orders) groups[valleyOf(sale, live)].push(sale);
+    return groups;
+  }, [orders, live]);
+  const [area, setArea] = useState<Valley | "all" | null>(null);
+  const chosen = useMemo(() => (area === null ? [] : area === "all" ? orders : byArea[area]), [area, orders, byArea]);
+  const { pick, packOrders, skipped, pieces } = useMemo(() => buildList(chosen), [chosen]);
+  const areaSummary = useMemo(
+    () => Object.fromEntries((Object.keys(byArea) as Valley[]).map(key => {
+      const list = buildList(byArea[key]);
+      return [key, { orders: list.packOrders.length, pieces: list.pieces }];
+    })) as Record<Valley, { orders: number; pieces: number }>,
+    [byArea]
+  );
   const [view, setView] = useState<"pick" | "orders">("pick");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [packed, setPacked] = useState<Set<string>>(new Set());
+  const chooseArea = (next: Valley | "all" | null) => {
+    setArea(next);
+    setPicked(new Set());
+    setPacked(new Set());
+  };
+  const areaLabel = area === null ? null : area === "all" ? "All areas" : VALLEY_LABELS[area];
   const toggle = (set: Set<string>, key: string, update: (s: Set<string>) => void) => {
     const next = new Set(set);
     if (next.has(key)) next.delete(key); else next.add(key);
@@ -102,18 +132,63 @@ export function PackingListDialog({ open, onClose, orders }: { open: boolean; on
         onClose={onClose}
         size="xl"
         icon={ClipboardList}
-        title="Packing list"
-        description={`${packOrders.length} order${packOrders.length === 1 ? "" : "s"} · ${pieces} piece${pieces === 1 ? "" : "s"} · ${pick.length} product${pick.length === 1 ? "" : "s"}${skipped ? ` · ${skipped} cancelled/returned left out` : ""}`}
+        title={areaLabel ? `Packing list · ${areaLabel}` : "Packing list"}
+        description={area === null
+          ? `${orders.length} selected order${orders.length === 1 ? "" : "s"}. Choose which area to pack.`
+          : `${packOrders.length} order${packOrders.length === 1 ? "" : "s"} · ${pieces} piece${pieces === 1 ? "" : "s"} · ${pick.length} product${pick.length === 1 ? "" : "s"}${skipped ? ` · ${skipped} cancelled/returned left out` : ""}`}
         footer={
           <>
+            {area !== null && (
+              <Button variant="secondary" onClick={() => chooseArea(null)} className="flex-1 sm:flex-none">
+                <ArrowLeft size={15} /> Change area
+              </Button>
+            )}
             <Button variant="secondary" onClick={onClose} className="flex-1 sm:flex-none">Close</Button>
-            <Button onClick={() => window.print()} disabled={pieces === 0} className="flex-1 sm:flex-none sm:ml-auto">
-              <Printer size={15} /> Print packing list
-            </Button>
+            {area !== null && (
+              <Button onClick={() => window.print()} disabled={pieces === 0} className="flex-1 sm:flex-none sm:ml-auto">
+                <Printer size={15} /> Print packing list
+              </Button>
+            )}
           </>
         }
       >
-        {pieces === 0 ? (
+        {area === null ? (
+          <div className="space-y-3 p-4 sm:p-6">
+            <div className="grid gap-3 sm:grid-cols-2">
+              {AREA_CHOICES.filter(c => c.key !== "none" || byArea.none.length > 0).map(({ key, hint, icon: Icon }) => {
+                const sum = areaSummary[key];
+                const empty = sum.orders === 0;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    disabled={empty}
+                    onClick={() => chooseArea(key)}
+                    className={cn(
+                      "group flex items-center gap-4 rounded-2xl border p-4 text-left transition-all",
+                      empty ? "cursor-not-allowed border-border/60 opacity-50" : "border-border/80 bg-card hover:border-primary/50 hover:bg-primary/5"
+                    )}
+                  >
+                    <span className={cn("flex h-11 w-11 shrink-0 items-center justify-center rounded-xl", empty ? "bg-muted text-muted-foreground" : "bg-primary/10 text-primary")}>
+                      <Icon size={20} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold text-foreground">{VALLEY_LABELS[key]}</span>
+                      <span className="block text-[11px] text-muted-foreground">{hint}</span>
+                      <span className="mt-1 block text-xs font-semibold tabular-nums text-foreground">
+                        {empty ? "Nothing to pack" : `${sum.orders} order${sum.orders === 1 ? "" : "s"} · ${sum.pieces} piece${sum.pieces === 1 ? "" : "s"}`}
+                      </span>
+                    </span>
+                    {!empty && <ChevronRight size={18} className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />}
+                  </button>
+                );
+              })}
+            </div>
+            <button type="button" onClick={() => chooseArea("all")} className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline">
+              Or pack all {orders.length} selected order{orders.length === 1 ? "" : "s"} together
+            </button>
+          </div>
+        ) : pieces === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-14 text-center text-muted-foreground">
             <Package size={28} className="opacity-40" />
             <p className="text-sm font-semibold">Nothing to pack</p>
@@ -196,6 +271,7 @@ export function PackingListDialog({ open, onClose, orders }: { open: boolean; on
                           </p>
                           {sale.customerPhone && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Phone size={11} /> {sale.customerPhone}</p>}
                           {address && <p className="flex items-start gap-1.5 text-xs text-muted-foreground"><MapPin size={11} className="mt-0.5 shrink-0" /> <span className="break-words">{address}</span></p>}
+                          {sale.courierAreaTitle && !sale.deliveryVia && <p className="text-xs text-muted-foreground">Hub: <span className="font-semibold text-foreground">{sale.courierAreaTitle}</span></p>}
                           <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">{sale.deliveryVia && <Zap size={11} />}{sendNote(sale)}</p>
                         </div>
                         <button
@@ -229,10 +305,10 @@ export function PackingListDialog({ open, onClose, orders }: { open: boolean; on
       </Modal>
 
       {/* Printed copy: plain black on white, picking table first, then one block per order. */}
-      {open && pieces > 0 && typeof document !== "undefined" && createPortal(
+      {open && area !== null && pieces > 0 && typeof document !== "undefined" && createPortal(
         <div className="packing-print-root" style={{ fontFamily: "Arial, sans-serif", color: "#000", padding: "10mm", fontSize: "10pt" }}>
           <style>{"@media print { @page { size: A4; margin: 0; } }"}</style>
-          <h1 style={{ fontSize: "16pt", margin: "0 0 2mm" }}>Packing list</h1>
+          <h1 style={{ fontSize: "16pt", margin: "0 0 2mm" }}>Packing list{areaLabel ? ` · ${areaLabel}` : ""}</h1>
           <p style={{ margin: "0 0 5mm" }}>{packOrders.length} orders · {pieces} pieces · {new Date().toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</p>
           <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "8mm" }}>
             <thead>
@@ -255,6 +331,7 @@ export function PackingListDialog({ open, onClose, orders }: { open: boolean; on
             <div key={sale.id} style={{ border: "1pt solid #000", borderRadius: "2mm", padding: "3mm", marginBottom: "4mm", breakInside: "avoid" }}>
               <p style={{ margin: 0, fontWeight: 700 }}>☐ {sale.invoiceNumber} · {sale.customerName || "Walk-in Customer"}{sale.customerPhone ? ` · ${sale.customerPhone}` : ""}</p>
               {deliveryAddress(sale.customerAddress) && <p style={{ margin: "1mm 0 0" }}>{deliveryAddress(sale.customerAddress)}</p>}
+              {sale.courierAreaTitle && !sale.deliveryVia && <p style={{ margin: "1mm 0 0" }}>Hub: {sale.courierAreaTitle}</p>}
               <p style={{ margin: "1mm 0 2mm", fontWeight: 700 }}>{sendNote(sale)}</p>
               {lines.map(l => <p key={l.id} style={{ margin: "0.8mm 0" }}><b>{l.qty}×</b> {l.name}{l.size || l.color ? ` — ${[l.size && `Size ${l.size}`, l.color].filter(Boolean).join(", ")}` : ""}</p>)}
               {sale.notes && <p style={{ margin: "2mm 0 0", fontStyle: "italic" }}>Note: {sale.notes}</p>}

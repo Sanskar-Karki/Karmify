@@ -10,7 +10,8 @@ import {
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
 import { PackingListDialog } from "@/components/orders/PackingListDialog";
 import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
-import type { CourierArea } from "@/lib/courier";
+import { VALLEY_LABELS, valleyOf, type CourierArea } from "@/lib/courier";
+import { useValleyLocations } from "@/lib/useValleyLocations";
 import { toast } from "sonner";
 import { updateDeliveryStatuses, updateSaleDetails, syncWebsiteOrders, deleteSales, refreshCourierShipments, bookSaleWithUpaya } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
@@ -63,6 +64,13 @@ const SOURCE_FILTERS = [
   { value: "store", label: "In store" },
   { value: "pr", label: "PR (given free)" },
   { value: "ad", label: "From an ad" },
+];
+
+const AREA_FILTERS = [
+  { value: "all", label: "Any area" },
+  { value: "inside", label: VALLEY_LABELS.inside },
+  { value: "outside", label: VALLEY_LABELS.outside },
+  { value: "none", label: VALLEY_LABELS.none },
 ];
 
 const PAYMENT_FILTERS = [
@@ -155,6 +163,9 @@ export default function CustomersPage() {
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
+  // Inside or outside the Kathmandu valley, by the order's Upaya hub.
+  const [areaFilter, setAreaFilter] = useUrlState("area", "all");
+  const valleyLive = useValleyLocations();
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useUrlState("status", "all");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -174,6 +185,8 @@ export default function CustomersPage() {
   // The orders shown in the delete confirmation: exactly these are deleted.
   const [toDelete, setToDelete] = useState<Sale[]>([]);
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  // Orders whose status is being changed from their row's status menu.
+  const [statusSaving, setStatusSaving] = useState<Set<string>>(() => new Set());
   const [bulkLabelsOpen, setBulkLabelsOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
   const [editHub, setEditHub] = useState<CourierArea | null>(null);
@@ -198,9 +211,10 @@ export default function CustomersPage() {
         s.invoiceNumber.toLowerCase().includes(q)) &&
       isWithinDateFilter(s.createdAt, dateFilter, customStart, customEnd) &&
       matchesSource(s, sourceFilter) &&
+      (areaFilter === "all" || valleyOf(s, valleyLive) === areaFilter) &&
       (paymentFilter === "all" || s.paymentStatus === paymentFilter)
     );
-  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, paymentFilter]);
+  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, areaFilter, valleyLive, paymentFilter]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -212,12 +226,13 @@ export default function CustomersPage() {
     () => (statusFilter === "all" ? beforeStatus : beforeStatus.filter(s => s.deliveryStatus === statusFilter)),
     [beforeStatus, statusFilter]
   );
-  const filtersOn = dateFilter !== "all" || sourceFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all";
+  const filtersOn = dateFilter !== "all" || sourceFilter !== "all" || areaFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all";
   const clearFilters = () => {
     setDateFilter("all");
     setCustomStart("");
     setCustomEnd("");
     setSourceFilter("all");
+    setAreaFilter("all");
     setPaymentFilter("all");
     setStatusFilter("all");
   };
@@ -318,6 +333,22 @@ export default function CustomersPage() {
 
   function toggleSelectAll() {
     setSelectedIds(allVisibleSelected ? new Set() : new Set(displayed.map(s => s.id)));
+  }
+
+  /** One order's status, changed from the status menu in its row (COD payment follows it, as in Edit). */
+  async function changeRowStatus(sale: Sale, status: string) {
+    if (status === sale.deliveryStatus) return;
+    const label = DELIVERY_STATUSES.find(d => d.value === status)?.label ?? status;
+    setStatusSaving(prev => new Set(prev).add(sale.id));
+    const result = await mutate(() => updateSaleDetails(sale.id, { deliveryStatus: status as DeliveryStatus }), {
+      success: `${sale.invoiceNumber} marked ${label}.`,
+    });
+    if (result.ok) await refetch();
+    setStatusSaving(prev => {
+      const next = new Set(prev);
+      next.delete(sale.id);
+      return next;
+    });
   }
 
   async function applyBulkStatus(status: string) {
@@ -590,6 +621,7 @@ export default function CustomersPage() {
             )}
           </div>
           <Dropdown aria-label="Source" value={sourceFilter} onChange={setSourceFilter} options={SOURCE_FILTERS} className="w-36" triggerClassName="py-1.5 text-xs rounded-lg" />
+          <Dropdown aria-label="Area" value={areaFilter} onChange={setAreaFilter} options={AREA_FILTERS} className="w-36" triggerClassName="py-1.5 text-xs rounded-lg" />
           <Dropdown aria-label="Payment" value={paymentFilter} onChange={setPaymentFilter} options={PAYMENT_FILTERS} className="w-32" triggerClassName="py-1.5 text-xs rounded-lg" />
           {filtersOn && (
             <button type="button" onClick={clearFilters} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground">
@@ -704,7 +736,10 @@ export default function CustomersPage() {
                       />
                     </td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium hidden sm:table-cell">{pager.offset + i + 1}</td>
-                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">{new Date(sale.createdAt).toLocaleDateString()}</td>
+                    <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">
+                      {new Date(sale.createdAt).toLocaleDateString()}
+                      <span className="block text-[11px] font-normal tabular-nums opacity-80">{new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                    </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-1.5">
                         <Link href={`/customers/${encodeURIComponent(key)}`} className="font-bold text-xs font-mono hover:text-primary transition-colors whitespace-nowrap">
@@ -719,7 +754,7 @@ export default function CustomersPage() {
                           <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300" title="Given free for promotion">PR</span>
                         )}
                       </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()} · {new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
                     </td>
                     <td className="px-5 py-3.5 font-semibold text-xs">
                       {sale.customerName || "Walk-in Customer"}
@@ -750,9 +785,20 @@ export default function CustomersPage() {
                       <span className="font-extrabold text-xs">{formatNPR(sale.deliveryAmount ?? 0)}</span>
                     </td>
                     <td className="px-5 py-3.5 hidden sm:table-cell">
-                      <span className={cn("text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full whitespace-nowrap", DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS)}>
-                        {DELIVERY_STATUSES.find(d => d.value === sale.deliveryStatus)?.label ?? "In Process"}
-                      </span>
+                      {/* Click the status pill to change it right here */}
+                      <Dropdown
+                        aria-label={`Delivery status of ${sale.invoiceNumber}`}
+                        value={sale.deliveryStatus}
+                        onChange={status => changeRowStatus(sale, status)}
+                        options={DELIVERY_STATUSES}
+                        disabled={statusSaving.has(sale.id)}
+                        className="w-fit"
+                        triggerClassName={cn(
+                          "w-auto gap-1 px-2 py-0.5 rounded-full border-transparent text-[10px] font-extrabold uppercase whitespace-nowrap hover:border-current/30 [&>svg]:text-current [&>svg]:opacity-70",
+                          DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS,
+                          statusSaving.has(sale.id) && "animate-pulse"
+                        )}
+                      />
                       {referralLabel(sale.referral) && (
                         <p className="mt-1 text-[10px] font-bold text-violet-700 dark:text-violet-300 whitespace-nowrap" title={sale.referral ?? ""}>from {referralLabel(sale.referral)}</p>
                       )}

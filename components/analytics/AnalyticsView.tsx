@@ -5,7 +5,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowDownRight, ArrowUpRight, CalendarDays, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CalendarDays, Minus, Truck } from "lucide-react";
 import { cn, formatNPR } from "@/lib/utils";
 import { DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
 import { DateRangeCalendar, fromDateKey, shortDay } from "@/components/shared/DateRangeCalendar";
@@ -246,6 +246,19 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
             <Kpi hasPrevious={Boolean(p)} label="Returns" value={formatNPR(t.returns)} delta={change(t.returns, p?.returns)} goodWhenUp={false} hint={`${pct(t.returnRate)} of orders`} />
             <Kpi hasPrevious={Boolean(p)} label="Awaiting payment" value={formatNPR(t.awaitingPayment)} delta={change(t.awaitingPayment, p?.awaitingPayment)} goodWhenUp={false} hint="COD not yet paid" />
           </div>
+
+          {/* Handed to Upaya in this period, by the day it was booked */}
+          <section aria-labelledby="upaya-sent" className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 id="upaya-sent" className="flex items-center gap-2 text-sm font-bold text-foreground"><Truck size={15} className="text-primary" /> Sent with Upaya</h2>
+              <p className="text-[11px] text-muted-foreground">Parcels booked with Upaya {rangeLabel ? `· ${rangeLabel.toLowerCase()}` : ""}, by the day they were sent</p>
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="Order value sent" value={formatNPR(data.upayaSent.value)} delta={change(data.upayaSent.value, data.upayaSentBefore?.value)} hint="products, after discounts" />
+              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="Parcels" value={String(data.upayaSent.parcels)} delta={change(data.upayaSent.parcels, data.upayaSentBefore?.parcels)} />
+              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="COD for Upaya to collect" value={formatNPR(data.upayaSent.cod)} delta={change(data.upayaSent.cod, data.upayaSentBefore?.cod)} hint="cash the riders collect" />
+            </div>
+          </section>
 
           {/* Sales by channel: separately and in total */}
           <section className={cn(card, "flex flex-col gap-4")}>

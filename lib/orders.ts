@@ -1,4 +1,5 @@
 import type { Sale } from "@/lib/types";
+import { normalizePhone } from "@/lib/customerIdentity";
 
 // Display metadata and grouping shared by the order and customer pages.
 
@@ -132,6 +133,72 @@ export type Customer = {
   totalSpent: number;
   sales: Sale[];
 };
+
+/** A customer already in Karmify whose name or phone is what's being typed. */
+export type CustomerMatch = {
+  customerId: string;
+  code: string;
+  name: string;
+  phone: string | null;
+  address: string | null;
+  orders: number;
+  lastOrderAt: Date | string;
+  /** "phone" when a phone number matches (more certain), else "name". */
+  by: "phone" | "name";
+};
+
+type MatchSale = {
+  customerId: string | null;
+  customer?: { code: string } | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerAddress?: string | null;
+  createdAt: Date | string;
+};
+
+const plainName = (name?: string | null) => (name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * Customers with the same phone or the same full name as what's typed, from
+ * orders newest first. Phone matches come first, then whoever ordered most.
+ */
+export function findCustomerMatches(sales: MatchSale[], typed: { name: string; phone: string }, limit = 3): CustomerMatch[] {
+  const name = plainName(typed.name);
+  const phone = normalizePhone(typed.phone);
+  const byName = name.length >= 3 && name !== "walk-in customer";
+  if (!byName && !phone) return [];
+
+  const found = new Map<string, CustomerMatch>();
+  const counts = new Map<string, number>();
+  const latest = new Map<string, MatchSale>();
+  for (const sale of sales) {
+    if (!sale.customerId || !sale.customer?.code) continue;
+    counts.set(sale.customerId, (counts.get(sale.customerId) ?? 0) + 1);
+    if (!latest.has(sale.customerId)) latest.set(sale.customerId, sale);
+    const by = phone && normalizePhone(sale.customerPhone) === phone ? "phone" : byName && plainName(sale.customerName) === name ? "name" : null;
+    const known = found.get(sale.customerId);
+    if (by && (!known || (by === "phone" && known.by === "name"))) {
+      found.set(sale.customerId, { customerId: sale.customerId, code: sale.customer.code, name: "", phone: null, address: null, orders: 0, lastOrderAt: sale.createdAt, by });
+    }
+  }
+  return [...found.values()]
+    .map(match => {
+      // Their details as of their latest order; earlier orders fill any gaps.
+      const theirs = sales.filter(s => s.customerId === match.customerId);
+      const first = <K extends "customerName" | "customerPhone" | "customerAddress">(key: K) =>
+        theirs.find(s => (s[key] ?? "").trim())?.[key]?.trim() || null;
+      return {
+        ...match,
+        name: first("customerName") ?? "Customer",
+        phone: first("customerPhone"),
+        address: deliveryAddress(first("customerAddress")) || null,
+        orders: counts.get(match.customerId) ?? 0,
+        lastOrderAt: latest.get(match.customerId)!.createdAt,
+      };
+    })
+    .sort((a, b) => (a.by === b.by ? b.orders - a.orders : a.by === "phone" ? -1 : 1))
+    .slice(0, limit);
+}
 
 /** Rolls orders (newest first) up into customers, most recent customer first. */
 export function groupSalesByCustomer(sales: Sale[]): Customer[] {

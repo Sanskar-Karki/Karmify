@@ -45,7 +45,31 @@ const saleInclude = {
   items: { select: { id: true, productId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true, sku: true } } } },
 } as const;
 
-export function getSales(storeId: string) {
+/**
+ * Orders booked with Upaya before the send time was saved (courierBookedAt) get
+ * it once, from their "Sent To Upaya" activity entry (the latest, if booked more
+ * than once), or their order date when there is none. Analytics counts
+ * "Sent with Upaya" by that day. Cheap when there is nothing to fill in.
+ */
+async function fillCourierBookedAt(storeId: string) {
+  const missing = await db.sale.findMany({
+    where: { storeId, courierTrackingCode: { not: null }, courierBookedAt: null },
+    select: { id: true, invoiceNumber: true, createdAt: true },
+    take: 500,
+  });
+  if (missing.length === 0) return;
+  const logs = await db.activityLog.findMany({
+    where: { storeId, action: "Sent To Upaya", OR: missing.map(s => ({ details: { startsWith: `${s.invoiceNumber} ` } })) },
+    select: { details: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const sentAt = new Map<string, Date>();
+  for (const log of logs) sentAt.set(log.details.split(" ")[0], log.createdAt);
+  await db.$transaction(missing.map(s => db.sale.update({ where: { id: s.id }, data: { courierBookedAt: sentAt.get(s.invoiceNumber) ?? s.createdAt } })));
+}
+
+export async function getSales(storeId: string) {
+  await fillCourierBookedAt(storeId).catch(err => console.error("[sales] could not fill Upaya send dates", err));
   return db.sale.findMany({
     where: { storeId },
     include: saleInclude,

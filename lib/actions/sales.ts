@@ -397,6 +397,8 @@ export async function createSale(data: {
   pr?: boolean;
   /** Walk-in sent with Yango: paid in full at the till, so no delivery charge or COD. */
   deliveryVia?: string | null;
+  /** An existing customer staff confirmed this is ("same person"), so the order joins their history. */
+  customerId?: string | null;
 }) {
   return guarded("Could not complete this sale. Nothing was charged or deducted.", async () => {
     const pr = data.pr === true;
@@ -458,7 +460,11 @@ export async function createSale(data: {
         select: { invoiceNumber: true },
       });
       const invoiceNumber = nextDocumentNumber(stem, todays.map(s => s.invoiceNumber));
-      const customerId = await findOrCreateCustomerId(
+      // The customer staff picked, if it's this store's; otherwise matched by phone, then name.
+      const picked = typeof data.customerId === "string" && data.customerId
+        ? await tx.customer.findFirst({ where: { id: data.customerId, storeId }, select: { id: true } })
+        : null;
+      const customerId = picked?.id ?? await findOrCreateCustomerId(
         tx, storeId, customerIdentityKey({ name: data.customerName, phone: data.customerPhone })
       );
 

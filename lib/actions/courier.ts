@@ -11,7 +11,7 @@ import {
 import { instantCourierLabel, itemName } from "@/lib/orders";
 import { courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
-  createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError,
+  createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError, valleyLocationIds,
 } from "@/lib/upaya";
 
 // Longer than the slowest booking can take, so a live claim is never stolen.
@@ -70,6 +70,18 @@ export async function searchCourierAreas(query: string) {
     await requireCourierTenant();
     try {
       return await searchAreas(query);
+    } catch (err) {
+      throw upayaMessage(err, "Could not reach Upaya. Try again shortly.");
+    }
+  });
+}
+
+/** Upaya locations inside the Kathmandu valley, for splitting orders by valley. */
+export async function listValleyLocations() {
+  return guarded("Could not load Upaya's valley locations.", async () => {
+    await requireCourierTenant();
+    try {
+      return await valleyLocationIds();
     } catch (err) {
       throw upayaMessage(err, "Could not reach Upaya. Try again shortly.");
     }
@@ -190,7 +202,7 @@ export async function sendOrderToCourier(saleId: string, form: CourierOrderForm)
 
     await db.sale.update({
       where: { id: saleId },
-      data: { courierTrackingCode: booked.trackingCode, courierStatus: booked.status, courierCheckedAt: new Date(), courierSubmittingAt: null, courierServiceId: form.serviceTypeId },
+      data: { courierTrackingCode: booked.trackingCode, courierStatus: booked.status, courierCheckedAt: new Date(), courierSubmittingAt: null, courierServiceId: form.serviceTypeId, courierBookedAt: new Date() },
     });
     await logActivity(tenant, "Sent To Upaya", `${sale.invoiceNumber} booked with tracking code ${booked.trackingCode}.`);
 

@@ -12,6 +12,10 @@ type AnalyticsSale = {
   customer: { code: string } | null;
   customerAddress: string | null;
   courierTrackingCode: string | null;
+  courierStatus?: string | null;
+  courierBookedAt?: Date | string | null;
+  codAmount?: number;
+  totalAmount?: number;
   deliveryVia?: string | null;
   kind?: string | null;
   discount: number;
@@ -226,6 +230,28 @@ function channelTotals(sales: AnalyticsSale[]) {
 export type TrendPoint = { label: string; sales: number; orders: number; previous: number | null };
 export type Ranked = { key: string; label: string; value: number; secondary?: number; href?: string };
 
+/** Parcels handed to Upaya in a period: their goods value and the COD Upaya is to collect. */
+export type UpayaSent = { parcels: number; value: number; cod: number };
+
+/**
+ * Orders booked with Upaya between start and end, by the day they were booked
+ * (orders booked before that was recorded count on their order date).
+ * Cancelled bookings are left out.
+ */
+export function upayaSentIn(sales: AnalyticsSale[], start: Date, end: Date): UpayaSent {
+  const out: UpayaSent = { parcels: 0, value: 0, cod: 0 };
+  for (const sale of sales) {
+    if (!sale.courierTrackingCode || sale.courierStatus === "cancelled") continue;
+    const t = new Date(sale.courierBookedAt ?? sale.createdAt).getTime();
+    if (t < start.getTime() || t >= end.getTime()) continue;
+    out.parcels += 1;
+    out.value += goodsValue(sale);
+    // What the rider was asked to collect (website imports don't record a COD amount: their total is due).
+    if (sale.paymentMethod === "COD") out.cod += sale.codAmount || sale.totalAmount || 0;
+  }
+  return out;
+}
+
 export type Analytics = {
   totals: Totals;
   previous: Totals | null;
@@ -235,6 +261,9 @@ export type Analytics = {
   channels: ChannelRow[];
   /** Website orders that Upaya delivers (they count under "Website orders"). */
   websiteViaUpaya: number;
+  /** Handed to Upaya in this period / the one before (by booking day). */
+  upayaSent: UpayaSent;
+  upayaSentBefore: UpayaSent | null;
   brands: Ranked[];
   payment: Ranked[];
   outcomes: { status: string; orders: number }[];
@@ -359,6 +388,8 @@ export function buildAnalytics(
         }));
     })(),
     websiteViaUpaya: counted.filter(sale => sale.source === "website" && sale.courierTrackingCode).length,
+    upayaSent: upayaSentIn(allSales, period.start, period.end),
+    upayaSentBefore: period.prevStart && period.prevEnd ? upayaSentIn(allSales, period.prevStart, period.prevEnd) : null,
     brands: rank(brandMap),
     payment: rank(paymentMap),
     outcomes: ["DELIVERED", "IN_PROCESS", "RETURN_PROCESS", "RETURNED", "CANCELLED"].map(status => ({ status, orders: outcomeCounts.get(status) ?? 0 })),

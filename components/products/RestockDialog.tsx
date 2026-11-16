@@ -14,20 +14,23 @@ const input = "w-full px-3 py-2 rounded-lg border border-border/60 bg-background
 
 /** Adds new stock: per size/colour for clothing, or one number. Opened from the catalog and the product page. */
 export function RestockDialog({
-  product, currentStock, onClose, onDone,
+  product, currentStock, onClose, onDone, mode = "restock",
 }: {
+  /** "return": units brought back without an order (no customer details needed). */
+  mode?: "restock" | "return";
   /** null keeps the dialog closed. */
   product: RestockProduct | null;
   currentStock: number;
   onClose: () => void;
   onDone: () => Promise<unknown> | void;
 }) {
-  return product ? <RestockForm key={product.id} product={product} currentStock={currentStock} onClose={onClose} onDone={onDone} /> : null;
+  return product ? <RestockForm key={`${product.id}-${mode}`} product={product} currentStock={currentStock} onClose={onClose} onDone={onDone} mode={mode} /> : null;
 }
 
-function RestockForm({ product, currentStock, onClose, onDone }: {
-  product: RestockProduct; currentStock: number; onClose: () => void; onDone: () => Promise<unknown> | void;
+function RestockForm({ product, currentStock, onClose, onDone, mode }: {
+  product: RestockProduct; currentStock: number; onClose: () => void; onDone: () => Promise<unknown> | void; mode: "restock" | "return";
 }) {
+  const isReturn = mode === "return";
   const sized = product.variants.length > 0;
   const variants = sortVariants(product.variants);
   const [amounts, setAmounts] = useState<Record<string, string>>({});
@@ -49,8 +52,9 @@ function RestockForm({ product, currentStock, onClose, onDone }: {
           ? { rows: variants.map(v => ({ variantId: v.id, quantity: count(amounts[v.id]) })).filter(r => r.quantity > 0) }
           : { quantity: total }),
         notes: notes.trim() || undefined,
+        kind: mode,
       }),
-      { success: `Added ${total} to ${product.name}.` }
+      { success: isReturn ? `${total} ${product.name} returned to stock.` : `Added ${total} to ${product.name}.` }
     );
     setSaving(false);
     if (result.ok) {
@@ -63,7 +67,7 @@ function RestockForm({ product, currentStock, onClose, onDone }: {
     <Modal
       open
       onClose={onClose}
-      title={`Restock ${product.name}`}
+      title={isReturn ? `Return ${product.name}` : `Restock ${product.name}`}
       description={`${product.sku} · ${currentStock} in stock now`}
       size="md"
       busy={saving}
@@ -72,7 +76,7 @@ function RestockForm({ product, currentStock, onClose, onDone }: {
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving} className="flex-1">Cancel</Button>
           <Button onClick={save} loading={saving} disabled={total <= 0} className="flex-1">
-            {saving ? "Adding…" : total > 0 ? `Add ${total} to stock` : "Add to stock"}
+            {saving ? "Saving…" : isReturn ? (total > 0 ? `Return ${total} to stock` : "Return to stock") : total > 0 ? `Add ${total} to stock` : "Add to stock"}
           </Button>
         </>
       }
@@ -81,7 +85,7 @@ function RestockForm({ product, currentStock, onClose, onDone }: {
         {sized ? (
           <div className="rounded-xl border border-border/60 overflow-hidden">
             <div className="grid grid-cols-[1fr_4.5rem_6rem] gap-2 px-3 py-2 bg-muted/40 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-              <span>Size / colour</span><span className="text-right">Now</span><span className="text-right">Adding</span>
+              <span>Size / colour</span><span className="text-right">Now</span><span className="text-right">{isReturn ? "Came back" : "Adding"}</span>
             </div>
             <div className="divide-y divide-border/40 max-h-72 overflow-y-auto">
               {variants.map((v, i) => {
@@ -108,12 +112,12 @@ function RestockForm({ product, currentStock, onClose, onDone }: {
               })}
             </div>
             <div className="flex justify-between px-3 py-2 bg-muted/30 text-xs font-semibold">
-              <span>Adding</span><span>{total} unit{total === 1 ? "" : "s"}</span>
+              <span>{isReturn ? "Returning" : "Adding"}</span><span>{total} unit{total === 1 ? "" : "s"}</span>
             </div>
           </div>
         ) : (
           <label className="block space-y-1.5">
-            <span className="text-xs font-semibold text-muted-foreground">Units that came in</span>
+            <span className="text-xs font-semibold text-muted-foreground">{isReturn ? "Units that came back" : "Units that came in"}</span>
             <input
               type="number" inputMode="numeric" min={1}
               data-autofocus
@@ -126,11 +130,13 @@ function RestockForm({ product, currentStock, onClose, onDone }: {
           </label>
         )}
         <label className="block space-y-1.5">
-          <span className="text-xs font-semibold text-muted-foreground">Note (optional)</span>
-          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Batch from Shoib Garment" className={input} />
+          <span className="text-xs font-semibold text-muted-foreground">{isReturn ? "Reason (optional)" : "Note (optional)"}</span>
+          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder={isReturn ? "e.g. Exchanged at the studio, wrong size" : "e.g. Batch from Shoib Garment"} className={input} />
         </label>
         <p className="text-[11px] text-muted-foreground">
-          {sized ? "New sizes or colours are added in Edit product." : "Saved in the product's stock history as Stock In."}
+          {isReturn
+            ? "Put back in stock and saved in the stock history as Returned, without any customer or order. To return items from a customer's order, use Return on that order instead."
+            : sized ? "New sizes or colours are added in Edit product." : "Saved in the product's stock history as Stock In."}
         </p>
       </div>
     </Modal>
