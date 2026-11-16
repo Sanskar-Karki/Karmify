@@ -7,6 +7,7 @@ export * from "@/lib/actions/core";
 export * from "@/lib/actions/catalog";
 export * from "@/lib/actions/inventory";
 export * from "@/lib/actions/sales";
+export * from "@/lib/actions/trash";
 export * from "@/lib/actions/purchases";
 export * from "@/lib/actions/websiteSync";
 export * from "@/lib/actions/courier";

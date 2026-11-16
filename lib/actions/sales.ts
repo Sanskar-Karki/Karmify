@@ -73,6 +73,18 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
 
     const { count, restocked } = await db.$transaction(async (tx) => {
       let units = 0;
+      // A copy of each order as it is now, kept 30 days under "Recently deleted".
+      const copies = await tx.sale.findMany({
+        where: { id: { in: saleIds }, storeId },
+        include: { items: { include: { product: { select: { name: true } } } } },
+      });
+      // What deleting puts back in stock, per order, so a restore can take exactly that out again.
+      const putBack = new Map<string, { product: { productId: string; quantity: number }[]; variants: { productId: string; variantId: string; quantity: number }[] }>();
+      const putBackFor = (saleId: string) => {
+        const entry = putBack.get(saleId) ?? { product: [], variants: [] };
+        putBack.set(saleId, entry);
+        return entry;
+      };
 
       if (options.restock) {
         const sales = await tx.sale.findMany({
@@ -118,6 +130,7 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
             },
           });
           units += out.quantity;
+          putBackFor(sale.id).product.push({ productId: out.productId, quantity: out.quantity });
         }
 
         // Sized products: the units go back to the size/colour each line took
@@ -140,7 +153,10 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
             where: { id: line.variantId!, storeId },
             data: { quantity: { increment: back } },
           });
-          if (returned.count > 0) await syncStockTotal(tx, storeId, line.productId, sale.warehouseId);
+          if (returned.count > 0) {
+            await syncStockTotal(tx, storeId, line.productId, sale.warehouseId);
+            putBackFor(line.saleId).variants.push({ productId: line.productId, variantId: line.variantId!, quantity: back });
+          }
         }
       }
 
@@ -150,6 +166,30 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
         where: { id: { in: saleIds }, storeId, externalOrderId: { not: null } },
         select: { externalOrderId: true, invoiceNumber: true },
       });
+
+      if (copies.length > 0) {
+        await tx.deletedSale.createMany({
+          data: copies.map(({ items, ...sale }) => {
+            const back = putBack.get(sale.id) ?? { product: [], variants: [] };
+            const snapshot = {
+              sale,
+              items: items.map(({ product, ...item }) => ({ ...item, name: product.name })),
+              putBack: back,
+            };
+            return {
+              storeId,
+              saleId: sale.id,
+              invoiceNumber: sale.invoiceNumber,
+              customerName: sale.customerName,
+              totalAmount: sale.totalAmount,
+              itemCount: items.reduce((n, i) => n + i.quantity, 0),
+              restocked: back.product.length > 0 || back.variants.length > 0,
+              data: JSON.parse(JSON.stringify(snapshot)),
+              deletedBy: tenant.userId,
+            };
+          }),
+        });
+      }
 
       await tx.saleItem.deleteMany({ where: { saleId: { in: saleIds }, sale: { storeId } } });
       const removed = await tx.sale.deleteMany({ where: { id: { in: saleIds }, storeId } });

@@ -27,9 +27,10 @@ type AnalyticsSale = {
 type AnalyticsProduct = { id: string; name: string; costPrice: number; categoryId: string };
 type AnalyticsCategory = { id: string; name: string };
 
-export type RangeKey = "today" | "7d" | "30d" | "90d" | "month" | "lastMonth" | "year" | "all" | "custom";
+export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "90d" | "month" | "lastMonth" | "year" | "all" | "custom";
 export const RANGES: { key: RangeKey; label: string }[] = [
   { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
   { key: "7d", label: "7 days" },
   { key: "30d", label: "30 days" },
   { key: "90d", label: "90 days" },
@@ -63,6 +64,12 @@ export function periodFor(key: RangeKey, now: Date, earliest: Date | null, custo
     case "today": {
       const start = startOfDay(now);
       return { start, end: tomorrow, prevStart: addDays(start, -1), prevEnd: start, bucket: "hour" };
+    }
+    case "yesterday": {
+      // The whole of yesterday, hour by hour, against the day before it.
+      const end = startOfDay(now);
+      const start = addDays(end, -1);
+      return { start, end, prevStart: addDays(start, -1), prevEnd: start, bucket: "hour" };
     }
     case "7d": return rolling(7, "day");
     case "30d": return rolling(30, "day");

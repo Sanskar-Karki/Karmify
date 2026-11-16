@@ -5,8 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Search, Users, ChevronRight, Plus, Edit2, X, Calendar, RefreshCw, Globe, Trash2,
-  ShoppingBag, Wallet, Truck, Download, Tag, Receipt, ClipboardList,
+  ShoppingBag, Wallet, Truck, Download, Tag, Receipt, ClipboardList, ArchiveRestore,
 } from "lucide-react";
+import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
 import { PackingListDialog } from "@/components/orders/PackingListDialog";
 import { toast } from "sonner";
 import { updateDeliveryStatuses, updateSaleDetails, syncWebsiteOrders, deleteSales, refreshCourierShipments, bookSaleWithUpaya } from "@/app/actions";
@@ -173,6 +174,7 @@ export default function CustomersPage() {
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkLabelsOpen, setBulkLabelsOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
   // Receipts to print: one order's (row button) or the ticked ones (bulk).
   const [receiptSales, setReceiptSales] = useState<Sale[]>([]);
   const [restock, setRestock] = useState(false);
@@ -513,6 +515,9 @@ export default function CustomersPage() {
               className="w-full pl-8.5 pr-3 py-2 rounded-lg border border-border bg-background text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>
+          <Button variant="secondary" onClick={() => setTrashOpen(true)} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap" title="Orders deleted in the last 30 days">
+            <ArchiveRestore size={14} /> Recently deleted
+          </Button>
           <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px]">
             <Download size={14} /> {selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}
           </Button>
@@ -860,6 +865,7 @@ export default function CustomersPage() {
       {receiptSales.length > 0 && (
         <ReceiptDialog open onClose={() => setReceiptSales([])} sales={receiptSales} store={store} />
       )}
+      <RecentlyDeletedDialog open={trashOpen} onClose={() => setTrashOpen(false)} onRestored={() => refetch({ quiet: true })} />
       {packingOpen && selectedVisible.length > 0 && (
         <PackingListDialog open={packingOpen} onClose={() => setPackingOpen(false)} orders={selectedVisible} />
       )}
@@ -875,7 +881,7 @@ export default function CustomersPage() {
         onClose={() => setConfirmOpen(false)}
         onConfirm={handleBulkDelete}
         title={`Delete ${toDelete.length} order${toDelete.length === 1 ? "" : "s"}?`}
-        description="This can't be undone. These are the orders that will be deleted:"
+        description="You can restore them from Recently deleted for 30 days. These are the orders that will be deleted:"
         confirmLabel={`Delete ${toDelete.length}`}
         size="lg"
       >

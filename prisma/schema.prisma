@@ -65,6 +65,7 @@ model Store {
   movements      StockMovement[]
   purchaseOrders PurchaseOrder[]
   sales          Sale[]
+  deletedSales   DeletedSale[]
   customers      Customer[]
   customerSeq    Int             @default(0) // Last customer number issued; only ever goes up
   activities     ActivityLog[]
@@ -309,6 +310,24 @@ model Sale {
   @@index([storeId, courierTrackingCode])
   @@index([storeId, createdAt])
   @@index([customerId])
+}
+
+/// A deleted order, kept for 30 days so a mistake can be undone (Customers & Orders → Recently deleted).
+model DeletedSale {
+  id            String   @id @default(uuid())
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  saleId        String // the order's own id, given back to it on restore
+  invoiceNumber String
+  customerName  String?
+  totalAmount   Float
+  itemCount     Int
+  restocked     Boolean  @default(false) // its items were put back in stock when it was deleted
+  data          Json // the order, its lines and what was put back in stock, as they were
+  deletedBy     String?
+  deletedAt     DateTime @default(now())
+
+  @@index([storeId, deletedAt])
 }
 
 model SaleItem {
