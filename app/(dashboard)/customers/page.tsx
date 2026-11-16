@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
 import { PackingListDialog } from "@/components/orders/PackingListDialog";
+import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
+import type { CourierArea } from "@/lib/courier";
 import { toast } from "sonner";
 import { updateDeliveryStatuses, updateSaleDetails, syncWebsiteOrders, deleteSales, refreshCourierShipments, bookSaleWithUpaya } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
@@ -174,6 +176,8 @@ export default function CustomersPage() {
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [bulkLabelsOpen, setBulkLabelsOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
+  const [editHub, setEditHub] = useState<CourierArea | null>(null);
+  const [editService, setEditService] = useState<number>(3);
   const [trashOpen, setTrashOpen] = useState(false);
   // Receipts to print: one order's (row button) or the ticked ones (bulk).
   const [receiptSales, setReceiptSales] = useState<Sale[]>([]);
@@ -363,7 +367,7 @@ export default function CustomersPage() {
     const failed: string[] = [];
     for (const [i, sale] of batch.ready.entries()) {
       toast.loading(`Sending ${i + 1} of ${total} to Upaya…`, { id: toastId });
-      const result = await bookSaleWithUpaya(sale.id, services[sale.id] ?? DOOR_TO_DOOR).catch(() => null);
+      const result = await bookSaleWithUpaya(sale.id, services[sale.id] ?? sale.courierServiceId ?? DOOR_TO_DOOR).catch(() => null);
       if (result?.ok) booked += 1;
       else failed.push(`${sale.invoiceNumber} (${result && !result.ok ? result.message : "no connection"})`);
       if (i < total - 1) await new Promise(resolve => setTimeout(resolve, 300));
@@ -437,6 +441,8 @@ export default function CustomersPage() {
       deliveryStatus: sale.deliveryStatus ?? "IN_PROCESS",
     };
     setEditing(sale);
+    setEditHub(hubOf(sale));
+    setEditService(serviceOf(sale));
     setEditForm(next);
     setInitialEdit(next);
     setShowEdit(true);
@@ -459,6 +465,8 @@ export default function CustomersPage() {
         ...(editForm.codAmount !== initialEdit.codAmount && { codAmount: parseFloat(editForm.codAmount) || 0 }),
         ...(editForm.deliveryAmount !== initialEdit.deliveryAmount && { deliveryAmount: parseFloat(editForm.deliveryAmount) || 0 }),
         deliveryStatus: editForm.deliveryStatus as DeliveryStatus,
+        ...(editService !== serviceOf(editing) && { courierServiceId: editService }),
+        ...(hubChanged(editing, editHub) && { courierArea: editHub ? { areaId: editHub.areaId, locationId: editHub.locationId, title: editHub.title } : null }),
       }),
       { success: `${editing.invoiceNumber} updated.` }
     );
@@ -819,7 +827,7 @@ export default function CustomersPage() {
         title="Edit order"
         description={editing?.invoiceNumber}
         busy={saving}
-        dirty={JSON.stringify(editForm) !== JSON.stringify(initialEdit)}
+        dirty={JSON.stringify(editForm) !== JSON.stringify(initialEdit) || (editing !== null && (hubChanged(editing, editHub) || editService !== serviceOf(editing)))}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowEdit(false)} disabled={saving} className="flex-1">Cancel</Button>
@@ -844,6 +852,11 @@ export default function CustomersPage() {
             <label htmlFor="edit-address" className="text-xs font-semibold text-muted-foreground">Address</label>
             <input id="edit-address" value={editForm.customerAddress} onChange={setField("customerAddress")} className={fieldClass} />
           </div>
+          {editing && (editing.source === "website" || editing.customerAddress || editing.courierLocationId) && !editing.deliveryVia && (
+            <div className="sm:col-span-2">
+              <HubEditField sale={editing} value={editHub} onChange={setEditHub} service={editService} onServiceChange={setEditService} address={editForm.customerAddress} labelClass="text-xs font-semibold text-muted-foreground" />
+            </div>
+          )}
           <div className="space-y-1.5">
             <label htmlFor="edit-cod" className="text-xs font-semibold text-muted-foreground">COD amount (Rs.)</label>
             <input id="edit-cod" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.codAmount} onChange={setField("codAmount")} disabled={editing?.paymentMethod !== "COD"} className={cn(fieldClass, "disabled:opacity-60")} />

@@ -51,7 +51,9 @@ function BatchBody({ batch, onClose, onSend }: { batch: UpayaBatch; onClose: () 
   const [step, setStep] = useState<"edit" | "review">("edit");
   const [showSkipped, setShowSkipped] = useState(batch.ready.length === 0);
 
-  const serviceOf = (id: string) => services[id] ?? DOOR_TO_DOOR;
+  // Each order starts on the service chosen when it was made.
+  const savedService = (id: string) => batch.ready.find(s => s.id === id)?.courierServiceId ?? DOOR_TO_DOOR;
+  const serviceOf = (id: string) => services[id] ?? savedService(id);
   const setAll = (id: number) => setServices(Object.fromEntries(batch.ready.map(s => [s.id, id])));
 
   const totals = useMemo(() => {
@@ -62,7 +64,7 @@ function BatchBody({ batch, onClose, onSend }: { batch: UpayaBatch; onClose: () 
       const amount = courierCodAmount(sale);
       cod += amount;
       if (amount > 0) codOrders += 1;
-      if ((services[sale.id] ?? DOOR_TO_DOOR) === DOOR_TO_BRANCH) branch += 1;
+      if ((services[sale.id] ?? sale.courierServiceId ?? DOOR_TO_DOOR) === DOOR_TO_BRANCH) branch += 1;
     }
     return { cod, codOrders, branch, door: batch.ready.length - branch };
   }, [batch.ready, services]);

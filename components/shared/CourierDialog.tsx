@@ -45,7 +45,8 @@ function initialForm(sale: Sale) {
     weight: "1",
     // The customer's own note from the website (e.g. "call before delivery"); editable before booking.
     note: (sale.notes ?? "").slice(0, 250),
-    service: "3",
+    // The service chosen when the order was made (door to door unless it said branch).
+    service: String(sale.courierServiceId ?? 3),
     category: savedCategory(),
   };
 }

@@ -7,6 +7,8 @@ import {
   ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, Megaphone, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Users, X, Zap,
 } from "lucide-react";
 import { ReturnDialog } from "@/components/orders/ReturnDialog";
+import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
+import type { CourierArea } from "@/lib/courier";
 import { toast } from "sonner";
 import { updateCustomerInfo, updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
@@ -364,6 +366,8 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
   const [saving, setSaving] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
   const [form, setForm] = useState(() => formFor(sale));
+  const [hub, setHub] = useState<CourierArea | null>(() => hubOf(sale));
+  const [service, setService] = useState<number>(() => serviceOf(sale));
   const [returning, setReturning] = useState(false);
   const address = deliveryAddress(sale.customerAddress);
   const units = sale.items.reduce((n, i) => n + i.quantity, 0);
@@ -412,6 +416,8 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
         deliveryStatus: form.deliveryStatus as DeliveryStatus,
         paymentMethod: form.paymentMethod as "COD" | "QR" | "CASH",
         deliveryVia: form.deliveryVia || null,
+        ...(service !== serviceOf(sale) && { courierServiceId: service }),
+        ...(hubChanged(sale, hub) && { courierArea: hub ? { areaId: hub.areaId, locationId: hub.locationId, title: hub.title } : null }),
       }),
       { success: `${sale.invoiceNumber} updated.` }
     );
@@ -501,7 +507,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           {!editing && (
             <button
               type="button"
-              onClick={() => { setForm(formFor(sale)); setEditing(true); }}
+              onClick={() => { setForm(formFor(sale)); setHub(hubOf(sale)); setService(serviceOf(sale)); setEditing(true); }}
               className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs font-semibold hover:bg-muted"
             >
               <Edit2 size={12} /> Edit
@@ -537,6 +543,9 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
             <label htmlFor={`address-${sale.id}`} className={labelClass}>Delivery address for this order</label>
             <input id={`address-${sale.id}`} value={form.customerAddress} onChange={e => setForm(f => ({ ...f, customerAddress: e.target.value }))} placeholder="Delivery address" className={cn(fieldClass, "py-2")} />
           </div>
+          {(sale.source === "website" || sale.customerAddress || sale.courierLocationId) && !sale.deliveryVia && (
+            <HubEditField sale={sale} value={hub} onChange={setHub} service={service} onServiceChange={setService} address={form.customerAddress} labelClass={labelClass} />
+          )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <span className={labelClass}>Delivery status</span>

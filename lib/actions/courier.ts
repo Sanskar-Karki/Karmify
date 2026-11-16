@@ -190,7 +190,7 @@ export async function sendOrderToCourier(saleId: string, form: CourierOrderForm)
 
     await db.sale.update({
       where: { id: saleId },
-      data: { courierTrackingCode: booked.trackingCode, courierStatus: booked.status, courierCheckedAt: new Date(), courierSubmittingAt: null },
+      data: { courierTrackingCode: booked.trackingCode, courierStatus: booked.status, courierCheckedAt: new Date(), courierSubmittingAt: null, courierServiceId: form.serviceTypeId },
     });
     await logActivity(tenant, "Sent To Upaya", `${sale.invoiceNumber} booked with tracking code ${booked.trackingCode}.`);
 
@@ -209,14 +209,15 @@ const UPAYA_CATEGORY = { clothing: 1, household: 6 };
  * (book it later from the order). The bulk send on the Orders page passes
  * door to branch for the few orders collected from a branch.
  */
-export async function bookSaleWithUpaya(saleId: string, serviceTypeId: number = DOOR_TO_DOOR) {
+/** Books an order with Upaya. Without a service, the one saved on the order (or door to door) is used. */
+export async function bookSaleWithUpaya(saleId: string, service?: number) {
   return guarded("Could not send this order to Upaya.", async () => {
-    if (!isCourierService(serviceTypeId)) throw new UserError("Choose door to door or door to branch.");
+    if (service !== undefined && !isCourierService(service)) throw new UserError("Choose door to door or door to branch.");
     const tenant = await requireCourierTenant();
     const sale = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
       select: {
-        customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, notes: true, deliveryVia: true,
+        customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, courierServiceId: true, notes: true, deliveryVia: true,
         paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true,
         items: { select: { quantity: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
       },
@@ -225,6 +226,7 @@ export async function bookSaleWithUpaya(saleId: string, serviceTypeId: number = 
     if (sale.deliveryVia) throw new UserError(`This order was sent with ${instantCourierLabel(sale.deliveryVia) ?? "a ride app"}, not Upaya. Change that in Edit first if Upaya should take it.`);
     if (!sale.courierAreaId) throw new UserError("Choose the Upaya hub location for this order, then book it.");
 
+    const serviceTypeId = service ?? (sale.courierServiceId && isCourierService(sale.courierServiceId) ? sale.courierServiceId : DOOR_TO_DOOR);
     const { address, landmark } = splitCourierAddress(sale.customerAddress);
     const goods = sale.items.reduce((total, item) => total + item.quantity * item.unitPrice, 0) - sale.discount;
     const result = await sendOrderToCourier(saleId, {

@@ -8,7 +8,7 @@ import { guarded, retryOnUniqueConflict, UserError } from "@/lib/actions/result"
 import { isIgnored } from "@/lib/lowStock";
 import { customerIdentityKey, findOrCreateCustomerId, nameProblem, phoneProblem } from "@/lib/customerIdentity";
 import { syncStockTotal } from "@/lib/variants";
-import { courierStillOpen } from "@/lib/courier";
+import { courierStillOpen, isCourierService } from "@/lib/courier";
 import { deletedOrderDetails, WEBSITE_ORDER_DELETED } from "@/lib/websiteOrders";
 import { formatNPR } from "@/lib/utils";
 import { instantCourierLabel, isInstantCourier } from "@/lib/orders";
@@ -260,8 +260,16 @@ export async function updateSaleDetails(saleId: string, data: {
   paymentMethod?: PaymentMethod;
   /** "yango" when it was sent with Yango, or null for none. */
   deliveryVia?: string | null;
+  /** The Upaya hub location, or null to clear it. Not changeable once booked with Upaya. */
+  courierArea?: { areaId: number; locationId: number; title: string } | null;
+  /** Upaya door to door (3) or door to branch (9). Not changeable once booked. */
+  courierServiceId?: number;
 }) {
   return guarded("Could not save this order.", async () => {
+    const area = data.courierArea;
+    if (area && (!Number.isInteger(area.areaId) || area.areaId <= 0 || !Number.isInteger(area.locationId) || area.locationId <= 0)) {
+      throw new UserError("Choose the Upaya hub location again.");
+    }
     if (data.deliveryVia && !isInstantCourier(data.deliveryVia)) throw new UserError("Unknown delivery app.");
     const tenant = await requireTenant();
     for (const amount of [data.totalAmount, data.deliveryAmount, data.codAmount]) {
@@ -273,11 +281,15 @@ export async function updateSaleDetails(saleId: string, data: {
     const current = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
       select: {
-        paymentMethod: true, deliveryStatus: true, paymentStatus: true,
+        paymentMethod: true, deliveryStatus: true, paymentStatus: true, courierTrackingCode: true,
         customerId: true, customerName: true, customerPhone: true, customerEmail: true,
       },
     });
     if (!current) throw new UserError("That order no longer exists. Refresh the page and try again.");
+    if (data.courierServiceId !== undefined && !isCourierService(data.courierServiceId)) throw new UserError("Choose door to door or door to branch.");
+    if ((data.courierArea !== undefined || data.courierServiceId !== undefined) && current.courierTrackingCode) {
+      throw new UserError("This order is already booked with Upaya, which keeps the hub it was booked with.");
+    }
 
     // Cash on delivery is only collected at the door, so when delivery status
     // changes the payment follows it. QR orders are paid up front.
@@ -314,6 +326,12 @@ export async function updateSaleDetails(saleId: string, data: {
         ...(data.paymentMethod !== undefined && { paymentMethod: data.paymentMethod }),
         ...(data.codAmount !== undefined && { codAmount: data.codAmount }),
         ...(data.deliveryVia !== undefined && { deliveryVia: data.deliveryVia || null }),
+        ...(data.courierServiceId !== undefined && { courierServiceId: data.courierServiceId }),
+        ...(area !== undefined && {
+          courierAreaId: area?.areaId ?? null,
+          courierLocationId: area?.locationId ?? null,
+          courierAreaTitle: area ? area.title.slice(0, 200) || null : null,
+        }),
         ...(paymentStatus !== undefined && { paymentStatus }),
       },
       });
@@ -373,6 +391,8 @@ export async function createSale(data: {
   partial?: boolean;
   /** Delivery: the Upaya hub location chosen in the POS, so the order can be booked with Upaya. */
   courierArea?: { areaId: number; locationId: number; title: string } | null;
+  /** Delivery: Upaya door to door (3) or door to branch (9), used when it's booked. */
+  courierServiceId?: number | null;
   /** PR: given free to someone (an influencer, say). Stock goes out, no money comes in. */
   pr?: boolean;
   /** Walk-in sent with Yango: paid in full at the till, so no delivery charge or COD. */
@@ -469,6 +489,7 @@ export async function createSale(data: {
           deliveryVia,
           ...(handedOver && { deliveryStatus: DeliveryStatus.DELIVERED }),
           ...(area && { courierAreaId: area.areaId, courierLocationId: area.locationId, courierAreaTitle: area.title.slice(0, 200) }),
+          ...(!data.walkIn && isCourierService(Number(data.courierServiceId)) && { courierServiceId: Number(data.courierServiceId) }),
           items: {
             create: data.items.map(item => ({
               productId: item.productId,

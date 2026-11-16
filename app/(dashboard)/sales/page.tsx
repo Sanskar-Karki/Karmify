@@ -426,6 +426,7 @@ export default function SalesPage() {
       walkIn,
       partial: !walkIn && !pr && deliveryPay === "partial",
       courierArea: sending && hub ? { areaId: hub.areaId, locationId: hub.locationId, title: hub.title } : null,
+      courierServiceId: sending ? courierService : null,
       pr,
       deliveryVia: instant,
       // The shop being sold from; under "All shops", the cart's products' shop.
