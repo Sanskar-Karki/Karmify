@@ -3,10 +3,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingCart, Search, Plus, Minus, X, CheckCircle, User, Phone, MapPin,
-  Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap, UserCheck, Users,
+  Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap, UserCheck, Users, CalendarClock,
 } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { bookSaleWithUpaya, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
+import { bookSaleWithUpaya, createFutureOrder, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
 import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
 import { BATCH_COURIER_SERVICES, courierMobile, DOOR_TO_DOOR, type CourierArea } from "@/lib/courier";
 import { cn, formatNPR } from "@/lib/utils";
@@ -83,6 +84,8 @@ type Draft = {
   hub?: CourierArea | null;
   /** The existing customer this order is linked to. */
   linkedId?: string | null;
+  /** Saved as a future order (sent later, once restocked) instead of completed now. */
+  future?: boolean;
 };
 
 const smallField = "w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20";
@@ -108,12 +111,18 @@ export default function SalesPage() {
   const [deliveryAmount, setDeliveryAmount] = useState(0);
   // null means "follow the computed total"; a string is a manual override.
   const [codOverride, setCodOverride] = useState<string | null>(null);
+  // A final total staff typed in, kept with the full total it was typed against so
+  // it lapses by itself when the cart or the delivery charge changes.
+  const [totalOverride, setTotalOverride] = useState<{ value: string; base: number } | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "QR">("CASH");
   // Delivery orders: nothing paid yet, an advance paid, or paid in full.
   const [deliveryPay, setDeliveryPay] = useState<"cod" | "partial" | "paid">("cod");
   const [advance, setAdvance] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState<SaleMode>("delivery");
+  // A future order: taken now, sent in a few days once restocked. Any size/colour can be
+  // added, sold out or not, and saving it takes no stock and isn't counted as a sale.
+  const [future, setFuture] = useState(false);
   const [walkInVia, setWalkInVia] = useState<WalkInVia>("studio");
   const [cashReceived, setCashReceived] = useState("");
   const [receiptExtras, setReceiptExtras] = useState<{
@@ -175,6 +184,7 @@ export default function SalesPage() {
         if (d.hub && Number.isInteger(d.hub.areaId)) setHub(d.hub);
         if (BATCH_COURIER_SERVICES.some(sv => sv.id === d.courierService)) setCourierService(d.courierService as number);
         if (typeof d.linkedId === "string") setLinkedId(d.linkedId);
+        if (d.future === true) setFuture(true);
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
@@ -186,12 +196,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -268,11 +278,12 @@ export default function SalesPage() {
     const available = lineStock(line);
     const label = variant ? [variant.size, variant.color].filter(Boolean).join(" · ") : undefined;
     const fullName = label ? `${p.name} (${label})` : p.name;
-    if (available <= 0) {
+    // A future order is sent after restocking, so what's in stock today doesn't limit it.
+    if (!future && available <= 0) {
       if (variant) toast.info(`"${fullName}" is sold out.`, { id: "cart-stock-limit" });
       return;
     }
-    if ((cart.find(c => lineKey(c) === lineKey(line))?.quantity ?? 0) >= available) {
+    if (!future && (cart.find(c => lineKey(c) === lineKey(line))?.quantity ?? 0) >= available) {
       notifyLimit(fullName, available);
       return;
     }
@@ -309,7 +320,7 @@ export default function SalesPage() {
 
   function updateQty(item: CartItem, delta: number) {
     const available = lineStock(item);
-    if (delta > 0 && item.quantity >= available) {
+    if (!future && delta > 0 && item.quantity >= available) {
       notifyLimit(item.name, available);
       return;
     }
@@ -327,8 +338,8 @@ export default function SalesPage() {
   function setQty(item: CartItem, value: number) {
     if (!Number.isFinite(value)) return;
     const available = lineStock(item);
-    const qty = Math.max(1, Math.min(Math.floor(value), Math.max(1, available)));
-    if (value > available) notifyLimit(item.name, available);
+    const qty = future ? Math.max(1, Math.floor(value)) : Math.max(1, Math.min(Math.floor(value), Math.max(1, available)));
+    if (!future && value > available) notifyLimit(item.name, available);
     setCart(prev => prev.map(c => (lineKey(c) === lineKey(item) ? { ...c, quantity: qty } : c)));
   }
 
@@ -391,7 +402,13 @@ export default function SalesPage() {
   const discountAmount = cart.reduce((a, c) => a + Math.max(0, c.listPrice - c.unitPrice) * c.quantity, 0);
   const total = subtotal - discountAmount;
   const delivery = walkIn || pr ? 0 : deliveryAmount;
-  const grandTotal = total + delivery;
+  const fullTotal = total + delivery;
+  // Staff can type a lower final total; the gap is recorded as discount. It can't go
+  // above the full price (that would be a negative discount) or below the delivery charge.
+  const totalEdit = !pr && totalOverride && totalOverride.base === fullTotal ? totalOverride : null;
+  const typedTotal = totalEdit ? parseFloat(totalEdit.value) : NaN;
+  const grandTotal = Number.isFinite(typedTotal) ? Math.min(fullTotal, Math.max(delivery, typedTotal)) : fullTotal;
+  const totalCut = fullTotal - grandTotal;
   // QR orders are paid up front, so the rider collects nothing.
   // Walk-in picks Cash or QR; a paid-in-full delivery is recorded like a QR prepayment (nothing to collect).
   const method: "COD" | "QR" | "CASH" = walkIn ? paymentMethod : deliveryPay === "paid" ? "QR" : "COD";
@@ -420,11 +437,31 @@ export default function SalesPage() {
   const todaySales = sales.filter(s => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kathmandu" }).format(new Date(s.createdAt)) === today);
   const todayTotal = todaySales.filter(countsAsSale).reduce((sum, s) => sum + s.totalAmount + s.deliveryAmount, 0);
 
+  /** Clears the order just completed or saved, ready for the next one. */
+  function resetOrder() {
+    setDeliveryPay("cod");
+    setAdvance("");
+    setCashReceived("");
+    setCart([]);
+    setCustomer(BLANK_CUSTOMER);
+    setLinkedId(null);
+    setNotSame([]);
+    setDeliveryAmount(0);
+    setCodOverride(null);
+    setTotalOverride(null);
+    setPaymentMethod("CASH");
+    setHub(null);
+    setHubRate(null);
+    setCourierService(DOOR_TO_DOOR);
+  }
+
   async function handleCheckout() {
     if (cart.length === 0) return;
     if (fieldErrors.name) return void toast.error(fieldErrors.name);
     if (fieldErrors.phone) return void toast.error(fieldErrors.phone);
     const cod = parseFloat(codAmount) || 0;
+    // A future order is looked up by whose it is when it's sent.
+    if (future && !customer.name.trim()) return void toast.error("Enter who the future order is for.");
     if (pr) {
       if (!customer.name.trim()) return void toast.error("Enter who the PR order is for.");
     } else if (walkIn) {
@@ -439,23 +476,22 @@ export default function SalesPage() {
       if (deliveryPay === "cod" && cod <= 0) return void toast.error("COD amount is required.");
     }
     // Delivery booked with Upaya on completion: it needs a hub location and a mobile number.
-    const booking = sending && upayaEnabled && bookUpaya;
+    // A future order isn't booked now: it's sent with Upaya once it's moved to the orders.
+    const booking = !future && sending && upayaEnabled && bookUpaya;
     if (booking) {
       if (!hub) return void toast.error("Choose the Upaya hub location for this delivery.");
       if (!courierMobile(customer.phone)) return void toast.error("Upaya needs a 10-digit mobile number (98…) to book this delivery.");
     }
 
-    setSubmitting(true);
-    setCourierBooking(null);
-    const result = await mutate(() => createSale({
+    const payload = {
       customerName: customer.name.trim() || undefined,
       customerPhone: customer.phone.trim() || undefined,
       customerAddress: walkIn && !instant ? undefined : customer.address.trim() || undefined,
       items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, unitPrice: c.listPrice, variantId: c.variantId ?? null })),
-      discount: discountAmount + shortDiscount,
+      discount: discountAmount + totalCut + shortDiscount,
       deliveryAmount: delivery,
       codAmount: walkIn || pr ? 0 : cod,
-      totalAmount: total - shortDiscount,
+      totalAmount: total - totalCut - shortDiscount,
       paymentMethod: method,
       walkIn,
       partial: !walkIn && !pr && deliveryPay === "partial",
@@ -466,7 +502,23 @@ export default function SalesPage() {
       customerId: linkedCustomer?.customerId ?? null,
       // The shop being sold from; under "All shops", the cart's products' shop.
       brand: shop !== "all" ? shop : shopOfProducts(products.filter(p => cart.some(c => c.productId === p.id))),
-    }), {
+    };
+
+    setSubmitting(true);
+    setCourierBooking(null);
+
+    if (future) {
+      const saved = await mutate(() => createFutureOrder({ sale: payload, mode, advance: advancePaid }), {
+        success: r => `Future order saved for ${r.customerName}. It's waiting in Customers & Orders → Future orders.`,
+      });
+      setSubmitting(false);
+      if (!saved.ok) return;
+      resetOrder();
+      setFuture(false);
+      return;
+    }
+
+    const result = await mutate(() => createSale(payload), {
       success: sale => {
         const who = sale.customerName?.trim();
         if (sale.kind === "pr") return `PR order ${sale.invoiceNumber} recorded for ${who}.`;
@@ -490,21 +542,9 @@ export default function SalesPage() {
       deliveryPay: walkIn || pr ? null : deliveryPay,
       advance: advancePaid,
     });
-    setDeliveryPay("cod");
-    setAdvance("");
     setShowReceipt(true);
-    setCashReceived("");
-    setCart([]);
-    setCustomer(BLANK_CUSTOMER);
-    setLinkedId(null);
-    setNotSame([]);
-    setDeliveryAmount(0);
-    setCodOverride(null);
-    setPaymentMethod("CASH");
-    setHub(null);
-    setHubRate(null);
     const bookedService = courierService;
-    setCourierService(DOOR_TO_DOOR);
+    resetOrder();
 
     // The sale is saved; now book it with Upaya. A failure leaves the sale as it
     // is, and it can be booked later from the customer's order.
@@ -604,6 +644,42 @@ export default function SalesPage() {
                   <span>Given free for promotion. Stock goes out, nothing is charged, and it isn&apos;t counted as a sale. Leave the address empty if it&apos;s handed over.</span>
                 </p>
               )}
+
+              {/* Future order: taken now, sent once the items are restocked */}
+              <label
+                className={cn(
+                  "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                  future ? "border-amber-300 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30" : "border-border bg-muted/40 hover:border-primary/30"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={future}
+                  onChange={e => {
+                    const on = e.target.checked;
+                    setFuture(on);
+                    // Back to a normal sale: lines added beyond today's stock can't be completed now.
+                    const over = on ? [] : cart.filter(c => c.quantity > lineStock(c));
+                    if (over.length) {
+                      toast.warning(
+                        `More than is in stock: ${over.slice(0, 3).map(c => `${c.name} (${Math.max(0, lineStock(c))} left)`).join(", ")}${over.length > 3 ? "…" : ""}. Lower the quantity or keep it a future order.`,
+                        { id: "future-off-stock", duration: 8000 },
+                      );
+                    }
+                  }}
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--primary)]"
+                />
+                <span className="min-w-0 text-[12px]">
+                  <span className={cn("flex items-center gap-1.5 font-semibold", future ? "text-amber-900 dark:text-amber-100" : "text-foreground")}>
+                    <CalendarClock size={13} /> Future order · send later
+                  </span>
+                  <span className={cn("block text-[11px]", future ? "text-amber-800 dark:text-amber-200" : "text-muted-foreground")}>
+                    {future
+                      ? "Any size or colour can be added, even sold out. Saving takes no stock and isn't counted as a sale until you move it to the orders."
+                      : "For items you'll restock and send in a few days."}
+                  </span>
+                </span>
+              </label>
 
               <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 {pr ? "Given to" : "Customer"}{walkIn && <span className="font-medium normal-case tracking-normal"> · optional</span>}
@@ -901,7 +977,8 @@ export default function SalesPage() {
             {!loading && displayedProducts.map(p => {
               const avail = getStock(p.id);
               const inCart = cart.filter(c => c.productId === p.id).reduce((sum, c) => sum + c.quantity, 0);
-              const exhausted = avail <= 0;
+              // A future order can take sold-out products: they'll be restocked before it's sent.
+              const exhausted = avail <= 0 && !future;
               return (
                 <button
                   key={p.id}
@@ -930,7 +1007,7 @@ export default function SalesPage() {
                   <div className="flex flex-wrap items-center justify-between w-full mt-auto gap-1">
                     <p className="text-xs font-extrabold text-primary">{formatNPR(p.sellingPrice)}</p>
                     <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap", avail <= p.minStockLevel ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
-                      {exhausted ? "Sold out" : `${avail} left`}
+                      {avail <= 0 ? (future ? "Out · order" : "Sold out") : `${avail} left`}
                     </span>
                   </div>
                 </button>
@@ -1061,13 +1138,56 @@ export default function SalesPage() {
                 <div className="flex justify-between font-extrabold text-base text-foreground pt-1 border-t border-border/60"><span>Charged</span><span>{formatNPR(0)}</span></div>
                 {instantLabel && <div className="flex justify-between text-muted-foreground"><span>Sent with</span><span>{instantLabel}</span></div>}
                 </>) : (<>
-                {discountAmount + shortDiscount > 0 && (
+                {discountAmount + totalCut + shortDiscount > 0 && (
                   <div className="flex justify-between text-emerald-600">
-                    <span>Discount{shortDiscount > 0 && " (paid less)"}</span><span>−{formatNPR(discountAmount + shortDiscount)}</span>
+                    <span>Discount{shortDiscount > 0 && " (paid less)"}</span><span>−{formatNPR(discountAmount + totalCut + shortDiscount)}</span>
                   </div>
                 )}
                 {delivery > 0 && <div className="flex justify-between text-muted-foreground"><span>Delivery</span><span>{formatNPR(delivery)}</span></div>}
-                <div className="flex justify-between font-extrabold text-base text-foreground pt-1 border-t border-border/60"><span>Total</span><span>{formatNPR(amountDue)}</span></div>
+                <div className="flex items-center justify-between gap-2 font-extrabold text-base text-foreground pt-1 border-t border-border/60">
+                  <label htmlFor="pos-final-total">Total</label>
+                  <span className="flex items-center gap-2">
+                    {totalCut > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setTotalOverride(null)}
+                        title={`Back to the full total, ${formatNPR(fullTotal)}`}
+                        className="text-[11px] font-semibold text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                      >
+                        Reset
+                      </button>
+                    )}
+                    <span className="relative">
+                      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-muted-foreground">Rs</span>
+                      <input
+                        id="pos-final-total"
+                        type="number"
+                        inputMode="decimal"
+                        min={delivery}
+                        max={fullTotal}
+                        step="0.01"
+                        value={totalEdit ? totalEdit.value : String(Math.round(grandTotal * 100) / 100)}
+                        onChange={e => {
+                          setTotalOverride({ value: e.target.value, base: fullTotal });
+                          // COD follows the new total rather than an amount typed earlier.
+                          setCodOverride(null);
+                        }}
+                        onBlur={() => { if (totalEdit && !Number.isFinite(typedTotal)) setTotalOverride(null); }}
+                        onFocus={e => e.target.select()}
+                        disabled={cart.length === 0}
+                        title="Type a lower final total; the difference is recorded as a discount"
+                        className={cn("w-28 h-8 pl-7 pr-2 text-right text-sm font-extrabold rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-60 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none", totalCut > 0 ? "border-primary/50" : "border-border")}
+                      />
+                    </span>
+                  </span>
+                </div>
+                {Number.isFinite(typedTotal) && typedTotal > fullTotal && (
+                  <p className="text-[11px] font-medium text-amber-600">The total can&apos;t be more than {formatNPR(fullTotal)}. Raise item prices or the delivery charge instead.</p>
+                )}
+                {Number.isFinite(typedTotal) && typedTotal < delivery && (
+                  <p className="text-[11px] font-medium text-amber-600">The total can&apos;t be less than the delivery charge ({formatNPR(delivery)}).</p>
+                )}
+                {shortDiscount > 0 && <div className="flex justify-between font-bold text-foreground"><span>Paid</span><span>{formatNPR(amountDue)}</span></div>}
                 {advancePaid > 0 && <div className="flex justify-between text-muted-foreground"><span>Advance paid</span><span>−{formatNPR(advancePaid)}</span></div>}
                 {!walkIn && <div className="flex justify-between font-bold text-primary"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>}
                 {change !== null && (
@@ -1079,15 +1199,26 @@ export default function SalesPage() {
                 </>)}
               </div>
 
+              {future && (
+                <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
+                  <CalendarClock size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    Saved as a future order: no stock is taken and it isn&apos;t counted in sales yet. Send it from{" "}
+                    <Link href="/customers?future=1" className="font-semibold underline underline-offset-2">Customers &amp; Orders → Future orders</Link>.
+                  </span>
+                </p>
+              )}
+
               <Button
                 onClick={handleCheckout}
                 disabled={cart.length === 0}
                 loading={submitting}
                 className="w-full py-3 font-bold"
               >
-                {!submitting && (pr ? <Gift size={15} /> : <Receipt size={15} />)}
+                {!submitting && (future ? <CalendarClock size={15} /> : pr ? <Gift size={15} /> : <Receipt size={15} />)}
                 {submitting
-                  ? pr ? "Recording PR order…" : "Completing sale…"
+                  ? future ? "Saving future order…" : pr ? "Recording PR order…" : "Completing sale…"
+                  : future ? `Save future order · ${pr ? `${cartUnits} item${cartUnits === 1 ? "" : "s"}` : formatNPR(amountDue)}`
                   : pr ? `Record PR order · ${cartUnits} item${cartUnits === 1 ? "" : "s"} free` : `${walkIn ? "Complete Sale" : "Complete Sale & Invoice"} · ${formatNPR(amountDue)}`}
               </Button>
             </div>
@@ -1161,6 +1292,7 @@ export default function SalesPage() {
                 const v = picking.variants.find(x => x.id === id);
                 if (v) addToCart(picking, v);
               }}
+              allowSoldOut={future}
             />
           </div>
         )}

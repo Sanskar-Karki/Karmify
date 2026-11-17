@@ -42,7 +42,7 @@ export function getStockMovements(storeId: string) {
 const saleInclude = {
   customer: { select: { code: true } },
   warehouse: { select: { name: true } },
-  items: { select: { id: true, productId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true, sku: true } } } },
+  items: { select: { id: true, productId: true, variantId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true, sku: true } } } },
 } as const;
 
 /**

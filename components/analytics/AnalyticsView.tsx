@@ -5,10 +5,10 @@
 import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { ArrowDownRight, ArrowUpRight, CalendarDays, Minus, Truck } from "lucide-react";
+import { ArrowDownRight, ArrowRight, ArrowUpRight, CalendarDays, Minus, Truck } from "lucide-react";
 import { cn, formatNPR } from "@/lib/utils";
 import { DELIVERY_STATUSES, DELIVERY_STYLES } from "@/lib/orders";
-import { DateRangeCalendar, fromDateKey, shortDay } from "@/components/shared/DateRangeCalendar";
+import { DateRangeCalendar, fromDateKey, shortDay, toDateKey } from "@/components/shared/DateRangeCalendar";
 import { buildAnalytics, change, periodFor, RANGES, type Ranked, type RangeKey } from "@/lib/analytics";
 import { AnalyticsBodyPlaceholder, ChartPlaceholder } from "@/components/skeletons/placeholders";
 
@@ -46,16 +46,33 @@ function Delta({ value, goodWhenUp = true, hasPrevious = false }: { value: numbe
   );
 }
 
-function Kpi({ label, value, delta, goodWhenUp, hint, hasPrevious }: { label: string; value: string; delta: number | null; goodWhenUp?: boolean; hint?: string; hasPrevious?: boolean }) {
-  return (
-    <div className={cn(card, "flex flex-col gap-1.5 p-4")}>
+function Kpi({ label, value, delta, goodWhenUp, hint, hasPrevious, href, linkLabel = "See the orders" }: {
+  label: string; value: string; delta: number | null; goodWhenUp?: boolean; hint?: string; hasPrevious?: boolean;
+  /** Opens the orders behind the number. */
+  href?: string;
+  linkLabel?: string;
+}) {
+  const body = (
+    <>
       <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
       <p className="whitespace-nowrap text-[17px] font-extrabold tracking-tight text-foreground sm:text-2xl">{value}</p>
       <div className="flex flex-wrap items-center gap-1.5">
         <Delta value={delta} goodWhenUp={goodWhenUp} hasPrevious={hasPrevious} />
         {hint && <span className="text-[12px] text-muted-foreground">{hint}</span>}
       </div>
-    </div>
+      {href && (
+        <span className="mt-0.5 inline-flex items-center gap-1 text-[12px] font-semibold text-primary">
+          {linkLabel} <ArrowRight size={12} aria-hidden className="transition-transform group-hover:translate-x-0.5" />
+        </span>
+      )}
+    </>
+  );
+  return href ? (
+    <Link href={href} className={cn(card, "group flex flex-col gap-1.5 p-4 transition-colors hover:border-primary/40 hover:bg-primary/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30")}>
+      {body}
+    </Link>
+  ) : (
+    <div className={cn(card, "flex flex-col gap-1.5 p-4")}>{body}</div>
   );
 }
 
@@ -169,6 +186,12 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
   const customLabel = custom ? (custom.start === custom.end ? shortDay(custom.start) : `${shortDay(custom.start)} – ${shortDay(custom.end)}`) : "";
   const rangeLabel = range === "custom" ? customLabel : RANGES.find(r => r.key === range)?.label ?? "";
   const totalOutcomes = data.outcomes.reduce((n, o) => n + o.orders, 0);
+  // The Customers table showing exactly the parcels behind "Sent with Upaya": same days, by send date.
+  const lastDay = new Date(data.period.end);
+  lastDay.setDate(lastDay.getDate() - 1);
+  const upayaOrdersHref = range === "all"
+    ? "/customers?source=upaya"
+    : `/customers?source=upaya&filter=custom&from=${toDateKey(data.period.start)}&to=${toDateKey(lastDay)}`;
 
   return (
     <div className="space-y-5 pb-28">
@@ -254,9 +277,9 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
               <p className="text-[11px] text-muted-foreground">Parcels booked with Upaya {rangeLabel ? `· ${rangeLabel.toLowerCase()}` : ""}, by the day they were sent</p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="Order value sent" value={formatNPR(data.upayaSent.value)} delta={change(data.upayaSent.value, data.upayaSentBefore?.value)} hint="products, after discounts" />
-              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="Parcels" value={String(data.upayaSent.parcels)} delta={change(data.upayaSent.parcels, data.upayaSentBefore?.parcels)} />
-              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="COD for Upaya to collect" value={formatNPR(data.upayaSent.cod)} delta={change(data.upayaSent.cod, data.upayaSentBefore?.cod)} hint="cash the riders collect" />
+              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="Order value sent" value={formatNPR(data.upayaSent.value)} delta={change(data.upayaSent.value, data.upayaSentBefore?.value)} hint="products, after discounts" href={upayaOrdersHref} />
+              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="Parcels" value={String(data.upayaSent.parcels)} delta={change(data.upayaSent.parcels, data.upayaSentBefore?.parcels)} href={upayaOrdersHref} linkLabel={`See the ${data.upayaSent.parcels === 1 ? "parcel" : "parcels"}`} />
+              <Kpi hasPrevious={Boolean(data.upayaSentBefore)} label="COD for Upaya to collect" value={formatNPR(data.upayaSent.cod)} delta={change(data.upayaSent.cod, data.upayaSentBefore?.cod)} hint="cash the riders collect" href={upayaOrdersHref} />
             </div>
           </section>
 

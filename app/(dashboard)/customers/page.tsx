@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -8,6 +8,8 @@ import {
   ShoppingBag, Wallet, Truck, Download, Tag, Receipt, ClipboardList, ArchiveRestore,
 } from "lucide-react";
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
+import { FutureOrdersPanel } from "@/components/orders/FutureOrdersPanel";
+import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, type EditLine } from "@/components/orders/OrderItemsEditor";
 import { PackingListDialog } from "@/components/orders/PackingListDialog";
 import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
 import { VALLEY_LABELS, valleyOf, type CourierArea } from "@/lib/courier";
@@ -31,14 +33,14 @@ import { useResources } from "@/lib/useResources";
 import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, instantCourierLabel, isPR, itemName, codToCollect, referralLabel, isFromAd,
+import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,instantCourierLabel, isPR, itemName, codToCollect, referralLabel, isFromAd,
 } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatusStyle, DOOR_TO_DOOR } from "@/lib/courier";
 import { useStoreProfile } from "@/lib/storeProfile";
-import { channelOf } from "@/lib/analytics";
+import { channelOf, upayaSentAt, upayaTotals } from "@/lib/analytics";
 import { DateRangeCalendar, shortDay } from "@/components/shared/DateRangeCalendar";
 import type { Sale } from "@/lib/types";
 
@@ -84,7 +86,8 @@ function matchesSource(sale: Sale, source: string) {
   if (source === "all") return true;
   if (source === "website") return sale.source === "website";
   if (source === "pos") return sale.source !== "website";
-  if (source === "upaya") return Boolean(sale.courierTrackingCode);
+  // Same rule as Analytics "Sent with Upaya": booked, and not cancelled there.
+  if (source === "upaya") return upayaSentAt(sale) !== null;
   if (source === "instant") return Boolean(sale.deliveryVia);
   if (source === "pr") return sale.kind === "pr";
   if (source === "ad") return isFromAd(sale.referral);
@@ -160,14 +163,17 @@ export default function CustomersPage() {
   const [refreshingCourier, setRefreshingCourier] = useState(false);
   const [search, setSearch] = useUrlState("q");
   const [dateFilter, setDateFilter] = useUrlState("filter", "all");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [sourceFilter, setSourceFilter] = useState("all");
+  // Analytics links here with ?source=upaya&filter=custom&from=…&to=…
+  const [customStart, setCustomStart] = useUrlState("from");
+  const [customEnd, setCustomEnd] = useUrlState("to");
+  const [sourceFilter, setSourceFilter] = useUrlState("source", "all");
   // Inside or outside the Kathmandu valley, by the order's Upaya hub.
   const [areaFilter, setAreaFilter] = useUrlState("area", "all");
   const valleyLive = useValleyLocations();
   const [paymentFilter, setPaymentFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useUrlState("status", "all");
+  // ?future=1 (from the POS) opens the Future orders section.
+  const [futureParam] = useUrlState("future");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const dateAnchor = useRef<HTMLDivElement>(null);
 
@@ -175,6 +181,10 @@ export default function CustomersPage() {
   const [showEdit, setShowEdit] = useState(false);
   const [editForm, setEditForm] = useState(BLANK_EDIT);
   const [initialEdit, setInitialEdit] = useState(BLANK_EDIT);
+  // The order's items and discount as edited; COD follows the new total until it's typed by hand.
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
+  const [editDiscount, setEditDiscount] = useState("0");
+  const [codTouched, setCodTouched] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [syncing, setSyncing] = useState(false);
@@ -200,21 +210,27 @@ export default function CustomersPage() {
   const [upayaBatch, setUpayaBatch] = useState<UpayaBatch | null>(null);
   const [sendingUpaya, setSendingUpaya] = useState(false);
 
+  // With "Sent with Upaya" the dates mean the day it was sent, not the day it was ordered.
+  const byUpayaSend = sourceFilter === "upaya";
+  const dateOf = useCallback((s: Sale) => (byUpayaSend ? upayaSentAt(s) ?? s.createdAt : s.createdAt), [byUpayaSend]);
+
   // Everything except the status, so each status chip can show its own count.
   const beforeStatus = useMemo(() => {
     const q = (parseCustomerCode(search) ?? search.trim()).toLowerCase();
-    return sales.filter(s =>
+    const rows = sales.filter(s =>
       ((s.customerName ?? "").toLowerCase().includes(q) ||
         (s.customerPhone ?? "").toLowerCase().includes(q) ||
         (s.customer?.code ?? "").toLowerCase().includes(q) ||
         (s.courierTrackingCode ?? "").toLowerCase().includes(q) ||
         s.invoiceNumber.toLowerCase().includes(q)) &&
-      isWithinDateFilter(s.createdAt, dateFilter, customStart, customEnd) &&
+      isWithinDateFilter(dateOf(s), dateFilter, customStart, customEnd) &&
       matchesSource(s, sourceFilter) &&
       (areaFilter === "all" || valleyOf(s, valleyLive) === areaFilter) &&
       (paymentFilter === "all" || s.paymentStatus === paymentFilter)
     );
-  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, areaFilter, valleyLive, paymentFilter]);
+    // Sent with Upaya: the latest sent first.
+    return byUpayaSend ? rows.sort((a, b) => new Date(dateOf(b)).getTime() - new Date(dateOf(a)).getTime()) : rows;
+  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, areaFilter, valleyLive, paymentFilter, byUpayaSend, dateOf]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -257,6 +273,8 @@ export default function CustomersPage() {
   const selectedVisible = useMemo(() => displayed.filter(s => selectedIds.has(s.id)), [displayed, selectedIds]);
   const allVisibleSelected = displayed.length > 0 && selectedVisible.length === displayed.length;
 
+  // Sent with Upaya: the same three numbers Analytics shows for these days.
+  const upayaSummary = useMemo(() => (byUpayaSend ? upayaTotals(filtered) : null), [byUpayaSend, filtered]);
   const summary = useMemo(() => ({
     revenue: filtered.filter(countsAsSale).reduce((total, s) => total + s.totalAmount, 0),
     pending: filtered.filter(s => s.deliveryStatus === "IN_PROCESS" || s.deliveryStatus === "RETURN_PROCESS").length,
@@ -476,8 +494,42 @@ export default function CustomersPage() {
     setEditService(serviceOf(sale));
     setEditForm(next);
     setInitialEdit(next);
+    setEditLines(linesFromSale(sale));
+    setEditDiscount(String(sale.discount ?? 0));
+    setCodTouched(false);
     setShowEdit(true);
   }
+
+
+  /**
+   * COD follows the order total plus delivery: it moves by the same amount they
+   * moved from the saved order, until it's typed by hand.
+   */
+  function followCod(f: typeof BLANK_EDIT, lines: EditLine[], discount: string): typeof BLANK_EDIT {
+    if (!editing || codTouched || editing.paymentMethod !== "COD" || editing.paymentStatus === "PAID" || editing.kind === "pr") return f;
+    const total = itemsAreEdited(lines, discount) ? editedTotal(editing, lines, discount) : editing.totalAmount;
+    const moved = total + (parseFloat(f.deliveryAmount) || 0) - editing.totalAmount - (editing.deliveryAmount ?? 0);
+    const cod = Math.max(0, (parseFloat(initialEdit.codAmount) || 0) + moved);
+    return { ...f, codAmount: String(Math.round(cod * 100) / 100) };
+  }
+
+  const itemsAreEdited = (lines: EditLine[], discount: string) => editing !== null && (
+    linesSignature(lines) !== linesSignature(linesFromSale(editing)) || (parseFloat(discount) || 0) !== (editing.discount ?? 0)
+  );
+
+  /** New items or discount: the COD to collect follows the new total. */
+  function changeItems(lines: EditLine[], discount: string) {
+    setEditLines(lines);
+    setEditDiscount(discount);
+    setEditForm(f => followCod(f, lines, discount));
+  }
+
+  /** A new delivery charge, typed or from Upaya's price for a new hub: COD follows. */
+  function changeDelivery(value: string) {
+    setEditForm(f => followCod({ ...f, deliveryAmount: value }, editLines, editDiscount));
+  }
+
+  const itemsChanged = itemsAreEdited(editLines, editDiscount);
 
   async function saveEdit() {
     if (!editing) return;
@@ -485,10 +537,19 @@ export default function CustomersPage() {
       toast.error("Enter a customer name or phone number.");
       return;
     }
+    if (itemsChanged && editing.kind !== "pr" && (parseFloat(editDiscount) || 0) > linesGoods(editLines)) {
+      toast.error("The discount is more than the items are worth.");
+      return;
+    }
 
     setSaving(true);
     const result = await mutate(
       () => updateSaleDetails(editing.id, {
+        // Items only when changed: saving moves stock by the difference.
+        ...(itemsChanged && {
+          items: editLines.map(l => ({ itemId: l.itemId, productId: l.productId, variantId: l.variantId, quantity: l.quantity, unitPrice: l.unitPrice })),
+          discount: Math.max(0, parseFloat(editDiscount) || 0),
+        }),
         customerName: editForm.customerName,
         customerPhone: editForm.customerPhone,
         customerAddress: editForm.customerAddress,
@@ -508,8 +569,10 @@ export default function CustomersPage() {
     setSaving(false);
   }
 
-  const setField = (field: keyof typeof BLANK_EDIT) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const setField = (field: keyof typeof BLANK_EDIT) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (field === "codAmount") setCodTouched(true);
     setEditForm(f => ({ ...f, [field]: e.target.value }));
+  };
 
   const hasOpenShipments = sales.some(s => s.courierTrackingCode && !COURIER_FINAL_STATUSES.includes(s.courierStatus ?? ""));
   // Upaya statuses update in the list on their own, without opening each order's tracking popup.
@@ -529,12 +592,19 @@ export default function CustomersPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-extrabold tracking-tight">Customers &amp; Orders</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
-            {[
-              { label: filtered.length === 1 ? "order" : "orders", val: filtered.length.toLocaleString(), icon: ShoppingBag },
-              { label: "revenue", val: formatNPR(summary.revenue), icon: Wallet },
-              { label: "to deliver", val: summary.pending.toLocaleString(), icon: Truck },
-              { label: "unpaid", val: summary.unpaid.toLocaleString(), icon: Receipt },
-            ].map(stat => (
+            {(upayaSummary
+              ? [
+                  { label: upayaSummary.parcels === 1 ? "parcel sent with Upaya" : "parcels sent with Upaya", val: upayaSummary.parcels.toLocaleString(), icon: Truck },
+                  { label: "order value sent", val: formatNPR(upayaSummary.value), icon: Wallet },
+                  { label: "COD for Upaya to collect", val: formatNPR(upayaSummary.cod), icon: Receipt },
+                ]
+              : [
+                  { label: filtered.length === 1 ? "order" : "orders", val: filtered.length.toLocaleString(), icon: ShoppingBag },
+                  { label: "revenue", val: formatNPR(summary.revenue), icon: Wallet },
+                  { label: "to deliver", val: summary.pending.toLocaleString(), icon: Truck },
+                  { label: "unpaid", val: summary.unpaid.toLocaleString(), icon: Receipt },
+                ]
+            ).map(stat => (
               <span key={stat.label} className="flex items-center gap-1.5 whitespace-nowrap">
                 <stat.icon size={13} aria-hidden />
                 {loading ? <Pulse className="h-3.5 w-10" /> : <span className="font-bold text-foreground tabular-nums">{stat.val}</span>}
@@ -577,6 +647,9 @@ export default function CustomersPage() {
           </Link>
         </div>
       </div>
+
+      {/* Orders to send later, once restocked: not in the table or the totals until moved */}
+      <FutureOrdersPanel startOpen={futureParam === "1"} onMoved={() => refetch({ quiet: true })} />
 
       {/* Filters: a status switch with counts, then date, source and payment */}
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -739,6 +812,11 @@ export default function CustomersPage() {
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">
                       {new Date(sale.createdAt).toLocaleDateString()}
                       <span className="block text-[11px] font-normal tabular-nums opacity-80">{new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                      {byUpayaSend && sale.courierBookedAt && (
+                        <span className="mt-1 block text-[10px] font-bold text-emerald-700 dark:text-emerald-400" title="When it was sent with Upaya">
+                          Sent {new Date(sale.courierBookedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {new Date(sale.courierBookedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        </span>
+                      )}
                     </td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-1.5">
@@ -796,6 +874,7 @@ export default function CustomersPage() {
                         triggerClassName={cn(
                           "w-auto gap-1 px-2 py-0.5 rounded-full border-transparent text-[10px] font-extrabold uppercase whitespace-nowrap hover:border-current/30 [&>svg]:text-current [&>svg]:opacity-70",
                           DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS,
+                          sentWithUpaya(sale) && SENT_STATUS_BORDER,
                           statusSaving.has(sale.id) && "animate-pulse"
                         )}
                       />
@@ -872,8 +951,9 @@ export default function CustomersPage() {
         onClose={() => setShowEdit(false)}
         title="Edit order"
         description={editing?.invoiceNumber}
+        size="lg"
         busy={saving}
-        dirty={JSON.stringify(editForm) !== JSON.stringify(initialEdit) || (editing !== null && (hubChanged(editing, editHub) || editService !== serviceOf(editing)))}
+        dirty={itemsChanged || JSON.stringify(editForm) !== JSON.stringify(initialEdit) || (editing !== null && (hubChanged(editing, editHub) || editService !== serviceOf(editing)))}
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowEdit(false)} disabled={saving} className="flex-1">Cancel</Button>
@@ -900,7 +980,10 @@ export default function CustomersPage() {
           </div>
           {editing && (editing.source === "website" || editing.customerAddress || editing.courierLocationId) && !editing.deliveryVia && (
             <div className="sm:col-span-2">
-              <HubEditField sale={editing} value={editHub} onChange={setEditHub} service={editService} onServiceChange={setEditService} address={editForm.customerAddress} labelClass="text-xs font-semibold text-muted-foreground" />
+              <HubEditField
+                sale={editing} value={editHub} onChange={setEditHub} service={editService} onServiceChange={setEditService} address={editForm.customerAddress} labelClass="text-xs font-semibold text-muted-foreground"
+                onRate={charge => changeDelivery(String(charge))}
+              />
             </div>
           )}
           <div className="space-y-1.5">
@@ -911,8 +994,34 @@ export default function CustomersPage() {
           </div>
           <div className="space-y-1.5">
             <label htmlFor="edit-delivery" className="text-xs font-semibold text-muted-foreground">Delivery amount (Rs.)</label>
-            <input id="edit-delivery" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.deliveryAmount} onChange={setField("deliveryAmount")} className={fieldClass} />
+            <input id="edit-delivery" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.deliveryAmount} onChange={e => changeDelivery(e.target.value)} className={fieldClass} />
           </div>
+          {editing && (
+            <div className="space-y-2 sm:col-span-2">
+              <div className="flex items-baseline justify-between gap-2 border-t border-border/60 pt-4">
+                <span className="text-xs font-semibold text-muted-foreground">Items</span>
+                {itemsChanged && (
+                  <span className="text-[11px] text-muted-foreground">Saving takes added units out of stock and puts removed ones back.</span>
+                )}
+              </div>
+              {editing.deliveryStatus === "CANCELLED" || editing.deliveryStatus === "RETURNED" ? (
+                <p className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+                  This order is {editing.deliveryStatus === "CANCELLED" ? "cancelled" : "returned"}, so its items can&apos;t be changed.
+                </p>
+              ) : (
+                <OrderItemsEditor
+                  sale={editing}
+                  lines={editLines}
+                  onLinesChange={lines => changeItems(lines, editDiscount)}
+                  discount={editDiscount}
+                  onDiscountChange={d => changeItems(editLines, d)}
+                />
+              )}
+              {itemsChanged && editing.courierTrackingCode && (
+                <p className="text-[12px] text-amber-700 dark:text-amber-400">This order is already booked with Upaya, which keeps the amount it was booked with.</p>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
 

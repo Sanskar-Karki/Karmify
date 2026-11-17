@@ -16,7 +16,7 @@ import { resources } from "@/lib/resources";
 import { useResources } from "@/lib/useResources";
 import { mutate } from "@/lib/mutate";
 import {
-  contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, INSTANT_COURIERS, instantCourierLabel,
+  contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,INSTANT_COURIERS, instantCourierLabel,
   isPR, itemOptionsText, PAYMENT_STYLES, codToCollect, referralLabel,
 } from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -28,6 +28,7 @@ import { CustomerLabelDialog } from "@/components/shared/CustomerLabelDialog";
 import { ReceiptDialog } from "@/components/shared/ReceiptDialog";
 import { CustomerDetailPlaceholder } from "@/components/skeletons/placeholders";
 import type { Sale } from "@/lib/types";
+import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, type EditLine } from "@/components/orders/OrderItemsEditor";
 
 type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED";
 type OrderFilter = "all" | DeliveryStatus;
@@ -369,6 +370,14 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
   const [hub, setHub] = useState<CourierArea | null>(() => hubOf(sale));
   const [service, setService] = useState<number>(() => serviceOf(sale));
   const [returning, setReturning] = useState(false);
+  // The order's items and discount as edited; COD follows the new total until it's typed by hand.
+  const [lines, setLines] = useState<EditLine[]>(() => linesFromSale(sale));
+  const [discount, setDiscount] = useState(() => String(sale.discount ?? 0));
+  const [codTouched, setCodTouched] = useState(false);
+  const itemsLocked = sale.deliveryStatus === "CANCELLED" || sale.deliveryStatus === "RETURNED";
+  const itemsChanged = !itemsLocked && (
+    linesSignature(lines) !== linesSignature(linesFromSale(sale)) || (parseFloat(discount) || 0) !== (sale.discount ?? 0)
+  );
   const address = deliveryAddress(sale.customerAddress);
   const units = sale.items.reduce((n, i) => n + i.quantity, 0);
   const returnedUnits = sale.items.reduce((n, i) => n + (i.returnedQty ?? 0), 0);
@@ -397,7 +406,39 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
     setChangingStatus(false);
   }
 
+  /**
+   * COD follows the order total plus delivery: it moves by the same amount they
+   * moved from the saved order, until it's typed by hand.
+   */
+  function withCod(f: ReturnType<typeof formFor>) {
+    if (codTouched || sale.paymentMethod !== "COD" || sale.paymentStatus === "PAID" || sale.kind === "pr") return f;
+    const moved = (parseFloat(f.totalAmount) || 0) + (parseFloat(f.deliveryAmount) || 0) - sale.totalAmount - (sale.deliveryAmount ?? 0);
+    const cod = Math.max(0, (parseFloat(formFor(sale).codAmount) || 0) + moved);
+    return { ...f, codAmount: String(Math.round(cod * 100) / 100) };
+  }
+
+  /** New items or discount: the order total follows, and COD with it. */
+  function changeItems(next: EditLine[], nextDiscount: string) {
+    setLines(next);
+    setDiscount(nextDiscount);
+    setForm(f => withCod({ ...f, totalAmount: String(editedTotal(sale, next, nextDiscount)) }));
+  }
+
+  function startEditing() {
+    setForm(formFor(sale));
+    setHub(hubOf(sale));
+    setService(serviceOf(sale));
+    setLines(linesFromSale(sale));
+    setDiscount(String(sale.discount ?? 0));
+    setCodTouched(false);
+    setEditing(true);
+  }
+
   async function save() {
+    if (itemsChanged && sale.kind !== "pr" && (parseFloat(discount) || 0) > linesGoods(lines)) {
+      toast.error("The discount is more than the items are worth.");
+      return;
+    }
     const amounts = [form.totalAmount, form.deliveryAmount, form.codAmount].map(v => parseFloat(v));
     if (amounts.some(v => !Number.isFinite(v) || v < 0)) {
       toast.error("Amounts must be numbers, 0 or more.");
@@ -408,7 +449,13 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
     const tag = /^\[[^\]]*\]\s*/.exec(sale.customerAddress ?? "")?.[0] ?? "";
     const result = await mutate(
       () => updateSaleDetails(sale.id, {
-        totalAmount: amounts[0],
+        // Changed items set the total themselves (moved by the change in goods and discount) and move stock by the difference.
+        ...(itemsChanged
+          ? {
+              items: lines.map(l => ({ itemId: l.itemId, productId: l.productId, variantId: l.variantId, quantity: l.quantity, unitPrice: l.unitPrice })),
+              discount: Math.max(0, parseFloat(discount) || 0),
+            }
+          : { totalAmount: amounts[0] }),
         deliveryAmount: amounts[1],
         // Only when changed: a website order stores 0 here, which would otherwise read as "paid".
         ...(form.codAmount !== formFor(sale).codAmount && { codAmount: amounts[2] }),
@@ -486,7 +533,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
               onChange={changeStatus}
               options={DELIVERY_STATUSES}
               disabled={changingStatus || editing}
-              triggerClassName={cn("py-1.5 text-xs font-bold", DELIVERY_STYLES[sale.deliveryStatus])}
+              triggerClassName={cn("py-1.5 text-xs font-bold", DELIVERY_STYLES[sale.deliveryStatus], sentWithUpaya(sale) && SENT_STATUS_BORDER)}
             />
           </div>
         </div>
@@ -507,7 +554,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           {!editing && (
             <button
               type="button"
-              onClick={() => { setForm(formFor(sale)); setHub(hubOf(sale)); setService(serviceOf(sale)); setEditing(true); }}
+              onClick={startEditing}
               className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs font-semibold hover:bg-muted"
             >
               <Edit2 size={12} /> Edit
@@ -518,6 +565,28 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
 
       {editing ? (
         <div className="space-y-4 p-4 sm:p-5">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+              <span className={labelClass}>Items</span>
+              {itemsChanged && <span className="text-[11px] text-muted-foreground">Saving takes added units out of stock and puts removed ones back.</span>}
+            </div>
+            {itemsLocked ? (
+              <p className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
+                This order is {sale.deliveryStatus === "CANCELLED" ? "cancelled" : "returned"}, so its items can&apos;t be changed.
+              </p>
+            ) : (
+              <OrderItemsEditor
+                sale={sale}
+                lines={lines}
+                onLinesChange={next => changeItems(next, discount)}
+                discount={discount}
+                onDiscountChange={d => changeItems(lines, d)}
+              />
+            )}
+            {itemsChanged && sale.courierTrackingCode && (
+              <p className="text-[12px] text-amber-700 dark:text-amber-400">This order is already booked with Upaya, which keeps the amount it was booked with.</p>
+            )}
+          </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {([
               ["totalAmount", "Order total"],
@@ -533,8 +602,19 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
                   min={0}
                   step="0.01"
                   value={form[field]}
-                  onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                  className={cn(fieldClass, "py-2")}
+                  onChange={e => {
+                    const value = e.target.value;
+                    if (field === "codAmount") {
+                      setCodTouched(true);
+                      setForm(f => ({ ...f, codAmount: value }));
+                    } else {
+                      setForm(f => withCod({ ...f, [field]: value }));
+                    }
+                  }}
+                  // With changed items the total follows the items and discount.
+                  readOnly={field === "totalAmount" && itemsChanged}
+                  title={field === "totalAmount" && itemsChanged ? "Follows the items and discount above" : undefined}
+                  className={cn(fieldClass, "py-2", field === "totalAmount" && itemsChanged && "bg-muted/50 text-muted-foreground")}
                 />
               </div>
             ))}
@@ -544,7 +624,10 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
             <input id={`address-${sale.id}`} value={form.customerAddress} onChange={e => setForm(f => ({ ...f, customerAddress: e.target.value }))} placeholder="Delivery address" className={cn(fieldClass, "py-2")} />
           </div>
           {(sale.source === "website" || sale.customerAddress || sale.courierLocationId) && !sale.deliveryVia && (
-            <HubEditField sale={sale} value={hub} onChange={setHub} service={service} onServiceChange={setService} address={form.customerAddress} labelClass={labelClass} />
+            <HubEditField
+              sale={sale} value={hub} onChange={setHub} service={service} onServiceChange={setService} address={form.customerAddress} labelClass={labelClass}
+              onRate={charge => setForm(f => withCod({ ...f, deliveryAmount: String(charge) }))}
+            />
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">

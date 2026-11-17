@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Truck } from "lucide-react";
 import { estimateCourierRate } from "@/app/actions";
 import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
@@ -24,10 +24,11 @@ export const hubChanged = (sale: HubSale, picked: CourierArea | null) =>
 
 /**
  * Changes an order's Upaya hub location. Locked once the order is booked with
- * Upaya (the courier keeps the hub it was booked with). Shows Upaya's charge
- * for a newly picked hub; the delivery charge itself is left to the person editing.
+ * Upaya (the courier keeps the hub it was booked with). For a newly picked hub
+ * or service it looks up Upaya's charge and hands it to onRate, so the order's
+ * delivery charge (and COD) can follow, as in the POS.
  */
-export function HubEditField({ sale, value, onChange, service, onServiceChange, address, labelClass }: {
+export function HubEditField({ sale, value, onChange, service, onServiceChange, address, labelClass, onRate }: {
   sale: HubSale;
   value: CourierArea | null;
   onChange: (area: CourierArea | null) => void;
@@ -36,16 +37,30 @@ export function HubEditField({ sale, value, onChange, service, onServiceChange, 
   onServiceChange: (service: number) => void;
   address: string;
   labelClass: string;
+  /** Upaya's charge for a newly picked hub or service, once known (not called when it has no price). */
+  onRate?: (charge: number) => void;
 }) {
   const [rate, setRate] = useState<{ key: string; charge: number | null } | null>(null);
   const changed = hubChanged(sale, value) || service !== serviceOf(sale);
   const key = value ? `${value.locationId}:${service}` : "";
+  // Each hub + service is applied once, so a charge typed by hand afterwards stays.
+  const applied = useRef("");
+  const onRateRef = useRef(onRate);
+  useEffect(() => { onRateRef.current = onRate; });
 
   useEffect(() => {
     if (!value || !changed) return;
     let current = true;
     estimateCourierRate(value.locationId, 1, service)
-      .then(r => { if (current) setRate({ key, charge: r.ok && typeof r.data === "number" && r.data > 0 ? r.data : null }); })
+      .then(r => {
+        if (!current) return;
+        const charge = r.ok && typeof r.data === "number" && r.data > 0 ? r.data : null;
+        setRate({ key, charge });
+        if (charge !== null && applied.current !== key) {
+          applied.current = key;
+          onRateRef.current?.(charge);
+        }
+      })
       .catch(() => { if (current) setRate({ key, charge: null }); });
     return () => { current = false; };
   }, [value, changed, service, key]);
@@ -84,7 +99,7 @@ export function HubEditField({ sale, value, onChange, service, onServiceChange, 
       {shownRate && (
         <p className="text-[11px] text-muted-foreground">
           {shownRate.charge !== null
-            ? <>Upaya&apos;s {serviceName} charge for this hub: <span className="font-semibold text-foreground">{formatNPR(shownRate.charge)}</span>. Change the delivery charge above if it should follow.</>
+            ? <>Upaya&apos;s {serviceName} charge for this hub: <span className="font-semibold text-foreground">{formatNPR(shownRate.charge)}</span>{onRate ? ". The delivery charge is set to it; change it if you charge something else." : ". Change the delivery charge if it should follow."}</>
             : `Upaya has no ${serviceName} price for this hub right now.`}
         </p>
       )}

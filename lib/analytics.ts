@@ -239,15 +239,44 @@ export type UpayaSent = { parcels: number; value: number; cod: number };
  * Cancelled bookings are left out.
  */
 export function upayaSentIn(sales: AnalyticsSale[], start: Date, end: Date): UpayaSent {
+  return upayaTotals(sales.filter(sale => {
+    const t = upayaSentAt(sale)?.getTime();
+    return t !== undefined && t >= start.getTime() && t < end.getTime();
+  }));
+}
+
+type UpayaSale = Pick<AnalyticsSale, "courierTrackingCode" | "courierStatus" | "courierBookedAt" | "createdAt" | "items" | "discount" | "paymentMethod" | "paymentStatus" | "deliveryStatus" | "source" | "codAmount" | "totalAmount">;
+
+/**
+ * What the Upaya rider collects for one parcel. Not COD, or paid before it was
+ * delivered (COD set to 0 by hand): nothing. Otherwise its COD amount; a website
+ * import records none, so its total is due. A delivered COD order is marked paid
+ * on its own, so it still counts what the rider collected.
+ */
+export function upayaCod(sale: Pick<AnalyticsSale, "paymentMethod" | "paymentStatus" | "deliveryStatus" | "source" | "codAmount" | "totalAmount">) {
+  if (sale.paymentMethod !== "COD") return 0;
+  if (sale.paymentStatus === "PAID" && sale.deliveryStatus !== "DELIVERED") return 0;
+  if (sale.codAmount) return sale.codAmount;
+  return sale.source === "website" || sale.paymentStatus !== "PAID" ? sale.totalAmount ?? 0 : 0;
+}
+
+/**
+ * When an order was sent with Upaya (the day it was booked; its order date if
+ * booked before that was recorded), or null when it doesn't count as sent:
+ * never booked, or the booking was cancelled. The Customers table's
+ * "Sent with Upaya" filter uses the same rule, so its list matches these numbers.
+ */
+export const upayaSentAt = (sale: Pick<AnalyticsSale, "courierTrackingCode" | "courierStatus" | "courierBookedAt" | "createdAt">) =>
+  sale.courierTrackingCode && sale.courierStatus !== "cancelled" ? new Date(sale.courierBookedAt ?? sale.createdAt) : null;
+
+/** Parcels, goods value and COD to collect for orders sent with Upaya (others are skipped). */
+export function upayaTotals(sales: UpayaSale[]): UpayaSent {
   const out: UpayaSent = { parcels: 0, value: 0, cod: 0 };
   for (const sale of sales) {
-    if (!sale.courierTrackingCode || sale.courierStatus === "cancelled") continue;
-    const t = new Date(sale.courierBookedAt ?? sale.createdAt).getTime();
-    if (t < start.getTime() || t >= end.getTime()) continue;
+    if (!upayaSentAt(sale)) continue;
     out.parcels += 1;
     out.value += goodsValue(sale);
-    // What the rider was asked to collect (website imports don't record a COD amount: their total is due).
-    if (sale.paymentMethod === "COD") out.cod += sale.codAmount || sale.totalAmount || 0;
+    out.cod += upayaCod(sale);
   }
   return out;
 }

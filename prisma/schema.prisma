@@ -66,6 +66,7 @@ model Store {
   purchaseOrders PurchaseOrder[]
   sales          Sale[]
   deletedSales   DeletedSale[]
+  futureOrders   FutureOrder[]
   customers      Customer[]
   customerSeq    Int             @default(0) // Last customer number issued; only ever goes up
   activities     ActivityLog[]
@@ -330,6 +331,24 @@ model DeletedSale {
   deletedAt     DateTime @default(now())
 
   @@index([storeId, deletedAt])
+}
+
+/// An order taken before its stock is in (a "future order"), to be sent once the items are restocked.
+/// It takes no stock and isn't counted as a sale. Moving it to the orders (Customers & Orders →
+/// Future orders) creates the real order at that moment, taking the stock then.
+model FutureOrder {
+  id            String   @id @default(uuid())
+  storeId       String
+  store         Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerName  String?
+  customerPhone String?
+  totalAmount   Float // what the customer will pay, delivery included
+  data          Json // the order as the POS would create it, plus each line's name and size/colour
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([storeId, createdAt])
 }
 
 model SaleItem {

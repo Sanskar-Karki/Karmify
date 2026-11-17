@@ -327,11 +327,14 @@ export function VariantPicker({
   variants,
   available,
   onPick,
+  allowSoldOut = false,
 }: {
   variants: VariantStockRow[];
   /** What can still be sold of one stock row (its stock less what's already in the cart). */
   available: (variantId: string) => number;
   onPick: (variantId: string) => void;
+  /** Future orders: sold-out sizes/colours can be picked too, as they'll be restocked before sending. */
+  allowSoldOut?: boolean;
 }) {
   const grid = buildGrid(variants);
   const hasSizes = grid.sizes.some(s => s.key);
@@ -369,23 +372,26 @@ export function VariantPicker({
                 );
               }
               const left = available(id);
+              const blocked = left <= 0 && !allowSoldOut;
               return (
                 <div key={s.key} role="gridcell">
                   <button
                     type="button"
-                    disabled={left <= 0}
+                    disabled={blocked}
                     onClick={() => onPick(id)}
-                    aria-label={`${name}: ${left <= 0 ? "sold out" : `${left} left`}`}
+                    aria-label={`${name}: ${left <= 0 ? (allowSoldOut ? "out of stock, order for later" : "sold out") : `${left} left`}`}
                     className={cn(
                       "flex h-14 w-full flex-col items-center justify-center rounded-xl border px-1 transition-all",
-                      left <= 0
+                      blocked
                         ? "cursor-not-allowed border-border/40 bg-muted/40 text-muted-foreground/60"
+                        : left <= 0
+                        ? "cursor-pointer border-dashed border-amber-400/70 bg-amber-50/60 hover:border-amber-500 hover:bg-amber-50 active:scale-[0.97] dark:bg-amber-950/20 dark:hover:bg-amber-950/40"
                         : "cursor-pointer border-border/80 bg-card hover:border-primary/60 hover:bg-primary/5 active:scale-[0.97]"
                     )}
                   >
                     <span className="text-sm font-extrabold leading-tight">{s.key ? s.label : "Add"}</span>
-                    <span className={cn("text-[11px] font-semibold tabular-nums leading-tight", left <= 0 ? "" : left <= LOW_VARIANT_STOCK ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
-                      {left <= 0 ? "Sold out" : `${left} left`}
+                    <span className={cn("text-[11px] font-semibold tabular-nums leading-tight", left <= 0 ? (allowSoldOut ? "text-amber-700 dark:text-amber-400" : "") : left <= LOW_VARIANT_STOCK ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400")}>
+                      {left <= 0 ? (allowSoldOut ? "Out · order" : "Sold out") : `${left} left`}
                     </span>
                   </button>
                 </div>

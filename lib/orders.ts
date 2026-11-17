@@ -72,6 +72,13 @@ export const DELIVERY_STYLES: Record<string, string> = {
   CANCELLED: "bg-zinc-200 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300",
 };
 
+/** Handed to Upaya (booked, and not cancelled there), whatever its status is now. */
+export const sentWithUpaya = (sale: { courierTrackingCode?: string | null; courierStatus?: string | null }) =>
+  Boolean(sale.courierTrackingCode) && sale.courierStatus !== "cancelled";
+/** Green outline on the status of an order already sent with Upaya: a solid edge plus a soft halo. */
+export const SENT_STATUS_BORDER =
+  "border-emerald-500 hover:border-emerald-600 ring-2 ring-emerald-500/25 shadow-[0_0_0_1px_rgb(16_185_129/0.15),0_1px_6px_rgb(16_185_129/0.35)] dark:border-emerald-400 dark:hover:border-emerald-300 dark:ring-emerald-400/25";
+
 export const PAYMENT_STYLES: Record<string, string> = {
   UNPAID: "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400",
   PARTIAL: "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400",

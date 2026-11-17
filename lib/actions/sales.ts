@@ -249,7 +249,187 @@ async function customerAfterEdit(
   return findOrCreateCustomerId(tx, storeId, after);
 }
 
+/** One line of an order as edited: an existing line keeps its itemId; a new one has none. */
+export type EditedLine = { itemId?: string | null; productId: string; variantId?: string | null; quantity: number; unitPrice: number };
+
+/**
+ * Replaces an order's lines and moves stock by the difference: units added are
+ * taken out (refused if there aren't enough), units removed go back, never more
+ * than the order actually has out (a website import can take less than ordered).
+ * Lines with returns keep their product and size, and can't drop below what came back.
+ * Returns the order's new goods value and a note for the activity log.
+ */
+async function applyItemEdit(
+  tx: Tx,
+  tenant: { storeId: string; userId: string },
+  sale: { id: string; invoiceNumber: string; warehouseId: string; deliveryStatus: DeliveryStatus },
+  lines: EditedLine[],
+) {
+  const storeId = tenant.storeId;
+  if (sale.deliveryStatus === DeliveryStatus.CANCELLED || sale.deliveryStatus === DeliveryStatus.RETURNED) {
+    throw new UserError("The items of a cancelled or returned order can't be changed.");
+  }
+  if (lines.length === 0) throw new UserError("An order needs at least one item. To drop the whole order, delete it instead.");
+  if (lines.some(l => !Number.isInteger(l.quantity) || l.quantity <= 0 || !Number.isFinite(l.unitPrice) || l.unitPrice < 0)) {
+    throw new UserError("Each item needs a whole quantity of 1 or more and a price of 0 or more.");
+  }
+
+  const current = await tx.saleItem.findMany({
+    where: { saleId: sale.id },
+    select: { id: true, productId: true, variantId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true } } },
+  });
+  const productIds = [...new Set([...lines.map(l => l.productId), ...current.map(i => i.productId)])];
+  const products = await tx.product.findMany({
+    where: { id: { in: productIds }, storeId },
+    select: { id: true, name: true, variants: { select: { id: true, size: true, color: true } } },
+  });
+  const productOf = (id: string) => products.find(p => p.id === id);
+  const labelOf = (productId: string, variantId: string | null) => {
+    const v = variantId ? productOf(productId)?.variants.find(x => x.id === variantId) : null;
+    return v ? [v.size, v.color].filter(Boolean).join(" · ") || null : null;
+  };
+  const nameOf = (productId: string, variantId: string | null) => {
+    const label = labelOf(productId, variantId);
+    const name = productOf(productId)?.name ?? current.find(i => i.productId === productId)?.product.name ?? "a product";
+    return label ? `${name} (${label})` : name;
+  };
+
+  // Check each line against the catalog and against the line it replaces.
+  const kept = new Set<string>();
+  const clean = lines.map(l => {
+    const variantId = l.variantId || null;
+    const existing = l.itemId ? current.find(i => i.id === l.itemId) : undefined;
+    if (l.itemId && !existing) throw new UserError("One of the items is no longer on this order. Refresh and try again.");
+    if (existing) {
+      if (kept.has(existing.id)) throw new UserError("The same order line appears twice. Refresh and try again.");
+      kept.add(existing.id);
+    }
+    const unchangedProduct = existing && existing.productId === l.productId && existing.variantId === variantId;
+    if (!unchangedProduct) {
+      const product = productOf(l.productId);
+      if (!product) throw new UserError("A product on this order no longer exists. Pick another one.");
+      if (variantId && !product.variants.some(v => v.id === variantId)) throw new UserError(`That size/colour of "${product.name}" no longer exists. Pick another one.`);
+      if (!variantId && product.variants.length > 0) throw new UserError(`Choose a size/colour for "${product.name}".`);
+    }
+    if (existing && existing.returnedQty > 0) {
+      if (!unchangedProduct) throw new UserError(`"${nameOf(existing.productId, existing.variantId)}" has returns recorded, so its product and size can't be changed.`);
+      if (l.quantity < existing.returnedQty) throw new UserError(`${existing.returnedQty} of "${nameOf(existing.productId, existing.variantId)}" came back already, so it can't go below ${existing.returnedQty}.`);
+    }
+    return { ...l, variantId, existing };
+  });
+  for (const item of current) {
+    if (!kept.has(item.id) && item.returnedQty > 0) {
+      throw new UserError(`"${nameOf(item.productId, item.variantId)}" has returns recorded, so it can't be removed from the order.`);
+    }
+  }
+
+  // The stock difference per product + size/colour.
+  const keyOf = (productId: string, variantId: string | null) => `${productId}|${variantId ?? ""}`;
+  const delta = new Map<string, { productId: string; variantId: string | null; change: number }>();
+  const shift = (productId: string, variantId: string | null, change: number) => {
+    const key = keyOf(productId, variantId);
+    const entry = delta.get(key) ?? { productId, variantId, change: 0 };
+    entry.change += change;
+    delta.set(key, entry);
+  };
+  for (const item of current) shift(item.productId, item.variantId, -item.quantity);
+  for (const line of clean) shift(line.productId, line.variantId, line.quantity);
+
+  // What this order still has out of stock per product, from the ledger (as returns and deletes use).
+  const ledger = await tx.stockMovement.groupBy({
+    by: ["productId", "type"],
+    where: { storeId, referenceId: sale.id, type: { in: [MovementType.STOCK_OUT, MovementType.RETURNED] } },
+    _sum: { quantity: true },
+  });
+  const stillOut = new Map<string, number>();
+  for (const row of ledger) {
+    const sign = row.type === MovementType.STOCK_OUT ? 1 : -1;
+    stillOut.set(row.productId, (stillOut.get(row.productId) ?? 0) + sign * (row._sum.quantity ?? 0));
+  }
+
+  const changes: string[] = [];
+  // Put back first, so swapping one size for another of the same product works on its last units.
+  for (const d of [...delta.values()].filter(d => d.change < 0)) {
+    const back = Math.min(-d.change, Math.max(0, stillOut.get(d.productId) ?? 0));
+    changes.push(`−${-d.change} ${nameOf(d.productId, d.variantId)}`);
+    if (back <= 0) continue;
+    stillOut.set(d.productId, (stillOut.get(d.productId) ?? 0) - back);
+    const toSize = d.variantId
+      ? await tx.productVariant.updateMany({ where: { id: d.variantId, storeId }, data: { quantity: { increment: back } } })
+      : { count: 0 };
+    if (toSize.count > 0) await syncStockTotal(tx, storeId, d.productId, sale.warehouseId);
+    else {
+      await tx.stock.upsert({
+        where: { productId_warehouseId: { productId: d.productId, warehouseId: sale.warehouseId } },
+        update: { quantity: { increment: back } },
+        create: { storeId, productId: d.productId, warehouseId: sale.warehouseId, quantity: back },
+      });
+    }
+    await tx.stockMovement.create({
+      data: {
+        storeId, productId: d.productId, quantity: back, type: MovementType.RETURNED, destWhId: sale.warehouseId, referenceId: sale.id,
+        notes: `Removed from order ${sale.invoiceNumber} (edited)${labelOf(d.productId, d.variantId) ? ` · ${labelOf(d.productId, d.variantId)}` : ""}`,
+        userId: tenant.userId,
+      },
+    });
+  }
+  for (const d of [...delta.values()].filter(d => d.change > 0)) {
+    changes.push(`+${d.change} ${nameOf(d.productId, d.variantId)}`);
+    if (d.variantId) {
+      const took = await tx.productVariant.updateMany({
+        where: { id: d.variantId, productId: d.productId, storeId, quantity: { gte: d.change } },
+        data: { quantity: { decrement: d.change } },
+      });
+      if (took.count === 0) {
+        const left = (await tx.productVariant.findUnique({ where: { id: d.variantId }, select: { quantity: true } }))?.quantity ?? 0;
+        throw new UserError(`Not enough stock of "${nameOf(d.productId, d.variantId)}": ${left} left, ${d.change} more needed.`);
+      }
+    }
+    const deducted = await tx.stock.updateMany({
+      where: { storeId, productId: d.productId, warehouseId: sale.warehouseId, quantity: { gte: d.change } },
+      data: { quantity: { decrement: d.change } },
+    });
+    if (deducted.count === 0) {
+      const left = (await tx.stock.findFirst({ where: { storeId, productId: d.productId, warehouseId: sale.warehouseId }, select: { quantity: true } }))?.quantity ?? 0;
+      throw new UserError(`Not enough stock of "${nameOf(d.productId, d.variantId)}": ${left} left, ${d.change} more needed.`);
+    }
+    await tx.stockMovement.create({
+      data: {
+        storeId, productId: d.productId, quantity: d.change, type: MovementType.STOCK_OUT, sourceWhId: sale.warehouseId, referenceId: sale.id,
+        notes: `Added to order ${sale.invoiceNumber} (edited)${labelOf(d.productId, d.variantId) ? ` · ${labelOf(d.productId, d.variantId)}` : ""}`,
+        userId: tenant.userId,
+      },
+    });
+  }
+
+  // Now the lines themselves.
+  const removed = current.filter(i => !kept.has(i.id)).map(i => i.id);
+  if (removed.length) await tx.saleItem.deleteMany({ where: { id: { in: removed }, saleId: sale.id } });
+  for (const line of clean) {
+    const fields = { productId: line.productId, variantId: line.variantId, variant: labelOf(line.productId, line.variantId), quantity: line.quantity, unitPrice: line.unitPrice };
+    if (line.existing) {
+      const e = line.existing;
+      const same = e.productId === fields.productId && e.variantId === fields.variantId && e.quantity === fields.quantity && e.unitPrice === fields.unitPrice;
+      if (same) continue;
+      if (e.unitPrice !== fields.unitPrice) changes.push(`${nameOf(line.productId, line.variantId)} price ${formatNPR(e.unitPrice)} → ${formatNPR(fields.unitPrice)}`);
+      // A website line keeps the size text it came with when its size row is unchanged.
+      const variant = e.productId === fields.productId && e.variantId === fields.variantId ? e.variant ?? fields.variant : fields.variant;
+      await tx.saleItem.update({ where: { id: e.id }, data: { ...fields, variant } });
+    } else {
+      await tx.saleItem.create({ data: { saleId: sale.id, ...fields } });
+    }
+  }
+
+  const goods = clean.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0);
+  const goodsBefore = current.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
+  return { goods, goodsBefore, note: changes.join(", ") };
+}
+
 export async function updateSaleDetails(saleId: string, data: {
+  /** The order's lines, replacing the current ones; stock moves by the difference. */
+  items?: EditedLine[];
+  /** Order discount (on top of line prices). With items, the total becomes goods less this. */
+  discount?: number;
   totalAmount?: number;
   customerName?: string;
   customerPhone?: string;
@@ -272,7 +452,7 @@ export async function updateSaleDetails(saleId: string, data: {
     }
     if (data.deliveryVia && !isInstantCourier(data.deliveryVia)) throw new UserError("Unknown delivery app.");
     const tenant = await requireTenant();
-    for (const amount of [data.totalAmount, data.deliveryAmount, data.codAmount]) {
+    for (const amount of [data.totalAmount, data.deliveryAmount, data.codAmount, data.discount]) {
       if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) {
         throw new UserError("Amounts can't be negative.");
       }
@@ -281,6 +461,7 @@ export async function updateSaleDetails(saleId: string, data: {
     const current = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
       select: {
+        id: true, invoiceNumber: true, warehouseId: true, kind: true, discount: true, totalAmount: true,
         paymentMethod: true, deliveryStatus: true, paymentStatus: true, courierTrackingCode: true,
         customerId: true, customerName: true, customerPhone: true, customerEmail: true,
       },
@@ -311,13 +492,30 @@ export async function updateSaleDetails(saleId: string, data: {
           : undefined;
     const paymentStatus = byCod ?? byStatus;
 
-    await db.$transaction(async (tx) => {
+    const itemNote = await db.$transaction(async (tx) => {
       const customerId = await customerAfterEdit(tx, tenant.storeId, current, data);
+      // New lines: stock moves by the difference, and the total moves with the goods.
+      // A PR order stays free: its whole goods value is the discount.
+      let money: { totalAmount?: number; discount?: number } = {
+        ...(data.totalAmount !== undefined && { totalAmount: data.totalAmount }),
+        ...(data.discount !== undefined && { discount: data.discount }),
+      };
+      let note = "";
+      if (data.items) {
+        const edit = await applyItemEdit(tx, tenant, current, data.items);
+        note = edit.note;
+        const discount = current.kind === "pr" ? edit.goods : data.discount ?? current.discount;
+        if (discount > edit.goods + 0.001) throw new UserError(`The discount (${formatNPR(discount)}) is more than the items are worth (${formatNPR(edit.goods)}).`);
+        // The total moves by the change in goods and discount, so anything else in it stays:
+        // a website order's total includes its delivery charge.
+        const moved = (edit.goods - discount) - (edit.goodsBefore - current.discount);
+        money = { discount, totalAmount: current.kind === "pr" ? 0 : Math.max(0, Math.round((current.totalAmount + moved) * 100) / 100) };
+      }
       await tx.sale.update({
       where: { id: saleId, storeId: tenant.storeId },
       data: {
         ...(customerId !== undefined && { customerId }),
-        ...(data.totalAmount !== undefined && { totalAmount: data.totalAmount }),
+        ...money,
         ...(data.customerName !== undefined && { customerName: data.customerName.trim() || null }),
         ...(data.customerPhone !== undefined && { customerPhone: data.customerPhone.trim() || null }),
         ...(data.customerAddress !== undefined && { customerAddress: data.customerAddress.trim() || null }),
@@ -335,7 +533,13 @@ export async function updateSaleDetails(saleId: string, data: {
         ...(paymentStatus !== undefined && { paymentStatus }),
       },
       });
-    });
+      return note;
+    }, { timeout: 20_000, maxWait: 10_000 });
+    if (itemNote) {
+      await logActivity(tenant, "Order Items Edited", `Changed the items of ${current.invoiceNumber}: ${itemNote}.`.slice(0, 1000));
+      revalidatePath("/inventory");
+      revalidatePath("/products");
+    }
     revalidatePath("/customers");
     revalidatePath("/sales");
     revalidatePath("/dashboard");
@@ -372,7 +576,8 @@ export async function updateDeliveryStatuses(saleIds: string[], status: Delivery
   });
 }
 
-export async function createSale(data: {
+/** An order as the POS sends it to createSale (and as a future order keeps it until it's sent). */
+export type SaleInput = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
@@ -399,6 +604,11 @@ export async function createSale(data: {
   deliveryVia?: string | null;
   /** An existing customer staff confirmed this is ("same person"), so the order joins their history. */
   customerId?: string | null;
+};
+
+export async function createSale(data: SaleInput & {
+  /** A future order being sent now: it's removed in the same step, so it can't become two orders. */
+  futureOrderId?: string;
 }) {
   return guarded("Could not complete this sale. Nothing was charged or deducted.", async () => {
     const pr = data.pr === true;
@@ -454,6 +664,10 @@ export async function createSale(data: {
     // Retried because two tills can claim the same invoice number at once.
     const sale = await retryOnUniqueConflict(() => db.$transaction(async (tx) => {
       await lockDocumentNumbering(tx, storeId);
+      if (data.futureOrderId) {
+        const removed = await tx.futureOrder.deleteMany({ where: { id: data.futureOrderId, storeId } });
+        if (removed.count === 0) throw new UserError("This future order was already moved to the orders or deleted.");
+      }
       const stem = documentStem("INV");
       const todays = await tx.sale.findMany({
         where: { storeId, invoiceNumber: { startsWith: stem } },
@@ -580,7 +794,7 @@ export async function createSale(data: {
     const via = instantCourierLabel(deliveryVia);
     await logActivity(
       tenant,
-      pr ? "PR Order Created" : "POS Sale Created",
+      data.futureOrderId ? "Future Order Sent" : pr ? "PR Order Created" : "POS Sale Created",
       pr
         ? `PR order ${sale.invoiceNumber} for ${data.customerName?.trim()}: ${formatNPR(goodsValue)} of goods given free${via ? `, sent with ${via}` : ""}.`
         : `Completed sale ${sale.invoiceNumber} (${formatNPR(data.totalAmount)})${via ? `, sent with ${via}` : ""}.`
