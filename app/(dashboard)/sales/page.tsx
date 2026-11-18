@@ -667,7 +667,7 @@ export default function SalesPage() {
                       );
                     }
                   }}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[var(--primary)]"
+                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
                 />
                 <span className="min-w-0 text-[12px]">
                   <span className={cn("flex items-center gap-1.5 font-semibold", future ? "text-amber-900 dark:text-amber-100" : "text-foreground")}>
@@ -791,7 +791,7 @@ export default function SalesPage() {
                         type="checkbox"
                         checked={bookUpaya}
                         onChange={e => setBookUpaya(e.target.checked)}
-                        className="h-3.5 w-3.5 accent-[var(--primary)] cursor-pointer"
+                        className="h-3.5 w-3.5 accent-primary cursor-pointer"
                       />
                       Book on complete
                     </label>
@@ -946,10 +946,13 @@ export default function SalesPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 onKeyDown={onSearchKeyDown}
-                placeholder="Search, or scan a product or customer...  ( / )"
+                placeholder="Search or scan a product or customer…"
                 aria-label="Search products or scan a barcode"
-                className="w-full pl-8 pr-3 py-2.5 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20"
+                aria-keyshortcuts="/"
+                className="w-full pl-8 pr-3 lg:pr-10 py-2.5 text-sm rounded-xl border border-border bg-card focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
+              {/* The "/" shortcut is for keyboards: shown on computers only. */}
+              <kbd className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded bg-muted px-1.5 py-0.5 font-sans text-[11px] font-semibold text-muted-foreground lg:block">/</kbd>
             </div>
           </div>
 

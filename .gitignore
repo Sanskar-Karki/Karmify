@@ -42,3 +42,8 @@ next-env.d.ts
 *.png
 *.js
 !package.json
+# Installable app (PWA): its service worker and icons must be committed, or the deployed app has none.
+!public/sw.js
+!public/icons/*.png
+!app/icon.png
+!app/apple-icon.png

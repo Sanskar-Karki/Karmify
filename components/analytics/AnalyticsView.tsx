@@ -203,7 +203,7 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
             Sales from the shop and the website · {data.period.prevStart ? "compared with the period just before" : "all orders so far"}
           </p>
         </div>
-        <div role="group" aria-label="Period" className="flex flex-wrap gap-1.5">
+        <div role="group" aria-label="Period" className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
           {RANGES.map(r => (
             <button
               key={r.key}
@@ -211,7 +211,7 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
               aria-pressed={range === r.key}
               onClick={() => setRange(r.key)}
               className={cn(
-                "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                "shrink-0 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
                 range === r.key ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground",
               )}
             >
@@ -225,7 +225,7 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
             aria-haspopup="dialog"
             onClick={() => setPickerOpen(open => !open)}
             className={cn(
-              "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
               range === "custom" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground",
             )}
           >

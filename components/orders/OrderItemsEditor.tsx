@@ -54,6 +54,30 @@ export const linesSignature = (lines: EditLine[]) =>
   JSON.stringify(lines.map(l => [l.itemId, l.productId, l.variantId, l.quantity, l.unitPrice]));
 
 const keyOf = (productId: string, variantId: string | null) => `${productId}|${variantId ?? ""}`;
+
+/** Units of one product + size/colour coming off or going on the order. */
+export type StockChange = { key: string; name: string; label: string | null; quantity: number };
+
+/**
+ * What saving the edited lines does to stock, per product + size/colour, as the
+ * server works it out: units coming off the order and units going on.
+ */
+export function stockChanges(sale: Sale, lines: EditLine[]) {
+  const delta = new Map<string, StockChange & { change: number }>();
+  const shift = (productId: string, variantId: string | null, name: string, label: string | null, change: number) => {
+    const key = keyOf(productId, variantId);
+    const entry = delta.get(key) ?? { key, name, label, quantity: 0, change: 0 };
+    entry.change += change;
+    delta.set(key, entry);
+  };
+  for (const item of sale.items) shift(item.productId, item.variantId ?? null, item.product.name, item.variant ?? null, -item.quantity);
+  for (const l of lines) shift(l.productId, l.variantId, l.name, l.variantLabel, l.quantity);
+  const all = [...delta.values()];
+  return {
+    removed: all.filter(d => d.change < 0).map(({ change, ...d }) => ({ ...d, quantity: -change })),
+    added: all.filter(d => d.change > 0).map(({ change, ...d }) => ({ ...d, quantity: change })),
+  };
+}
 const optionLabel = (v: { size: string; color: string }) => [v.size, v.color].filter(Boolean).join(" · ") || "One size";
 const numberField = "h-9 rounded-lg border border-border bg-background px-2 text-[13px] font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 

@@ -4,11 +4,12 @@ import React, { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, Megaphone, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Users, X, Zap,
+  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, Megaphone, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Truck, Users, X, Zap,
 } from "lucide-react";
 import { ReturnDialog } from "@/components/orders/ReturnDialog";
 import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
-import type { CourierArea } from "@/lib/courier";
+import { COURIER_FINAL_STATUSES, type CourierArea } from "@/lib/courier";
+import { CourierDialog, CourierTrackingPanel } from "@/components/shared/CourierDialog";
 import { toast } from "sonner";
 import { updateCustomerInfo, updateSaleDetails } from "@/app/actions";
 import { cn, formatNPR } from "@/lib/utils";
@@ -28,7 +29,8 @@ import { CustomerLabelDialog } from "@/components/shared/CustomerLabelDialog";
 import { ReceiptDialog } from "@/components/shared/ReceiptDialog";
 import { CustomerDetailPlaceholder } from "@/components/skeletons/placeholders";
 import type { Sale } from "@/lib/types";
-import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, type EditLine } from "@/components/orders/OrderItemsEditor";
+import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, stockChanges, type EditLine } from "@/components/orders/OrderItemsEditor";
+import { ItemChangeConfirm } from "@/components/orders/ItemChangeConfirm";
 
 type DeliveryStatus = "IN_PROCESS" | "DELIVERED" | "RETURN_PROCESS" | "RETURNED" | "CANCELLED";
 type OrderFilter = "all" | DeliveryStatus;
@@ -310,7 +312,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                   aria-selected={filter === tab.id}
                   onClick={() => setFilter(tab.id)}
                   className={cn(
-                    "flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors",
+                    "flex shrink-0 items-center gap-1 rounded-full border px-3 py-2 sm:px-2.5 sm:py-1 text-xs font-semibold transition-colors",
                     filter === tab.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
@@ -378,10 +380,21 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
   const itemsChanged = !itemsLocked && (
     linesSignature(lines) !== linesSignature(linesFromSale(sale)) || (parseFloat(discount) || 0) !== (sale.discount ?? 0)
   );
+  // Items coming off or going on: saving asks first, and whether the ones coming off go back in stock.
+  const changes = itemsChanged ? stockChanges(sale, lines) : { removed: [], added: [] };
+  const [confirmingItems, setConfirmingItems] = useState(false);
   const address = deliveryAddress(sale.customerAddress);
   const units = sale.items.reduce((n, i) => n + i.quantity, 0);
   const returnedUnits = sale.items.reduce((n, i) => n + (i.returnedQty ?? 0), 0);
   const canReturn = sale.deliveryStatus !== "CANCELLED" && returnedUnits < units;
+  const [courierOpen, setCourierOpen] = useState(false);
+  const withUpaya = Boolean(sale.courierTrackingCode) && sale.courierStatus !== "cancelled";
+  // Still on its way (out for delivery, or coming back as a return): its tracking shows right in the card.
+  const onItsWay = withUpaya
+    && !COURIER_FINAL_STATUSES.includes(sale.courierStatus ?? "")
+    && (sale.deliveryStatus === "IN_PROCESS" || sale.deliveryStatus === "RETURN_PROCESS");
+  // Track a booked parcel, or book one for an order still to send (not one going by ride app).
+  const canUseCourier = withUpaya || (sale.deliveryStatus === "IN_PROCESS" && !sale.deliveryVia);
 
   function formFor(s: Sale) {
     return {
@@ -434,7 +447,8 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
     setEditing(true);
   }
 
-  async function save() {
+  /** Checks the form, then asks first when items come off or go on the order. */
+  function save() {
     if (itemsChanged && sale.kind !== "pr" && (parseFloat(discount) || 0) > linesGoods(lines)) {
       toast.error("The discount is more than the items are worth.");
       return;
@@ -444,6 +458,15 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
       toast.error("Amounts must be numbers, 0 or more.");
       return;
     }
+    if (itemsChanged && (changes.removed.length > 0 || changes.added.length > 0)) {
+      setConfirmingItems(true);
+      return;
+    }
+    return commit(false);
+  }
+
+  async function commit(putBackRemoved: boolean) {
+    const amounts = [form.totalAmount, form.deliveryAmount, form.codAmount].map(v => parseFloat(v));
     setSaving(true);
     // A website order's address keeps its "[Shop]" tag.
     const tag = /^\[[^\]]*\]\s*/.exec(sale.customerAddress ?? "")?.[0] ?? "";
@@ -454,6 +477,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           ? {
               items: lines.map(l => ({ itemId: l.itemId, productId: l.productId, variantId: l.variantId, quantity: l.quantity, unitPrice: l.unitPrice })),
               discount: Math.max(0, parseFloat(discount) || 0),
+              putBackRemoved,
             }
           : { totalAmount: amounts[0] }),
         deliveryAmount: amounts[1],
@@ -473,6 +497,8 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
       setEditing(false);
     }
     setSaving(false);
+    // Failed or not, back to the form: a stock error is fixed there.
+    setConfirmingItems(false);
   }
 
   return (
@@ -549,6 +575,17 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
               <RotateCcw size={12} /> Return
             </button>
           )}
+          {canUseCourier && (
+            <button
+              type="button"
+              onClick={() => setCourierOpen(true)}
+              className={cn(iconButton, withUpaya && "border-primary/40 text-primary")}
+              title={withUpaya ? "Upaya tracking" : "Send to Upaya"}
+              aria-label={`${withUpaya ? "Upaya tracking for" : "Send to Upaya:"} ${sale.invoiceNumber}`}
+            >
+              <Truck size={13} />
+            </button>
+          )}
           <button type="button" onClick={onLabel} className={iconButton} title="Print label" aria-label={`Print label for ${sale.invoiceNumber}`}><Tag size={13} /></button>
           <button type="button" onClick={onReceipt} className={iconButton} title="Print receipt" aria-label={`Print receipt for ${sale.invoiceNumber}`}><Receipt size={13} /></button>
           {!editing && (
@@ -568,7 +605,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           <div className="space-y-2">
             <div className="flex flex-wrap items-baseline justify-between gap-x-2">
               <span className={labelClass}>Items</span>
-              {itemsChanged && <span className="text-[11px] text-muted-foreground">Saving takes added units out of stock and puts removed ones back.</span>}
+              {itemsChanged && <span className="text-[11px] text-muted-foreground">Saving takes added units out of stock and asks about removed ones.</span>}
             </div>
             {itemsLocked ? (
               <p className="rounded-xl bg-muted/50 px-3 py-2.5 text-xs text-muted-foreground">
@@ -709,7 +746,25 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           </div>
         </div>
       )}
+      {!editing && onItsWay && (
+        <section aria-label={`Upaya tracking for ${sale.invoiceNumber}`} className="border-t border-border/50 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
+          <h3 className="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            <Truck size={12} /> {sale.deliveryStatus === "RETURN_PROCESS" ? "Return on its way back" : "On its way with Upaya"}
+          </h3>
+          <CourierTrackingPanel sale={sale} onUpdated={() => void onSaved()} latest={3} />
+        </section>
+      )}
+      {courierOpen && (
+        <CourierDialog open={courierOpen} onClose={() => setCourierOpen(false)} sale={sale} onChanged={() => void onSaved()} />
+      )}
       <ReturnDialog sale={returning ? sale : null} onClose={() => setReturning(false)} onDone={onSaved} />
+      <ItemChangeConfirm
+        open={confirmingItems}
+        invoiceNumber={sale.invoiceNumber}
+        changes={changes}
+        onClose={() => setConfirmingItems(false)}
+        onConfirm={commit}
+      />
     </article>
   );
 }

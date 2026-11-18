@@ -190,7 +190,7 @@ export function NotificationBell() {
       >
         <Bell size={15} className={cn(ringing && "bell-ring")} />
         {unread > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold flex items-center justify-center ring-2 ring-background">
+          <span aria-hidden className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-extrabold flex items-center justify-center ring-2 ring-background">
             {unread > 9 ? "9+" : unread}
           </span>
         )}

@@ -339,7 +339,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 role="tab"
                 aria-selected={filter === f.id}
                 onClick={() => setFilter(f.id)}
-                className={cn("shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors", filter === f.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground")}
+                className={cn("shrink-0 rounded-full border px-3 py-2 sm:px-2.5 sm:py-1 text-xs font-semibold transition-colors", filter === f.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground")}
               >
                 {f.label}
               </button>

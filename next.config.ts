@@ -53,6 +53,14 @@ const nextConfig: NextConfig = {
           { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
         ],
       },
+      {
+        // The service worker (public/sw.js) is always re-checked, so a new version reaches phones on their next visit.
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+        ],
+      },
     ];
   },
 };

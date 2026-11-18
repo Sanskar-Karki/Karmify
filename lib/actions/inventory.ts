@@ -210,14 +210,17 @@ export async function restockProduct(data: {
   quantity?: number;
   rows?: { variantId: string; quantity: number }[];
   notes?: string;
-  /** "return": units brought back without an order (no customer details); recorded as Returned, not Stock In. */
+  /** "return": units brought back without an order; recorded as Returned, not Stock In. */
   kind?: "restock" | "return";
+  /** A return only: who brought it back, as "Name (CUS-000042)" or a typed name. Kept in the history note. */
+  customer?: string;
 }) {
   const isReturn = data.kind === "return";
   return guarded(isReturn ? "Could not record this return." : "Could not restock this product.", async () => {
     const tenant = await requireTenant();
     const storeId = tenant.storeId;
     const notes = data.notes?.trim().slice(0, 300) || "";
+    const customer = isReturn ? (data.customer ?? "").replace(/\s+/g, " ").trim().slice(0, 120) : "";
 
     const product = await db.product.findFirst({
       where: { id: data.productId, storeId },
@@ -261,7 +264,7 @@ export async function restockProduct(data: {
           quantity: added,
           type: isReturn ? MovementType.RETURNED : MovementType.STOCK_IN,
           destWhId: warehouseId,
-          notes: [isReturn ? "Return (no order)" : "Restock", detail, notes].filter(Boolean).join(" · ").slice(0, 500),
+          notes: [isReturn ? "Return (no order)" : "Restock", detail, customer && `Customer: ${customer}`, notes].filter(Boolean).join(" · ").slice(0, 500),
           userId: tenant.userId,
         },
       });
@@ -271,7 +274,7 @@ export async function restockProduct(data: {
       tenant,
       isReturn ? "Product Returned" : "Product Restocked",
       isReturn
-        ? `${added} unit(s) of "${product.name}" returned without an order${detail ? ` (${detail})` : ""}${notes ? `: ${notes}` : ""}.`
+        ? `${added} unit(s) of "${product.name}" returned without an order${customer ? ` by ${customer}` : ""}${detail ? ` (${detail})` : ""}${notes ? `: ${notes}` : ""}.`
         : `Restocked "${product.name}" with ${added} unit(s)${detail ? ` (${detail})` : ""}.`
     );
     revalidatePath("/products");

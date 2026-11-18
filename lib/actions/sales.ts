@@ -95,9 +95,10 @@ export async function deleteSales(saleIds: string[], options: { restock?: boolea
 
         // Reverses what the ledger says left stock for each order, rather than
         // the line quantities: a website import can deduct less than was ordered.
-        // Units already returned (and put back) are left out, so nothing is restocked twice.
+        // Units already returned (and put back) are left out, so nothing is restocked twice,
+        // and so are units an item edit took off the order without putting back.
         const ledger = await tx.stockMovement.findMany({
-          where: { storeId, type: { in: [MovementType.STOCK_OUT, MovementType.RETURNED] }, referenceId: { in: sales.map(s => s.id) } },
+          where: { storeId, type: { in: ORDER_LEDGER_TYPES }, referenceId: { in: sales.map(s => s.id) } },
           select: { productId: true, quantity: true, referenceId: true, type: true },
         });
         const taken = new Map<string, { saleId: string; productId: string; quantity: number }>();
@@ -249,13 +250,22 @@ async function customerAfterEdit(
   return findOrCreateCustomerId(tx, storeId, after);
 }
 
+/**
+ * The movements that say what an order still has out of stock: STOCK_OUT adds,
+ * the rest take away. ADJUSTMENT counts only with the order as its reference,
+ * which only an item edit writes, for removed units not put back in stock.
+ */
+const ORDER_LEDGER_TYPES = [MovementType.STOCK_OUT, MovementType.RETURNED, MovementType.ADJUSTMENT];
+
 /** One line of an order as edited: an existing line keeps its itemId; a new one has none. */
 export type EditedLine = { itemId?: string | null; productId: string; variantId?: string | null; quantity: number; unitPrice: number };
 
 /**
  * Replaces an order's lines and moves stock by the difference: units added are
- * taken out (refused if there aren't enough), units removed go back, never more
- * than the order actually has out (a website import can take less than ordered).
+ * taken out (refused if there aren't enough). Units removed go back only with
+ * `putBack`, never more than the order actually has out (a website import can
+ * take less than ordered). Without it they stay out of stock, and a marker in the
+ * ledger stops a later delete or return from putting them back after all.
  * Lines with returns keep their product and size, and can't drop below what came back.
  * Returns the order's new goods value and a note for the activity log.
  */
@@ -264,6 +274,7 @@ async function applyItemEdit(
   tenant: { storeId: string; userId: string },
   sale: { id: string; invoiceNumber: string; warehouseId: string; deliveryStatus: DeliveryStatus },
   lines: EditedLine[],
+  putBack: boolean,
 ) {
   const storeId = tenant.storeId;
   if (sale.deliveryStatus === DeliveryStatus.CANCELLED || sale.deliveryStatus === DeliveryStatus.RETURNED) {
@@ -338,7 +349,7 @@ async function applyItemEdit(
   // What this order still has out of stock per product, from the ledger (as returns and deletes use).
   const ledger = await tx.stockMovement.groupBy({
     by: ["productId", "type"],
-    where: { storeId, referenceId: sale.id, type: { in: [MovementType.STOCK_OUT, MovementType.RETURNED] } },
+    where: { storeId, referenceId: sale.id, type: { in: ORDER_LEDGER_TYPES } },
     _sum: { quantity: true },
   });
   const stillOut = new Map<string, number>();
@@ -351,9 +362,25 @@ async function applyItemEdit(
   // Put back first, so swapping one size for another of the same product works on its last units.
   for (const d of [...delta.values()].filter(d => d.change < 0)) {
     const back = Math.min(-d.change, Math.max(0, stillOut.get(d.productId) ?? 0));
-    changes.push(`−${-d.change} ${nameOf(d.productId, d.variantId)}`);
-    if (back <= 0) continue;
+    const label = labelOf(d.productId, d.variantId);
+    if (back <= 0) {
+      changes.push(`−${-d.change} ${nameOf(d.productId, d.variantId)}`);
+      continue;
+    }
     stillOut.set(d.productId, (stillOut.get(d.productId) ?? 0) - back);
+    if (!putBack) {
+      // Stock doesn't change; the marker only says these units are no longer this order's.
+      changes.push(`−${-d.change} ${nameOf(d.productId, d.variantId)} (not put back in stock)`);
+      await tx.stockMovement.create({
+        data: {
+          storeId, productId: d.productId, quantity: back, type: MovementType.ADJUSTMENT, referenceId: sale.id,
+          notes: `Removed from order ${sale.invoiceNumber} (edited)${label ? ` · ${label}` : ""}, not put back in stock`,
+          userId: tenant.userId,
+        },
+      });
+      continue;
+    }
+    changes.push(`−${-d.change} ${nameOf(d.productId, d.variantId)} (put back in stock)`);
     const toSize = d.variantId
       ? await tx.productVariant.updateMany({ where: { id: d.variantId, storeId }, data: { quantity: { increment: back } } })
       : { count: 0 };
@@ -368,7 +395,7 @@ async function applyItemEdit(
     await tx.stockMovement.create({
       data: {
         storeId, productId: d.productId, quantity: back, type: MovementType.RETURNED, destWhId: sale.warehouseId, referenceId: sale.id,
-        notes: `Removed from order ${sale.invoiceNumber} (edited)${labelOf(d.productId, d.variantId) ? ` · ${labelOf(d.productId, d.variantId)}` : ""}`,
+        notes: `Removed from order ${sale.invoiceNumber} (edited)${label ? ` · ${label}` : ""}`,
         userId: tenant.userId,
       },
     });
@@ -428,6 +455,8 @@ async function applyItemEdit(
 export async function updateSaleDetails(saleId: string, data: {
   /** The order's lines, replacing the current ones; stock moves by the difference. */
   items?: EditedLine[];
+  /** With items: put units taken off the order back in stock. Off by default: they stay out. */
+  putBackRemoved?: boolean;
   /** Order discount (on top of line prices). With items, the total becomes goods less this. */
   discount?: number;
   totalAmount?: number;
@@ -502,7 +531,7 @@ export async function updateSaleDetails(saleId: string, data: {
       };
       let note = "";
       if (data.items) {
-        const edit = await applyItemEdit(tx, tenant, current, data.items);
+        const edit = await applyItemEdit(tx, tenant, current, data.items, data.putBackRemoved === true);
         note = edit.note;
         const discount = current.kind === "pr" ? edit.goods : data.discount ?? current.discount;
         if (discount > edit.goods + 0.001) throw new UserError(`The discount (${formatNPR(discount)}) is more than the items are worth (${formatNPR(edit.goods)}).`);
@@ -836,7 +865,7 @@ export async function returnSaleItems(saleId: string, lines: { itemId: string; q
       // What the order took from stock per product, less what has come back already.
       const ledger = await tx.stockMovement.groupBy({
         by: ["productId", "type"],
-        where: { storeId, referenceId: sale.id, type: { in: [MovementType.STOCK_OUT, MovementType.RETURNED] } },
+        where: { storeId, referenceId: sale.id, type: { in: ORDER_LEDGER_TYPES } },
         _sum: { quantity: true },
       });
       const stillOut = new Map<string, number>();

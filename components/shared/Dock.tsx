@@ -17,18 +17,20 @@ import {
 
 interface DockItem {
   name: string;
+  /** The name under the icon in the phone tab bar, where there's room for one short word. */
+  short: string;
   href: string;
   icon: LucideIcon;
 }
 
 const dockItems: DockItem[] = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Analytics", href: "/analytics", icon: ChartColumn },
-  { name: "Inventory", href: "/inventory", icon: ArrowLeftRight },
-  { name: "Products", href: "/products", icon: Package },
-  { name: "Customers", href: "/customers", icon: Users },
+  { name: "Dashboard", short: "Home", href: "/dashboard", icon: LayoutDashboard },
+  { name: "Analytics", short: "Analytics", href: "/analytics", icon: ChartColumn },
+  { name: "Inventory", short: "Stock", href: "/inventory", icon: ArrowLeftRight },
+  { name: "Products", short: "Products", href: "/products", icon: Package },
+  { name: "Customers", short: "Orders", href: "/customers", icon: Users },
   // Purchases is hidden for now (the page still exists at /purchases).
-  { name: "POS & Sales", href: "/sales", icon: ShoppingCart },
+  { name: "POS & Sales", short: "POS", href: "/sales", icon: ShoppingCart },
 ];
 
 // Magnification falls off smoothly with distance from the hovered icon,
@@ -51,9 +53,11 @@ const SPRING = "cubic-bezier(0.34, 1.56, 0.64, 1)";
 const isActiveFor = (pathname: string, href: string) => pathname === href || pathname.startsWith(href + "/");
 
 /**
- * The bottom navigation. The highlight slides to the tapped item straight
- * away (before the page has loaded), the icons magnify around the pointer on
- * computers, and each press gives a small squeeze so taps feel answered.
+ * The bottom navigation. On computers and tablets it's a floating dock whose
+ * icons magnify around the pointer; on phones it's a full-width tab bar with
+ * a name under each icon. Either way the highlight slides to the tapped item
+ * straight away (before the page has loaded), and each press gives a small
+ * squeeze so taps feel answered.
  */
 export function Dock() {
   const pathname = usePathname();
@@ -99,16 +103,15 @@ export function Dock() {
   return (
     <nav
       aria-label="Main navigation"
-      className="dock fixed left-1/2 -translate-x-1/2 z-30 max-w-[calc(100vw-1rem)]"
-      style={{ bottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+      className="dock fixed inset-x-0 bottom-0 z-30 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:bottom-[max(0.5rem,env(safe-area-inset-bottom))] sm:max-w-[calc(100vw-1rem)]"
     >
       <div
         onMouseLeave={() => setHovered(null)}
-        className="dock-bar relative flex items-center gap-1.5 sm:gap-3 px-2.5 sm:px-5 py-2.5 sm:py-3.5 rounded-full"
+        className="dock-bar relative flex items-start justify-around px-1 pt-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] sm:items-center sm:justify-start sm:gap-3 sm:px-5 sm:py-3.5 rounded-none sm:rounded-full"
       >
-        {/* Glass sheen */}
-        <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-black/5 pointer-events-none" />
-        <div className="absolute inset-x-4 top-0.5 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent pointer-events-none" />
+        {/* Glass sheen (the floating dock) */}
+        <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-black/5 pointer-events-none hidden sm:block" />
+        <div className="absolute inset-x-4 top-0.5 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent pointer-events-none hidden sm:block" />
 
         {dockItems.map((item, i) => {
           const isActive = i === activeIndex;
@@ -128,7 +131,7 @@ export function Dock() {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
                 if (i !== routeIndex) setPending(i);
               }}
-              className="dock-item group relative flex flex-col items-center justify-center"
+              className="dock-item group relative flex min-w-0 flex-1 flex-col items-center justify-center gap-1 py-0.5 sm:flex-none sm:gap-0 sm:py-0"
               style={{
                 transform: `translateY(${-liftFor(distance)}px) scale(${scaleFor(distance)})`,
                 transition: `transform 0.35s ${SPRING}`,
@@ -139,14 +142,15 @@ export function Dock() {
                 {item.name}
               </span>
 
-              {/* Icon chip — 44px min touch target on mobile */}
+              {/* Icon chip: a wide pill over the name on phones (the whole column is the
+                  touch target), a glass tile in the floating dock */}
               <div
                 ref={el => { chipRefs.current[i] = el; }}
                 className={cn(
-                  "dock-chip relative flex items-center justify-center w-11 h-11 sm:w-10 sm:h-10 rounded-xl border cursor-pointer",
+                  "dock-chip relative flex items-center justify-center w-14 h-8 rounded-full sm:w-10 sm:h-10 sm:rounded-xl border cursor-pointer",
                   isActive
                     ? "border-primary/30 text-primary-foreground"
-                    : "bg-white/35 dark:bg-white/5 border-white/50 dark:border-white/10 text-muted-foreground hover:bg-white/60 dark:hover:bg-white/10 hover:text-foreground"
+                    : "border-transparent text-muted-foreground sm:bg-white/35 sm:dark:bg-white/5 sm:border-white/50 sm:dark:border-white/10 sm:hover:bg-white/60 sm:dark:hover:bg-white/10 sm:hover:text-foreground"
                 )}
               >
                 {isActive && (
@@ -162,14 +166,16 @@ export function Dock() {
                 </span>
               </div>
 
-              {/* Active dot under the chip (phones, where there are no tooltips) */}
+              {/* Name under the icon (phones, where there are no tooltips) */}
               <span
                 aria-hidden
                 className={cn(
-                  "absolute -bottom-2 h-1 w-1 rounded-full bg-primary transition-all duration-300 sm:hidden",
-                  isActive ? "opacity-100 scale-100" : "opacity-0 scale-0"
+                  "max-w-full truncate px-0.5 text-[11px] leading-tight transition-colors sm:hidden",
+                  isActive ? "font-bold text-primary" : "font-medium text-muted-foreground"
                 )}
-              />
+              >
+                {item.short}
+              </span>
             </Link>
           );
         })}

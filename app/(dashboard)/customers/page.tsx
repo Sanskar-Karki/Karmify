@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
 import { FutureOrdersPanel } from "@/components/orders/FutureOrdersPanel";
-import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, type EditLine } from "@/components/orders/OrderItemsEditor";
+import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, stockChanges, type EditLine } from "@/components/orders/OrderItemsEditor";
+import { ItemChangeConfirm } from "@/components/orders/ItemChangeConfirm";
 import { PackingListDialog } from "@/components/orders/PackingListDialog";
 import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
 import { VALLEY_LABELS, valleyOf, type CourierArea } from "@/lib/courier";
@@ -33,9 +34,10 @@ import { useResources } from "@/lib/useResources";
 import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,instantCourierLabel, isPR, itemName, codToCollect, referralLabel, isFromAd,
+import { countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,instantCourierLabel, isPR, itemName, codToCollect, codAmountOf, referralLabel, isFromAd,
 } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
+import { useOrderFilters } from "@/lib/useOrderFilters";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { COURIER_FINAL_STATUSES, courierMobile, courierStatusLabel, courierStatusStyle, DOOR_TO_DOOR } from "@/lib/courier";
@@ -51,16 +53,68 @@ const DATE_FILTERS = [
   { value: "today", label: "Today" },
   { value: "yesterday", label: "Yesterday" },
   { value: "3days", label: "Last 3 Days" },
+  { value: "7days", label: "Last 7 Days" },
   { value: "week", label: "This Week" },
+  { value: "30days", label: "Last 30 Days" },
   { value: "month", label: "This Month" },
+  { value: "lastmonth", label: "Last Month" },
   { value: "custom", label: "Custom" },
 ];
+
+const SORT_OPTIONS = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "high", label: "Highest total" },
+  { value: "low", label: "Lowest total" },
+];
+
+/** A filter dropdown, tinted while it's set to something other than its default. */
+const filterTrigger = (active: boolean) =>
+  cn("py-2 sm:py-1.5 text-xs rounded-lg", active && "border-primary/50 bg-primary/5 font-semibold text-foreground");
+
+/** Phone-like words ("+977 9841-234567") compare by digits, without the country code. */
+const phoneDigits = (v: string) => v.replace(/\D/g, "").replace(/^977(?=\d{10}$)/, "");
+
+/**
+ * Search: every word typed must appear somewhere in the order (name, phone,
+ * address, hub, items, order or customer ID, tracking code), in any order, so
+ * "hoodie lalitpur" or "ram 9841" narrow it down. A scanned label's customer
+ * code finds exactly that customer.
+ */
+function searchMatcher(search: string): (sale: Sale) => boolean {
+  const code = parseCustomerCode(search);
+  if (code) return s => (s.customer?.code ?? "").toLowerCase() === code.toLowerCase();
+  // A pasted "+977 98…" keeps its number together without the country code.
+  const words = search.replace(/(^|\s)\+?977[\s-]+(?=\d)/g, "$1").toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return () => true;
+  const cache = new WeakMap<Sale, string>();
+  const textOf = (s: Sale) => {
+    let text = cache.get(s);
+    if (text === undefined) {
+      text = [
+        s.customerName, s.customerPhone, phoneDigits(s.customerPhone ?? ""), s.customerAddress, s.courierAreaTitle,
+        s.customer?.code, s.courierTrackingCode, s.invoiceNumber, ...s.items.map(itemName),
+      ].filter(Boolean).join(" ").toLowerCase();
+      cache.set(s, text);
+    }
+    return text;
+  };
+  return s => {
+    const text = textOf(s);
+    return words.every(w => {
+      if (text.includes(w)) return true;
+      const digits = /^[\d+\-()]+$/.test(w) ? phoneDigits(w) : "";
+      return digits.length >= 3 && text.includes(digits);
+    });
+  };
+}
 
 // Where an order came from, matching the Analytics channels.
 const SOURCE_FILTERS = [
   { value: "all", label: "All sources" },
   { value: "website", label: "Website" },
   { value: "pos", label: "Shop (POS)" },
+  { value: "waiting", label: "Waiting to send" },
   { value: "upaya", label: "Sent with Upaya" },
   { value: "instant", label: "Sent with Yango" },
   { value: "store", label: "In store" },
@@ -88,6 +142,10 @@ function matchesSource(sale: Sale, source: string) {
   if (source === "pos") return sale.source !== "website";
   // Same rule as Analytics "Sent with Upaya": booked, and not cancelled there.
   if (source === "upaya") return upayaSentAt(sale) !== null;
+  // Delivery orders still to go out: in process, not booked with Upaya or a ride app.
+  if (source === "waiting") {
+    return sale.deliveryStatus === "IN_PROCESS" && upayaSentAt(sale) === null && !sale.deliveryVia && channelOf(sale) !== "store";
+  }
   if (source === "instant") return Boolean(sale.deliveryVia);
   if (source === "pr") return sale.kind === "pr";
   if (source === "ad") return isFromAd(sale.referral);
@@ -121,6 +179,14 @@ function isWithinDateFilter(dateStr: string | Date, filter: string, customStart:
     start.setDate(start.getDate() - 2);
     return date >= start;
   }
+  if (filter === "7days" || filter === "30days") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - (filter === "7days" ? 6 : 29));
+    return date >= start;
+  }
+  if (filter === "lastmonth") {
+    return date >= new Date(today.getFullYear(), today.getMonth() - 1, 1) && date < new Date(today.getFullYear(), today.getMonth(), 1);
+  }
   if (filter === "week") {
     const start = new Date(today);
     start.setDate(start.getDate() - start.getDay());
@@ -138,6 +204,24 @@ function isWithinDateFilter(dateStr: string | Date, filter: string, customStart:
   return true;
 }
 
+/**
+ * The COD column: what the rider still has to collect, or, once paid, the
+ * amount collected with "Paid" under it. Orders paid at the till or by QR
+ * have nothing to collect.
+ */
+function CodAmount({ sale }: { sale: Sale }) {
+  if (sale.paymentMethod === "COD" && sale.paymentStatus === "PAID") {
+    return (
+      <span title="Paid: nothing left to collect">
+        {codAmountOf(sale) > 0 && <span className="block font-bold text-xs text-muted-foreground">{formatNPR(codAmountOf(sale))}</span>}
+        <span className="block text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Paid</span>
+      </span>
+    );
+  }
+  if (sale.paymentMethod === "COD") return <span className="font-bold text-xs">{formatNPR(codToCollect(sale))}</span>;
+  return <span className="text-xs text-muted-foreground" title={sale.paymentMethod === "QR" ? "Paid by QR: nothing to collect" : "Paid at the till: nothing to collect"}>—</span>;
+}
+
 const fieldClass = "w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
 
 export default function CustomersPage() {
@@ -147,7 +231,7 @@ export default function CustomersPage() {
 
   // A click anywhere on an order row opens that customer, except on the row's own
   // controls (tick box, menus, buttons, links) or menus/dialogs opened from it.
-  const openCustomer = (e: React.MouseEvent<HTMLTableRowElement>, key: string) => {
+  const openCustomer = (e: React.MouseEvent<HTMLElement>, key: string) => {
     const target = e.target as HTMLElement;
     if (!e.currentTarget.contains(target)) return;
     if (target.closest("a, button, input, select, textarea, label, [role='menu'], [role='listbox'], [role='dialog']")) return;
@@ -161,17 +245,17 @@ export default function CustomersPage() {
   const [courierSale, setCourierSale] = useState<Sale | null>(null);
   const [showCourier, setShowCourier] = useState(false);
   const [refreshingCourier, setRefreshingCourier] = useState(false);
-  const [search, setSearch] = useUrlState("q");
-  const [dateFilter, setDateFilter] = useUrlState("filter", "all");
-  // Analytics links here with ?source=upaya&filter=custom&from=…&to=…
-  const [customStart, setCustomStart] = useUrlState("from");
-  const [customEnd, setCustomEnd] = useUrlState("to");
-  const [sourceFilter, setSourceFilter] = useUrlState("source", "all");
-  // Inside or outside the Kathmandu valley, by the order's Upaya hub.
-  const [areaFilter, setAreaFilter] = useUrlState("area", "all");
+  // Kept while moving between pages, reset by a reload. Analytics links here
+  // with ?source=upaya&filter=custom&from=…&to=…, the search with ?q=….
+  const { filters, update: updateFilters, reset: clearFilters } = useOrderFilters();
+  const {
+    q: search, filter: dateFilter, from: customStart, to: customEnd,
+    source: sourceFilter, area: areaFilter, payment: paymentFilter, status: statusFilter, sort,
+  } = filters;
+  const setSearch = (q: string) => updateFilters({ q });
+  const setStatusFilter = (status: string) => updateFilters({ status });
+  // Area: inside or outside the Kathmandu valley, by the order's Upaya hub.
   const valleyLive = useValleyLocations();
-  const [paymentFilter, setPaymentFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useUrlState("status", "all");
   // ?future=1 (from the POS) opens the Future orders section.
   const [futureParam] = useUrlState("future");
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -186,6 +270,8 @@ export default function CustomersPage() {
   const [editDiscount, setEditDiscount] = useState("0");
   const [codTouched, setCodTouched] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Asked before saving when items come off or go on the order.
+  const [confirmingItems, setConfirmingItems] = useState(false);
 
   const [syncing, setSyncing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -216,21 +302,24 @@ export default function CustomersPage() {
 
   // Everything except the status, so each status chip can show its own count.
   const beforeStatus = useMemo(() => {
-    const q = (parseCustomerCode(search) ?? search.trim()).toLowerCase();
+    const matches = searchMatcher(search);
     const rows = sales.filter(s =>
-      ((s.customerName ?? "").toLowerCase().includes(q) ||
-        (s.customerPhone ?? "").toLowerCase().includes(q) ||
-        (s.customer?.code ?? "").toLowerCase().includes(q) ||
-        (s.courierTrackingCode ?? "").toLowerCase().includes(q) ||
-        s.invoiceNumber.toLowerCase().includes(q)) &&
+      matches(s) &&
       isWithinDateFilter(dateOf(s), dateFilter, customStart, customEnd) &&
       matchesSource(s, sourceFilter) &&
       (areaFilter === "all" || valleyOf(s, valleyLive) === areaFilter) &&
       (paymentFilter === "all" || s.paymentStatus === paymentFilter)
     );
-    // Sent with Upaya: the latest sent first.
-    return byUpayaSend ? rows.sort((a, b) => new Date(dateOf(b)).getTime() - new Date(dateOf(a)).getTime()) : rows;
-  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, areaFilter, valleyLive, paymentFilter, byUpayaSend, dateOf]);
+    // Newest/oldest go by the date the filters use (with "Sent with Upaya", the day it was sent).
+    const time = (s: Sale) => new Date(dateOf(s)).getTime();
+    const by: Record<string, (a: Sale, b: Sale) => number> = {
+      newest: (a, b) => time(b) - time(a),
+      oldest: (a, b) => time(a) - time(b),
+      high: (a, b) => b.totalAmount - a.totalAmount || time(b) - time(a),
+      low: (a, b) => a.totalAmount - b.totalAmount || time(b) - time(a),
+    };
+    return rows.sort(by[sort] ?? by.newest);
+  }, [sales, search, dateFilter, customStart, customEnd, sourceFilter, areaFilter, valleyLive, paymentFilter, sort, dateOf]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -242,16 +331,11 @@ export default function CustomersPage() {
     () => (statusFilter === "all" ? beforeStatus : beforeStatus.filter(s => s.deliveryStatus === statusFilter)),
     [beforeStatus, statusFilter]
   );
-  const filtersOn = dateFilter !== "all" || sourceFilter !== "all" || areaFilter !== "all" || paymentFilter !== "all" || statusFilter !== "all";
-  const clearFilters = () => {
-    setDateFilter("all");
-    setCustomStart("");
-    setCustomEnd("");
-    setSourceFilter("all");
-    setAreaFilter("all");
-    setPaymentFilter("all");
-    setStatusFilter("all");
-  };
+  // How many filters differ from the defaults (the search counts as one).
+  const activeCount = [
+    search.trim() !== "", dateFilter !== "all", sourceFilter !== "all", areaFilter !== "all",
+    paymentFilter !== "all", statusFilter !== "all", sort !== "newest",
+  ].filter(Boolean).length;
   const customLabel = customStart
     ? customStart === customEnd || !customEnd ? shortDay(customStart) : `${shortDay(customStart)} – ${shortDay(customEnd)}`
     : "Pick dates";
@@ -259,13 +343,19 @@ export default function CustomersPage() {
   const pager = usePagination(filtered, "customers");
   const displayed = pager.visible;
   const tableScroll = useRef<HTMLDivElement>(null);
+  const toListTop = () => {
+    const box = tableScroll.current;
+    if (!box) return;
+    if (box.scrollHeight > box.clientHeight) box.scrollTo({ top: 0 });
+    else box.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
   const goToPage = (p: number) => {
     pager.setPage(p);
-    tableScroll.current?.scrollTo({ top: 0 });
+    toListTop();
   };
   const changePageSize = (size: number) => {
     pager.setPageSize(size);
-    tableScroll.current?.scrollTo({ top: 0 });
+    toListTop();
   };
 
   // Only rows currently on screen count as selected, so changing a filter can
@@ -301,6 +391,10 @@ export default function CustomersPage() {
 
   // Scanning a label into the search box opens that customer.
   function onSearchKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape" && search) {
+      setSearch("");
+      return;
+    }
     const code = e.key === "Enter" ? parseCustomerCode(search) : null;
     if (code) router.push(`/customers/${code}`);
   }
@@ -530,8 +624,10 @@ export default function CustomersPage() {
   }
 
   const itemsChanged = itemsAreEdited(editLines, editDiscount);
+  const itemChanges = editing && itemsChanged ? stockChanges(editing, editLines) : { removed: [], added: [] };
 
-  async function saveEdit() {
+  /** Checks the form, then asks first when items come off or go on the order. */
+  function saveEdit() {
     if (!editing) return;
     if (!editForm.customerName.trim() && !editForm.customerPhone.trim()) {
       toast.error("Enter a customer name or phone number.");
@@ -541,7 +637,15 @@ export default function CustomersPage() {
       toast.error("The discount is more than the items are worth.");
       return;
     }
+    if (itemChanges.removed.length > 0 || itemChanges.added.length > 0) {
+      setConfirmingItems(true);
+      return;
+    }
+    return commitEdit(false);
+  }
 
+  async function commitEdit(putBackRemoved: boolean) {
+    if (!editing) return;
     setSaving(true);
     const result = await mutate(
       () => updateSaleDetails(editing.id, {
@@ -549,6 +653,7 @@ export default function CustomersPage() {
         ...(itemsChanged && {
           items: editLines.map(l => ({ itemId: l.itemId, productId: l.productId, variantId: l.variantId, quantity: l.quantity, unitPrice: l.unitPrice })),
           discount: Math.max(0, parseFloat(editDiscount) || 0),
+          putBackRemoved,
         }),
         customerName: editForm.customerName,
         customerPhone: editForm.customerPhone,
@@ -567,6 +672,8 @@ export default function CustomersPage() {
       await refetch();
     }
     setSaving(false);
+    // Failed or not, back to the form: a stock error is fixed there.
+    setConfirmingItems(false);
   }
 
   const setField = (field: keyof typeof BLANK_EDIT) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -578,6 +685,8 @@ export default function CustomersPage() {
   // Upaya statuses update in the list on their own, without opening each order's tracking popup.
   useCourierAutoRefresh(hasOpenShipments, () => refetch({ quiet: true }));
   const iconButton = "w-8 h-8 flex items-center justify-center rounded-lg border border-border hover:bg-muted transition-colors";
+  // Phones: bigger, for fingers.
+  const phoneIconButton = "w-9 h-9 flex items-center justify-center rounded-lg border border-border bg-background hover:bg-muted active:scale-95 transition";
   // Opaque and sticky, with its bottom line drawn as a shadow (borders don't stick with the cell).
   const stickyTh = "sticky top-0 z-10 bg-muted shadow-[inset_0_-1px_0_hsl(var(--border))]";
   const th = cn(stickyTh, "text-left text-[11px] font-bold uppercase tracking-wider text-muted-foreground px-5 py-3");
@@ -620,23 +729,46 @@ export default function CustomersPage() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               onKeyDown={onSearchKeyDown}
-              placeholder="Search name, phone, order, customer ID or tracking..."
+              placeholder="Name, phone, address, item, order ID…"
+              title="Every word must match: try “hoodie lalitpur” or “ram 9841”. Searches name, phone, address, hub, items, order and customer ID, and tracking code."
               aria-label="Search orders"
-              className="w-full pl-8.5 pr-3 py-2 rounded-lg border border-border bg-background text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className={cn(
+                "w-full pl-8.5 py-2 rounded-lg border bg-background text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20",
+                search ? "pr-8 border-primary/50" : "pr-3 border-border"
+              )}
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
-          <Button variant="secondary" onClick={() => setTrashOpen(true)} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap" title="Orders deleted in the last 30 days">
-            <ArchiveRestore size={14} /> Recently deleted
+          {/* On phones the less-used buttons are icons only, so the actions fit on one row. */}
+          <Button variant="secondary" onClick={() => setTrashOpen(true)} aria-label="Recently deleted" className="w-10 flex-none px-0 py-2 rounded-lg text-[13px] whitespace-nowrap sm:w-auto sm:px-3" title="Orders deleted in the last 30 days">
+            <ArchiveRestore size={14} /> <span className="hidden sm:inline">Recently deleted</span>
           </Button>
-          <Button variant="secondary" onClick={exportCsv} disabled={filtered.length === 0} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px]">
-            <Download size={14} /> {selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}
+          <Button
+            variant="secondary"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            aria-label={selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}
+            title={selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export the orders shown"}
+            className="w-10 flex-none px-0 py-2 rounded-lg text-[13px] sm:w-auto sm:px-3"
+          >
+            <Download size={14} /> <span className="hidden sm:inline">{selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}</span>
           </Button>
-          <Button variant="secondary" onClick={handleSyncWebsiteOrders} disabled={syncing} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap">
-            <RefreshCw size={14} className={cn(syncing && "animate-spin")} /> {syncing ? "Syncing..." : "Sync Website"}
+          <Button variant="secondary" onClick={handleSyncWebsiteOrders} disabled={syncing} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap" title="Check the website for new orders">
+            <RefreshCw size={14} className={cn(syncing && "animate-spin")} />
+            {syncing ? "Syncing..." : <><span className="sm:hidden">Sync</span><span className="hidden sm:inline">Sync Website</span></>}
           </Button>
           {hasOpenShipments && (
-            <Button variant="secondary" onClick={handleRefreshCourier} disabled={refreshingCourier} className="flex-1 sm:flex-none px-3 py-2 rounded-lg text-[13px] whitespace-nowrap">
-              <Truck size={14} className={cn(refreshingCourier && "animate-pulse")} /> Refresh Upaya
+            <Button variant="secondary" onClick={handleRefreshCourier} disabled={refreshingCourier} aria-label="Refresh Upaya" title="Check Upaya for updates" className="w-10 flex-none px-0 py-2 rounded-lg text-[13px] whitespace-nowrap sm:w-auto sm:px-3">
+              <Truck size={14} className={cn(refreshingCourier && "animate-pulse")} /> <span className="hidden sm:inline">Refresh Upaya</span>
             </Button>
           )}
           <Link
@@ -664,28 +796,28 @@ export default function CustomersPage() {
                 aria-pressed={active}
                 onClick={() => setStatusFilter(st.value)}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold transition-all whitespace-nowrap",
+                  "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-2 sm:py-1 text-xs font-semibold transition-all whitespace-nowrap",
                   active ? "bg-card text-foreground shadow-sm ring-1 ring-border/60" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 {st.label}
-                <span className={cn("text-[11px] font-bold tabular-nums", active ? "text-primary" : "text-muted-foreground/70")}>{count}</span>
+                <span className={cn("text-[11px] font-bold tabular-nums", active ? "text-primary" : "text-muted-foreground")}>{count}</span>
               </button>
             );
           })}
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <div ref={dateAnchor} className="flex items-center gap-1.5">
+        <div className="-mx-3 flex items-center gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+          <div ref={dateAnchor} className="flex shrink-0 items-center gap-1.5">
             <Dropdown
               aria-label="Date"
               value={dateFilter}
               onChange={v => {
-                setDateFilter(v);
+                updateFilters({ filter: v });
                 if (v === "custom") setDatePickerOpen(true);
               }}
               options={DATE_FILTERS}
               className="w-32"
-              triggerClassName="py-1.5 text-xs rounded-lg"
+              triggerClassName={filterTrigger(dateFilter !== "all")}
             />
             {dateFilter === "custom" && (
               <button type="button" onClick={() => setDatePickerOpen(o => !o)} className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-semibold text-foreground hover:bg-muted whitespace-nowrap">
@@ -693,12 +825,19 @@ export default function CustomersPage() {
               </button>
             )}
           </div>
-          <Dropdown aria-label="Source" value={sourceFilter} onChange={setSourceFilter} options={SOURCE_FILTERS} className="w-36" triggerClassName="py-1.5 text-xs rounded-lg" />
-          <Dropdown aria-label="Area" value={areaFilter} onChange={setAreaFilter} options={AREA_FILTERS} className="w-36" triggerClassName="py-1.5 text-xs rounded-lg" />
-          <Dropdown aria-label="Payment" value={paymentFilter} onChange={setPaymentFilter} options={PAYMENT_FILTERS} className="w-32" triggerClassName="py-1.5 text-xs rounded-lg" />
-          {filtersOn && (
-            <button type="button" onClick={clearFilters} className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground">
-              <X size={12} /> Clear
+          <Dropdown aria-label="Source" value={sourceFilter} onChange={v => updateFilters({ source: v })} options={SOURCE_FILTERS} className="w-36 shrink-0" triggerClassName={filterTrigger(sourceFilter !== "all")} />
+          <Dropdown aria-label="Area" value={areaFilter} onChange={v => updateFilters({ area: v })} options={AREA_FILTERS} className="w-36 shrink-0" triggerClassName={filterTrigger(areaFilter !== "all")} />
+          <Dropdown aria-label="Payment" value={paymentFilter} onChange={v => updateFilters({ payment: v })} options={PAYMENT_FILTERS} className="w-32 shrink-0" triggerClassName={filterTrigger(paymentFilter !== "all")} />
+          <Dropdown aria-label="Sort" value={sort} onChange={v => updateFilters({ sort: v })} options={SORT_OPTIONS} className="w-36 shrink-0" triggerClassName={filterTrigger(sort !== "newest")} />
+          {activeCount > 0 && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              title="Clear the search, every filter and the sort"
+              className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-muted hover:text-foreground whitespace-nowrap"
+            >
+              <X size={12} /> Clear all
+              <span className="rounded-full bg-primary/10 px-1.5 text-[11px] font-bold tabular-nums text-primary">{activeCount}</span>
             </button>
           )}
         </div>
@@ -710,18 +849,64 @@ export default function CustomersPage() {
             initialStart={customStart || undefined}
             initialEnd={customEnd || undefined}
             onApply={(start, end) => {
-              setCustomStart(start);
-              setCustomEnd(end);
-              setDateFilter("custom");
+              updateFilters({ from: start, to: end, filter: "custom" });
               setDatePickerOpen(false);
             }}
           />
         )}
       </div>
 
-      {/* Bulk action bar */}
+      {/* Bulk actions on phones: float above the tab bar, so they're in reach
+          wherever you are in the list. One row that scrolls sideways. */}
       {selectedVisible.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-card border border-border/80 rounded-2xl shadow-sm px-5 py-3 animate-fade-in">
+        <div
+          className="md:hidden fixed inset-x-2 z-20 rounded-2xl border border-border/80 bg-card/95 p-2 shadow-xl shadow-black/10 backdrop-blur-xl animate-fade-in"
+          style={{ bottom: "calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.75rem)" }}
+        >
+          <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
+            <span className="text-xs font-bold text-foreground">
+              {selectedVisible.length} order{selectedVisible.length > 1 ? "s" : ""} selected
+            </span>
+            <button type="button" onClick={() => setSelectedIds(new Set())} className="h-8 rounded-lg px-2.5 text-xs font-semibold text-muted-foreground hover:bg-muted">
+              Clear
+            </button>
+          </div>
+          <div className="-mx-2 flex items-center gap-1.5 overflow-x-auto px-2 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <Dropdown
+              aria-label="Set delivery status for selected orders"
+              value=""
+              onChange={applyBulkStatus}
+              disabled={bulkUpdating}
+              placeholder={bulkUpdating ? "Updating…" : "Set status…"}
+              options={DELIVERY_STATUSES}
+              className="w-36 shrink-0"
+              triggerClassName="h-10 px-3 text-xs rounded-xl"
+            />
+            <Button variant="secondary" onClick={askBulkUpaya} disabled={sendingUpaya} className="h-10 shrink-0 whitespace-nowrap px-3 text-xs rounded-xl">
+              <Truck size={14} /> {sendingUpaya ? "Sending…" : "Send to Upaya"}
+            </Button>
+            <Button variant="secondary" onClick={() => setBulkLabelsOpen(true)} className="h-10 shrink-0 whitespace-nowrap px-3 text-xs rounded-xl">
+              <Tag size={14} /> Labels
+            </Button>
+            <Button variant="secondary" onClick={() => setReceiptSales(selectedVisible)} className="h-10 shrink-0 whitespace-nowrap px-3 text-xs rounded-xl">
+              <Receipt size={14} /> Receipts
+            </Button>
+            <Button variant="secondary" onClick={() => setPackingOpen(true)} className="h-10 shrink-0 whitespace-nowrap px-3 text-xs rounded-xl">
+              <ClipboardList size={14} /> Packing list
+            </Button>
+            <Button variant="secondary" onClick={exportCsv} className="h-10 shrink-0 whitespace-nowrap px-3 text-xs rounded-xl">
+              <Download size={14} /> Export
+            </Button>
+            <Button variant="danger" onClick={askBulkDelete} className="h-10 shrink-0 whitespace-nowrap px-3 text-xs rounded-xl">
+              <Trash2 size={14} /> Delete
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk action bar (tablet and up; phones get the floating one above) */}
+      {selectedVisible.length > 0 && (
+        <div className="hidden md:flex flex-wrap items-center justify-between gap-3 bg-card border border-border/80 rounded-2xl shadow-sm px-5 py-3 animate-fade-in">
           <span className="text-xs font-semibold text-muted-foreground">
             {selectedVisible.length} order{selectedVisible.length > 1 ? "s" : ""} selected
           </span>
@@ -759,10 +944,149 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Orders Table: the rows scroll, the column names stay on top */}
+      {/* Orders: cards on phones (the page scrolls); a table from tablet width up,
+          where the rows scroll in their box and the column names stay on top */}
       <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden flex flex-col lg:min-h-[20rem] lg:flex-1">
-        <div ref={tableScroll} className="max-h-[calc(100dvh-8rem)] overflow-auto overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
-          <table className="w-full text-sm">
+        <div ref={tableScroll} className="scroll-mt-3 md:max-h-[calc(100dvh-8rem)] md:overflow-auto md:overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
+          <div className="md:hidden">
+            {!loading && displayed.length > 0 && (
+              <label className="flex cursor-pointer items-center gap-3 border-b border-border/60 bg-muted/40 px-3.5 py-2.5 text-xs font-semibold text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAll}
+                  className="h-5 w-5 rounded border-border accent-primary"
+                />
+                Select all on this page
+              </label>
+            )}
+            {loading && (
+              <div className="divide-y divide-border/40" aria-hidden>
+                {Array.from({ length: 5 }, (_, i) => (
+                  <div key={i} className="space-y-2 px-3.5 py-3.5">
+                    <Pulse className="h-4 w-1/2" />
+                    <Pulse className="h-3.5 w-3/4" />
+                    <Pulse className="h-7 w-2/3" />
+                  </div>
+                ))}
+              </div>
+            )}
+            <ul className="divide-y divide-border/40">
+              {!loading && displayed.map(sale => {
+                const key = customerKey(sale);
+                const address = deliveryAddress(sale.customerAddress);
+                const selected = selectedIds.has(sale.id);
+                return (
+                  <li key={sale.id} onClick={e => openCustomer(e, key)} className={cn("data-row flex cursor-pointer gap-3 px-3.5 py-3", selected && "bg-primary/5")}>
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSelected(sale.id)}
+                      aria-label={`Select order ${sale.invoiceNumber}`}
+                      className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer rounded border-border accent-primary"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-mono text-xs font-bold">{sale.invoiceNumber}</span>
+                            {sale.source === "website" && (
+                              <span className="flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-blue-700 dark:bg-blue-950/30 dark:text-blue-400">
+                                <Globe size={9} /> Website
+                              </span>
+                            )}
+                            {isPR(sale) && (
+                              <span className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-pink-700 dark:bg-pink-950/40 dark:text-pink-300" title="Given free for promotion">PR</span>
+                            )}
+                          </p>
+                          <p className="mt-1 truncate text-[13px] font-semibold text-foreground">{sale.customerName || "Walk-in Customer"}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <CodAmount sale={sale} />
+                          <p className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+                            {new Date(sale.createdAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                          </p>
+                        </div>
+                      </div>
+                      {(sale.customer || sale.customerPhone) && (
+                        <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-muted-foreground">
+                          {sale.customer && <span className="font-mono">{sale.customer.code}</span>}
+                          {sale.customerPhone && (
+                            <a href={`tel:${sale.customerPhone}`} className="font-semibold text-foreground/80 underline-offset-2 hover:underline">{sale.customerPhone}</a>
+                          )}
+                        </p>
+                      )}
+                      {(address || sale.courierAreaTitle) && (
+                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                          {[address, sale.courierAreaTitle && `Hub: ${sale.courierAreaTitle}`].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      {byUpayaSend && sale.courierBookedAt && (
+                        <p className="mt-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                          Sent with Upaya {new Date(sale.courierBookedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {new Date(sale.courierBookedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                        </p>
+                      )}
+                      {(sale.courierStatus || instantCourierLabel(sale.deliveryVia) || referralLabel(sale.referral)) && (
+                        <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {sale.courierStatus && (
+                            <span className={cn("whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold", courierStatusStyle(sale.courierStatus))}>
+                              Upaya: {courierStatusLabel(sale.courierStatus)}
+                            </span>
+                          )}
+                          {instantCourierLabel(sale.deliveryVia) && (
+                            <span className="whitespace-nowrap text-[10px] font-bold text-sky-700 dark:text-sky-300">via {instantCourierLabel(sale.deliveryVia)}</span>
+                          )}
+                          {referralLabel(sale.referral) && (
+                            <span className="whitespace-nowrap text-[10px] font-bold text-violet-700 dark:text-violet-300" title={sale.referral ?? ""}>from {referralLabel(sale.referral)}</span>
+                          )}
+                        </p>
+                      )}
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <Dropdown
+                            aria-label={`Delivery status of ${sale.invoiceNumber}`}
+                            value={sale.deliveryStatus}
+                            onChange={status => changeRowStatus(sale, status)}
+                            options={DELIVERY_STATUSES}
+                            disabled={statusSaving.has(sale.id)}
+                            className="w-fit"
+                            triggerClassName={cn(
+                              "w-auto gap-1 px-2.5 py-1 rounded-full border-transparent text-[10px] font-extrabold uppercase whitespace-nowrap [&>svg]:text-current [&>svg]:opacity-70",
+                              DELIVERY_STYLES[sale.deliveryStatus] ?? DELIVERY_STYLES.IN_PROCESS,
+                              sentWithUpaya(sale) && SENT_STATUS_BORDER,
+                              statusSaving.has(sale.id) && "animate-pulse"
+                            )}
+                          />
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {(sale.courierTrackingCode || (sale.deliveryStatus === "IN_PROCESS" && !sale.deliveryVia)) && (
+                            <button
+                              type="button"
+                              onClick={() => openCourier(sale)}
+                              aria-label={`${sale.courierTrackingCode ? "Track" : "Send to Upaya:"} order ${sale.invoiceNumber}`}
+                              className={cn(phoneIconButton, sale.courierTrackingCode && "text-primary border-primary/40")}
+                            >
+                              <Truck size={15} />
+                            </button>
+                          )}
+                          <button type="button" onClick={() => openLabel(sale)} aria-label={`Print label for order ${sale.invoiceNumber}`} className={phoneIconButton}>
+                            <Tag size={15} />
+                          </button>
+                          <button type="button" onClick={() => setReceiptSales([sale])} aria-label={`Print receipt for order ${sale.invoiceNumber}`} className={phoneIconButton}>
+                            <Receipt size={15} />
+                          </button>
+                          <button type="button" onClick={() => startEdit(sale)} aria-label={`Edit order ${sale.invoiceNumber}`} className={phoneIconButton}>
+                            <Edit2 size={15} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <table className="hidden w-full text-sm md:table">
             <thead>
               <tr>
                 <th className={cn(stickyTh, "px-5 py-3 w-10")}>
@@ -811,7 +1135,7 @@ export default function CustomersPage() {
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium hidden sm:table-cell">{pager.offset + i + 1}</td>
                     <td className="px-5 py-3.5 text-xs text-muted-foreground font-medium whitespace-nowrap hidden md:table-cell">
                       {new Date(sale.createdAt).toLocaleDateString()}
-                      <span className="block text-[11px] font-normal tabular-nums opacity-80">{new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
+                      <span className="block text-[11px] font-normal tabular-nums">{new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span>
                       {byUpayaSend && sale.courierBookedAt && (
                         <span className="mt-1 block text-[10px] font-bold text-emerald-700 dark:text-emerald-400" title="When it was sent with Upaya">
                           Sent {new Date(sale.courierBookedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}, {new Date(sale.courierBookedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
@@ -851,13 +1175,7 @@ export default function CustomersPage() {
                       )}
                     </td>
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                      {sale.paymentMethod === "COD" && sale.paymentStatus === "PAID" ? (
-                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400" title="Paid: nothing left to collect">Paid</span>
-                      ) : sale.paymentMethod === "COD" ? (
-                        <span className="font-bold text-xs">{formatNPR(codToCollect(sale))}</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground" title={sale.paymentMethod === "QR" ? "Paid by QR: nothing to collect" : "Paid at the till: nothing to collect"}>—</span>
-                      )}
+                      <CodAmount sale={sale} />
                     </td>
                     <td className="px-5 py-3.5 text-right hidden lg:table-cell whitespace-nowrap">
                       <span className="font-extrabold text-xs">{formatNPR(sale.deliveryAmount ?? 0)}</span>
@@ -946,6 +1264,9 @@ export default function CustomersPage() {
         )}
       </div>
 
+      {/* Room to scroll the last orders and the page buttons above the floating bulk bar (phones). */}
+      {selectedVisible.length > 0 && <div aria-hidden className="h-24 shrink-0 md:hidden" />}
+
       <Modal
         open={showEdit}
         onClose={() => setShowEdit(false)}
@@ -1001,7 +1322,7 @@ export default function CustomersPage() {
               <div className="flex items-baseline justify-between gap-2 border-t border-border/60 pt-4">
                 <span className="text-xs font-semibold text-muted-foreground">Items</span>
                 {itemsChanged && (
-                  <span className="text-[11px] text-muted-foreground">Saving takes added units out of stock and puts removed ones back.</span>
+                  <span className="text-[11px] text-muted-foreground">Saving takes added units out of stock and asks about removed ones.</span>
                 )}
               </div>
               {editing.deliveryStatus === "CANCELLED" || editing.deliveryStatus === "RETURNED" ? (
@@ -1024,6 +1345,15 @@ export default function CustomersPage() {
           )}
         </div>
       </Modal>
+      {editing && (
+        <ItemChangeConfirm
+          open={confirmingItems}
+          invoiceNumber={editing.invoiceNumber}
+          changes={itemChanges}
+          onClose={() => setConfirmingItems(false)}
+          onConfirm={commitEdit}
+        />
+      )}
 
       {courierSale && (
         <CourierDialog key={courierSale.id} open={showCourier} onClose={() => setShowCourier(false)} sale={courierSale} onChanged={() => refetch({ quiet: true })} />

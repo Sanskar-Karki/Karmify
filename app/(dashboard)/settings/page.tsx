@@ -268,7 +268,7 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground mt-0.5">Manage your store profile, suppliers and team</p>
       </div>
 
-      <div role="tablist" className="flex flex-wrap gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl w-fit max-w-full">
+      <div role="tablist" className="grid grid-cols-2 gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl sm:flex sm:flex-wrap sm:w-fit max-w-full">
         {TABS.map(tab => (
           <button
             key={tab.key}
@@ -276,7 +276,7 @@ export default function SettingsPage() {
             role="tab"
             aria-selected={activeTab === tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={cn("flex items-center gap-2 px-4 py-2.5 sm:py-2 rounded-xl text-xs font-semibold transition-all", activeTab === tab.key ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}
+            className={cn("flex items-center justify-center gap-2 px-4 py-2.5 sm:justify-start sm:py-2 rounded-xl text-xs font-semibold transition-all", activeTab === tab.key ? "bg-card text-foreground shadow-sm border border-border/60" : "text-muted-foreground hover:text-foreground")}
           >
             <tab.icon size={14} />
             {tab.label}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff" id="app-theme-color">
+  <title>Karmify · Offline</title>
+  <link rel="icon" href="/icons/icon-192.png">
+  <!-- Same light/dark as the app: Karmify's own switch (saved as "theme"), not the phone's setting. -->
+  <script>try{if(localStorage.getItem("theme")==="dark"){document.documentElement.classList.add("dark");document.getElementById("app-theme-color").content="#171717"}}catch(e){}</script>
+  <style>
+    :root { color-scheme: light; --bg: #f4f4f6; --card: #ffffff; --fg: #18181b; --muted: #71717a; --border: #e4e4e7; --primary: #cb2a57; }
+    :root.dark { color-scheme: dark; --bg: #0f0f0f; --card: #1a1a1a; --fg: #fafafa; --muted: #a1a1aa; --border: #2a2a2a; --primary: #d6386a; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100dvh; display: grid; place-items: center; padding: 24px;
+      padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom));
+      background: var(--bg); color: var(--fg);
+      font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+    main { width: 100%; max-width: 360px; background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 28px 24px; text-align: center; box-shadow: 0 8px 30px -12px rgba(0,0,0,.15); }
+    img { width: 56px; height: 56px; border-radius: 14px; }
+    h1 { font-size: 20px; margin: 18px 0 6px; letter-spacing: -0.01em; }
+    p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    button { margin-top: 22px; width: 100%; height: 46px; border: 0; border-radius: 12px; background: var(--primary); color: #fff; font: 600 15px inherit; font-family: inherit; cursor: pointer; }
+    button:active { transform: scale(.98); }
+    .hint { margin-top: 14px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <img src="/icons/icon-192.png" alt="">
+    <h1>You're offline</h1>
+    <p>Karmify needs the internet to load orders and stock. Check your Wi-Fi or mobile data.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+    <p class="hint">This page reloads on its own when you're back online.</p>
+  </main>
+  <script>window.addEventListener("online", function () { location.reload(); });</script>
+</body>
+</html>

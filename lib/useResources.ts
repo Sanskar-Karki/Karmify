@@ -92,12 +92,20 @@ export function useResources<R extends Defs>(defs: R) {
   useEffect(() => {
     void load(false);
 
-    // Pick up changes made on another till when staff come back to this tab.
+    // Pick up changes made on another till when staff come back to this tab
+    // (or reopen the installed app), and once the connection is back.
     function onVisible() {
       if (document.visibilityState === "visible") void load(false);
     }
+    function onOnline() {
+      void load(false);
+    }
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+    };
   }, [load]);
 
   /** Reload after a mutation. Never rejects, so a failed reload can't read as a failed save. */

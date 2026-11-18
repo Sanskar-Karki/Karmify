@@ -226,15 +226,18 @@ export default function ProductsPage() {
       </div>
 
 
-      {/* Bulk actions */}
+      {/* Bulk actions. On phones they float above the tab bar, in reach wherever you are in the list. */}
       {selectedIds.length > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-2.5">
+        <div
+          className="mb-3 flex flex-wrap items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-2.5 max-md:fixed max-md:inset-x-2 max-md:z-20 max-md:mb-0 max-md:border-border/80 max-md:bg-card/95 max-md:py-2 max-md:pr-2 max-md:shadow-xl max-md:shadow-black/10 max-md:backdrop-blur-xl animate-fade-in"
+          style={{ bottom: "calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.75rem)" }}
+        >
           <p className="text-sm font-semibold">{selectedIds.length} selected</p>
           <div className="ml-auto flex items-center gap-2">
-            <button type="button" onClick={() => setSelected(new Set())} className="px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors cursor-pointer">
+            <button type="button" onClick={() => setSelected(new Set())} className="px-3 py-1.5 max-md:h-10 text-xs font-semibold text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors cursor-pointer">
               Clear
             </button>
-            <button type="button" onClick={() => setBulkOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer">
+            <button type="button" onClick={() => setBulkOpen(true)} className="inline-flex items-center gap-1.5 px-3 py-1.5 max-md:h-10 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors cursor-pointer">
               <Trash2 size={13} /> Delete selected
             </button>
           </div>
@@ -247,11 +250,11 @@ export default function ProductsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border/60 bg-muted/30">
-                <th className="w-12 pl-5 pr-3 py-3.5">
+                <th className="w-12 pl-3.5 pr-2 sm:pl-5 sm:pr-3 py-3.5">
                   <input
                     type="checkbox"
                     aria-label="Select all shown products"
-                    className="h-4 w-4 accent-[var(--primary)] cursor-pointer align-middle"
+                    className="h-4 w-4 accent-primary cursor-pointer align-middle"
                     disabled={loading || displayed.length === 0}
                     checked={displayed.length > 0 && displayed.every(p => selected.has(p.id))}
                     ref={el => {
@@ -270,10 +273,10 @@ export default function ProductsPage() {
                     }}
                   />
                 </th>
-                <th className="text-left px-5 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">Product</th>
+                <th className="text-left px-3 sm:px-5 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">Product</th>
                 <th className="text-left px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Category</th>
                 <th className="text-left px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hidden lg:table-cell">Supplier</th>
-                <th className="text-right px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">Price</th>
+                <th className="text-right px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Price</th>
                 <th className="text-right px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hidden md:table-cell">
                   <span className="inline-flex items-center justify-end gap-1">
                     Stock
@@ -290,8 +293,8 @@ export default function ProductsPage() {
                     )}
                   </span>
                 </th>
-                <th className="text-center px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">Status</th>
-                <th className="relative px-4 py-3.5"><span className="sr-only">Actions</span></th>
+                <th className="text-center px-4 py-3.5 text-xs font-bold text-muted-foreground uppercase tracking-wider hidden md:table-cell">Status</th>
+                <th className="relative px-4 py-3.5 hidden md:table-cell"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
@@ -342,7 +345,7 @@ export default function ProductsPage() {
                     {/* The whole cell ticks the box and carries the Shift key (a change event doesn't). */}
                     <td
                       data-no-open
-                      className="w-12 pl-5 pr-3 py-4 cursor-pointer"
+                      className="w-12 pl-3.5 pr-2 sm:pl-5 sm:pr-3 py-4 align-top md:align-middle cursor-pointer"
                       onClick={e => pickRow(p.id, e.shiftKey, displayed)}
                       onMouseDown={e => { if (e.shiftKey) e.preventDefault(); }}
                       title="Shift-click to select a range"
@@ -350,18 +353,18 @@ export default function ProductsPage() {
                       <input
                         type="checkbox"
                         aria-label={`Select ${p.name}`}
-                        className="h-4 w-4 accent-[var(--primary)] cursor-pointer align-middle"
+                        className="h-4 w-4 accent-primary cursor-pointer align-middle"
                         checked={selected.has(p.id)}
                         onChange={() => {}}
                       />
                     </td>
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
+                    <td className="px-3 sm:px-5 py-4">
+                      <div className="flex items-start gap-3 md:items-center">
                         <div className="w-9 h-9 rounded-xl bg-primary/8 border border-border/40 flex items-center justify-center shrink-0">
                           <Package size={16} className="text-primary/70" />
                         </div>
                         <div className="min-w-0">
-                          <Link href={`/products/${p.id}`} className="block font-semibold text-foreground truncate max-w-[180px] hover:text-primary hover:underline">{p.name}</Link>
+                          <Link href={`/products/${p.id}`} className="block break-words font-semibold text-foreground hover:text-primary hover:underline md:max-w-[180px] md:truncate">{p.name}</Link>
                           <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{p.sku}</p>
                           {/* Category + stock surfaced here on mobile, where their dedicated columns are hidden */}
                           <div className="flex flex-wrap items-center gap-1.5 mt-1 md:hidden">
@@ -372,6 +375,27 @@ export default function ProductsPage() {
                             </span>
                             {sizesButton("text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground", 10)}
                           </div>
+                          {/* Phones: price, status and actions here too, so nothing runs off the screen */}
+                          <div className="mt-2 flex items-end justify-between gap-2 md:hidden">
+                            <div className="min-w-0">
+                              <p className="text-sm font-bold text-foreground">{formatNPR(p.sellingPrice)}</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                cost {formatNPR(p.costPrice)} · <span className="font-semibold text-emerald-700 dark:text-emerald-400">{margin(p)}%</span>
+                                {p.status !== "active" && <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-500 dark:bg-zinc-800">{p.status}</span>}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button type="button" onClick={() => setRestockTarget(p)} aria-label={`Restock ${p.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground active:scale-95">
+                                <PackagePlus size={15} />
+                              </button>
+                              <button type="button" onClick={() => openEdit(p)} aria-label={`Edit ${p.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground active:scale-95">
+                                <Edit2 size={15} />
+                              </button>
+                              <button type="button" onClick={() => { setDeleteTarget(p); setDeleteOpen(true); }} aria-label={`Delete ${p.name}`} className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground active:scale-95">
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </td>
@@ -381,7 +405,7 @@ export default function ProductsPage() {
                     <td className="px-4 py-4 hidden lg:table-cell">
                       <p className="text-xs text-muted-foreground">{sup?.companyName ?? "—"}</p>
                     </td>
-                    <td className="px-4 py-4 text-right">
+                    <td className="px-4 py-4 text-right hidden md:table-cell">
                       <p className="font-bold text-foreground">{formatNPR(p.sellingPrice)}</p>
                       <p className="text-[11px] text-muted-foreground">cost {formatNPR(p.costPrice)} · <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{margin(p)}% margin</span></p>
                     </td>
@@ -397,18 +421,18 @@ export default function ProductsPage() {
                             {summary.soldOut.length} of {summary.options} sold out
                           </span>
                         ) : summary && summary.low.length > 0 ? (
-                          <span title={`Running low: ${summary.low.join(", ")}`} className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                          <span title={`Running low: ${summary.low.join(", ")}`} className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">
                             {summary.low.length} running low
                           </span>
                         ) : null}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-center">
+                    <td className="px-4 py-4 text-center hidden md:table-cell">
                       <span className={cn("text-[11px] font-bold uppercase px-2.5 py-1 rounded-full", p.status === "active" ? "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500")}>
                         {p.status}
                       </span>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-4 hidden md:table-cell">
                       <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity justify-end">
                         <button type="button" onClick={() => setRestockTarget(p)} title="Restock" aria-label={`Restock ${p.name}`} className="w-8 h-8 md:w-7 md:h-7 flex items-center justify-center rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-muted-foreground hover:text-emerald-600 transition-colors cursor-pointer">
                           <PackagePlus size={13} />
@@ -424,7 +448,7 @@ export default function ProductsPage() {
                   </tr>
                   {open && (
                     <tr id={`stock-${p.id}`} className={cn("bg-muted/20", selected.has(p.id) && "bg-primary/5")}>
-                      <td colSpan={8} className="px-5 pt-0 pb-4">
+                      <td colSpan={8} className="px-3 sm:px-5 pt-0 pb-4">
                         <StockTableEditor productId={p.id} variants={p.variants} onSaved={() => refetch({ quiet: true })} className="md:ml-10" />
                       </td>
                     </tr>
@@ -437,6 +461,8 @@ export default function ProductsPage() {
         </div>
         {!loading && <ShowMoreButton remaining={remaining} step={step} onClick={showMore} />}
       </div>
+      {/* Room to scroll the last products above the floating bulk bar (phones). */}
+      {selectedIds.length > 0 && <div aria-hidden className="h-20 md:hidden" />}
 
       <ProductEditor
         target={editorTarget}

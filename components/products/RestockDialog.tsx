@@ -5,6 +5,7 @@ import { restockProduct } from "@/app/actions";
 import { Modal } from "@/components/shared/Modal";
 import { Button } from "@/components/shared/Button";
 import { sortVariants } from "@/components/shared/VariantStock";
+import { CustomerSearchField, customerNote, type PickedCustomer } from "@/components/shared/CustomerSearchField";
 import { mutate } from "@/lib/mutate";
 
 type Variant = { id: string; size: string; color: string; quantity: number };
@@ -16,7 +17,7 @@ const input = "w-full px-3 py-2 rounded-lg border border-border/60 bg-background
 export function RestockDialog({
   product, currentStock, onClose, onDone, mode = "restock",
 }: {
-  /** "return": units brought back without an order (no customer details needed). */
+  /** "return": units brought back without an order; who brought them back is optional. */
   mode?: "restock" | "return";
   /** null keeps the dialog closed. */
   product: RestockProduct | null;
@@ -36,11 +37,13 @@ function RestockForm({ product, currentStock, onClose, onDone, mode }: {
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
+  // A return only: who brought it back, if known.
+  const [customer, setCustomer] = useState<PickedCustomer | null>(null);
   const [saving, setSaving] = useState(false);
 
   const count = (value: string | undefined) => Math.max(0, Math.floor(Number(value) || 0));
   const total = sized ? variants.reduce((sum, v) => sum + count(amounts[v.id]), 0) : count(quantity);
-  const dirty = total > 0 || notes.trim() !== "";
+  const dirty = total > 0 || notes.trim() !== "" || customer !== null;
 
   async function save() {
     if (total <= 0) return;
@@ -52,6 +55,7 @@ function RestockForm({ product, currentStock, onClose, onDone, mode }: {
           ? { rows: variants.map(v => ({ variantId: v.id, quantity: count(amounts[v.id]) })).filter(r => r.quantity > 0) }
           : { quantity: total }),
         notes: notes.trim() || undefined,
+        ...(isReturn && customerNote(customer) && { customer: customerNote(customer) }),
         kind: mode,
       }),
       { success: isReturn ? `${total} ${product.name} returned to stock.` : `Added ${total} to ${product.name}.` }
@@ -129,13 +133,14 @@ function RestockForm({ product, currentStock, onClose, onDone, mode }: {
             {total > 0 && <span className="block text-[11px] text-emerald-600 font-semibold">Stock becomes {currentStock + total}</span>}
           </label>
         )}
+        {isReturn && <CustomerSearchField label="Customer (optional)" value={customer} onChange={setCustomer} />}
         <label className="block space-y-1.5">
           <span className="text-xs font-semibold text-muted-foreground">{isReturn ? "Reason (optional)" : "Note (optional)"}</span>
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder={isReturn ? "e.g. Exchanged at the studio, wrong size" : "e.g. Batch from Shoib Garment"} className={input} />
         </label>
         <p className="text-[11px] text-muted-foreground">
           {isReturn
-            ? "Put back in stock and saved in the stock history as Returned, without any customer or order. To return items from a customer's order, use Return on that order instead."
+            ? "Put back in stock and saved in the stock history as Returned, with the customer if you add one, but no order. To return items from a customer's order, use Return on that order instead."
             : sized ? "New sizes or colours are added in Edit product." : "Saved in the product's stock history as Stock In."}
         </p>
       </div>

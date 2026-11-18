@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Search, Package, Receipt, Truck, LayoutDashboard, ChartColumn, ArrowLeftRight,
@@ -261,7 +262,9 @@ export function GlobalSearch() {
         <Search size={17} strokeWidth={2.25} />
       </button>
 
-      {mobileOpen && (
+      {/* In a portal: the top bar's backdrop blur would otherwise make "fixed"
+          mean "inside the top bar", squeezing the results to nothing. */}
+      {mobileOpen && createPortal(
         <div
           role="dialog"
           aria-modal="true"
@@ -303,7 +306,8 @@ export function GlobalSearch() {
               emptyQuery={mobileQuery}
             />
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Desktop: inline search bar with dropdown results */}

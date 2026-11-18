@@ -274,9 +274,24 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
 }
 
 function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }) {
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6">
+      <CourierTrackingPanel sale={sale} onUpdated={onUpdated} />
+    </div>
+  );
+}
+
+/**
+ * Where a booked parcel is: tracking code, Upaya status, the key facts and the
+ * timeline, read live from Upaya (saving any new status). Used in the Upaya
+ * dialog and inline on a customer's order while it's on its way; `latest`
+ * shows only that many recent updates at first, with the rest a click away.
+ */
+export function CourierTrackingPanel({ sale, onUpdated, latest }: { sale: Sale; onUpdated: () => void; latest?: number }) {
   const [tracking, setTracking] = useState<CourierTracking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let current = true;
@@ -306,7 +321,20 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
     );
   }
 
-  if (error) return <Notice message={error} onRetry={() => { setError(null); setAttempt(a => a + 1); }} />;
+  if (error) {
+    return (
+      <div className="flex items-start gap-2 rounded-xl border border-border bg-muted/40 p-3 text-xs">
+        <AlertCircle size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 break-words">
+          <p>{error}</p>
+          <button type="button" onClick={() => { setError(null); setAttempt(a => a + 1); }} className="mt-1 font-semibold text-primary hover:underline">Try again</button>
+        </div>
+      </div>
+    );
+  }
+
+  const history = tracking ? [...tracking.history].reverse() : [];
+  const shown = latest && !showAll ? history.slice(0, latest) : history;
 
   const facts: [string, string | null][] = tracking ? [
     ["Area", [tracking.area, tracking.hub].filter(Boolean).join(", ") || null],
@@ -317,7 +345,7 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
   ] : [];
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button type="button" onClick={copy} aria-label="Copy tracking code" className="flex items-center gap-1.5 font-mono font-bold text-sm hover:text-primary">
           {code} <Copy size={13} />
@@ -337,9 +365,9 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
               </div>
             ))}
           </dl>
-          {tracking.history.length > 0 && (
+          {history.length > 0 && (
             <ol className="border-l-2 border-border ml-1 space-y-3">
-              {[...tracking.history].reverse().map((entry, i) => (
+              {shown.map((entry, i) => (
                 <li key={i} className="pl-4 relative">
                   <span className={cn("absolute -left-[5px] top-1.5 w-2 h-2 rounded-full", i === 0 ? "bg-primary" : "bg-border")} />
                   <p className="text-sm font-semibold">{entry.status ?? "Update"}</p>
@@ -348,6 +376,11 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
                 </li>
               ))}
             </ol>
+          )}
+          {shown.length < history.length && (
+            <button type="button" onClick={() => setShowAll(true)} className="ml-5 text-xs font-semibold text-primary hover:underline">
+              Show all {history.length} updates
+            </button>
           )}
         </>
       )}

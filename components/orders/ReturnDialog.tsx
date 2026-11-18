@@ -104,7 +104,7 @@ function ReturnForm({ sale, onClose, onDone }: { sale: Sale; onClose: () => void
                     disabled={done}
                     onChange={() => toggle(item.id, left)}
                     aria-label={`Return ${item.product.name}`}
-                    className="h-4 w-4 shrink-0 accent-[var(--primary)] cursor-pointer"
+                    className="h-4 w-4 shrink-0 accent-primary cursor-pointer"
                   />
                   <div className="min-w-0 flex-1">
                     <p className="break-words text-sm font-semibold">{item.product.name}</p>
@@ -134,7 +134,7 @@ function ReturnForm({ sale, onClose, onDone }: { sale: Sale; onClose: () => void
               <p className="text-[11px] text-muted-foreground">Everything is coming back, so the order will be marked Returned.</p>
             ) : (
               <label className="flex items-center gap-2 text-[12px] cursor-pointer">
-                <input type="checkbox" checked={markReturned} onChange={e => setMarkReturned(e.target.checked)} className="h-3.5 w-3.5 accent-[var(--primary)]" />
+                <input type="checkbox" checked={markReturned} onChange={e => setMarkReturned(e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
                 Also mark the order as Returned
               </label>
             )}

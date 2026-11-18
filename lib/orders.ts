@@ -93,6 +93,13 @@ export const PAYMENT_STYLES: Record<string, string> = {
 export const codToCollect = (sale: { paymentMethod: string; paymentStatus?: string | null; codAmount: number; totalAmount: number }) =>
   sale.paymentMethod !== "COD" || sale.paymentStatus === "PAID" ? 0 : sale.codAmount || sale.totalAmount;
 
+/**
+ * The cash-on-delivery amount of a COD order, collected or not (so a paid one
+ * still shows what was collected). Same fallback as codToCollect: website
+ * imports don't record one, so their total is the amount.
+ */
+export const codAmountOf = (sale: { codAmount: number; totalAmount: number }) => sale.codAmount || sale.totalAmount;
+
 const SITE_NAMES: Record<string, string> = { instagram: "Instagram", ig: "Instagram", facebook: "Facebook", fb: "Facebook", meta: "Meta", tiktok: "TikTok", google: "Google", youtube: "YouTube", whatsapp: "WhatsApp" };
 const PAID = /^(paid|cpc|ppc|ads?|paid[_ -]?social|sponsored)$/i;
 

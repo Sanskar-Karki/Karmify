@@ -25,6 +25,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { lowStockLines, lowStockName, type LowStockLine } from "@/lib/lowStock";
 import { setLowStockIgnored } from "@/app/actions";
 import { mutate } from "@/lib/mutate";
+import { InstallAppCard } from "@/components/shared/InstallAppCard";
 
 const RevenueChart = dynamic(() => import("@/components/dashboard/Charts").then(m => m.RevenueChart), {
   ssr: false,
@@ -69,7 +70,7 @@ function Delta({ value, label }: { value: number | null; label: string }) {
   if (value === null) return <span className="text-[11px] text-muted-foreground">{label}</span>;
   const up = value >= 0;
   return (
-    <span className="inline-flex items-center gap-1 text-[11px]">
+    <span className="inline-flex flex-wrap items-center gap-1 text-[11px]">
       <span
         className={cn(
           "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 font-bold",
@@ -99,15 +100,16 @@ function StatCard({
     <>
       <div className="flex items-start justify-between gap-3">
         <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-        <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", tone)}>
-          <Icon size={16} />
+        <span className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:h-8 sm:w-8", tone)}>
+          <Icon size={15} />
         </span>
       </div>
-      {loading ? <Pulse className="mt-1 h-8 w-28" /> : <p className="mt-1 text-2xl font-black tracking-tight text-foreground">{value}</p>}
-      <div className="mt-2 min-h-5">{loading ? <Pulse className="h-4 w-32" /> : children}</div>
+      {/* Phones show two cards side by side, so the numbers are a size smaller there. */}
+      {loading ? <Pulse className="mt-1 h-7 w-24 sm:h-8 sm:w-28" /> : <p className="mt-1 break-words text-lg font-black tracking-tight text-foreground sm:text-2xl">{value}</p>}
+      <div className="mt-1.5 min-h-5 sm:mt-2">{loading ? <Pulse className="h-4 w-24 sm:w-32" /> : children}</div>
     </>
   );
-  const className = cn(card, "block p-5 transition-colors", href && "hover:border-primary/40");
+  const className = cn(card, "block p-3.5 transition-colors sm:p-5", href && "hover:border-primary/40");
   return href ? <Link href={href} className={className}>{body}</Link> : <div className={className}>{body}</div>;
 }
 
@@ -253,8 +255,8 @@ export default function Dashboard() {
   const todayLabel = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Kathmandu" });
 
   const tasks = [
-    { label: "Ready to send to Upaya", note: "In process with a hub location", count: attention.readyForUpaya, icon: Truck, href: "/customers?status=IN_PROCESS", tone: "text-primary bg-primary/10" },
-    { label: "Need a hub location", note: "Delivery orders without an Upaya area", count: attention.missingHub, icon: MapPinOff, href: "/customers?status=IN_PROCESS", tone: "text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-950/40" },
+    { label: "Ready to send to Upaya", note: "In process with a hub location", count: attention.readyForUpaya, icon: Truck, href: "/customers?status=IN_PROCESS&source=waiting", tone: "text-primary bg-primary/10" },
+    { label: "Need a hub location", note: "Delivery orders without an Upaya area", count: attention.missingHub, icon: MapPinOff, href: "/customers?status=IN_PROCESS&source=waiting", tone: "text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-950/40" },
     { label: "Returns on the way back", note: "Check them in when they arrive", count: attention.returns, icon: RotateCcw, href: "/customers?status=RETURN_PROCESS", tone: "text-orange-600 bg-orange-100 dark:text-orange-400 dark:bg-orange-950/40" },
     {
       label: "Delivered, not marked paid",
@@ -275,7 +277,10 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-4 sm:space-y-5 animate-fade-in">
+      {/* Phones: offer to install Karmify as an app (hidden once installed or dismissed). */}
+      <InstallAppCard />
+
       {/* Greeting + quick actions */}
       <div className={cn(card, "flex flex-col gap-4 p-5 sm:p-6 md:flex-row md:items-center md:justify-between")}>
         <div>
@@ -291,29 +296,30 @@ export default function Dashboard() {
                 : `${openTasks} thing${openTasks === 1 ? "" : "s"} need${openTasks === 1 ? "s" : ""} your attention today.`}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link href="/sales" className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+        {/* A 2 × 2 grid of equal buttons on phones, a row from tablet size up. */}
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+          <Link href="/sales" className="flex items-center justify-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 sm:py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
             <ShoppingCart size={13} /> New sale
           </Link>
-          <Link href="/customers" className="flex items-center gap-1.5 rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-muted">
+          <Link href="/customers" className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-4 py-2.5 sm:py-2 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-muted">
             <ReceiptText size={13} /> Orders
           </Link>
-          <Link href="/products" className="flex items-center gap-1.5 rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-muted">
+          <Link href="/products" className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-4 py-2.5 sm:py-2 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-muted">
             <PlusCircle size={13} /> Add product
           </Link>
-          <Link href="/analytics" className="flex items-center gap-1.5 rounded-xl border border-border bg-secondary px-4 py-2 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-muted">
+          <Link href="/analytics" className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-secondary px-4 py-2.5 sm:py-2 text-xs font-semibold text-secondary-foreground transition-colors hover:bg-muted">
             <BarChart3 size={13} /> Analytics
           </Link>
         </div>
       </div>
 
       {/* Today at a glance */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard label="Sales today" value={formatNPR(today.todaySales)} icon={CircleDollarSign} tone="bg-primary/10 text-primary" loading={loading} href="/customers?filter=today">
           <Delta value={change(today.todaySales, today.yesterdaySales)} label={today.yesterdaySales > 0 ? "vs this time yesterday" : "Nothing by this time yesterday"} />
         </StatCard>
         <StatCard label="Orders today" value={String(today.todayOrders)} icon={ShoppingBag} tone="bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" loading={loading} href="/customers?filter=today">
-          <span className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1"><Globe size={11} /> {today.todayWebsite} website</span>
             <span className="inline-flex items-center gap-1"><Store size={11} /> {today.todayOrders - today.todayWebsite} in store</span>
             <span>· {today.yesterdayOrders} by now yesterday</span>

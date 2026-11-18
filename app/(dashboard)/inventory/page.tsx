@@ -153,10 +153,10 @@ export default function InventoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/20 border-b border-border/40">
-                <th className="text-left px-5 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Product</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Min Level</th>
-                <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Total</th>
-                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Health</th>
+                <th className="text-left px-3.5 sm:px-5 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Product</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Min Level</th>
+                <th className="text-right px-3.5 sm:px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Total</th>
+                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Health</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
@@ -174,14 +174,16 @@ export default function InventoryPage() {
                 const sized = prod.variants.length > 0;
                 return (
                   <tr key={prod.id} className="data-row">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
+                    <td className="px-3.5 sm:px-5 py-4">
+                      <div className="flex items-start gap-3 sm:items-center">
                         <div className="w-8 h-8 rounded-lg bg-primary/10 border border-border/40 flex items-center justify-center shrink-0">
                           <Package size={14} className="text-primary/70" />
                         </div>
                         <div>
                           <p className="font-semibold text-xs text-foreground">{prod.name}</p>
                           <p className="text-[11px] text-muted-foreground font-mono">{prod.sku}</p>
+                          {/* Phones: the min level here, its column is hidden */}
+                          <p className="text-[11px] text-muted-foreground sm:hidden">Min {prod.minStockLevel}{sized ? " per size/colour" : ""}</p>
                           {isLow && (
                             <ul className="mt-1.5 flex flex-wrap gap-1" aria-label={`Low stock for ${prod.name}`}>
                               {lowLines.map(line => (
@@ -192,7 +194,8 @@ export default function InventoryPage() {
                                     onClick={() => setIgnoreTarget(line)}
                                     title="Ignore until restocked"
                                     aria-label={`Ignore low stock for ${lowStockName(line)}`}
-                                    className="flex h-4 w-4 items-center justify-center rounded opacity-70 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer"
+                                    // The invisible ::before pad makes a 32px target for fingers around the small icon.
+                                    className="relative flex h-4 w-4 items-center justify-center rounded opacity-70 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 cursor-pointer before:absolute before:-inset-2 before:content-['']"
                                   >
                                     <EyeOff size={10} />
                                   </button>
@@ -203,13 +206,14 @@ export default function InventoryPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-4 py-4 hidden sm:table-cell">
                       <span className="text-xs font-semibold text-muted-foreground">{prod.minStockLevel} units{sized && <span className="block text-[10px] font-medium">per size/colour</span>}</span>
                     </td>
-                    <td className="px-4 py-4 text-right">
+                    <td className="px-3.5 sm:px-4 py-4 text-right align-top sm:align-middle">
                       <span className={cn("text-sm font-extrabold", isLow && !sized ? "text-red-500" : "text-foreground")}>{total}</span>
+                      <span className={cn("mt-1 flex justify-end text-[10px] font-bold sm:hidden", isLow ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400")}>{isLow ? "Low" : "OK"}</span>
                     </td>
-                    <td className="px-4 py-4 text-center">
+                    <td className="px-4 py-4 text-center hidden sm:table-cell">
                       <span className={cn("inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full", isLow ? "bg-red-100 dark:bg-red-950/30 text-red-700 dark:text-red-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
                         {isLow ? <AlertTriangle size={9} /> : <CheckCircle2 size={9} />}
                         {isLow ? "Low" : "OK"}
@@ -234,8 +238,8 @@ export default function InventoryPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/20 border-b border-border/40">
-                <th className="text-left px-5 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Type</th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Product</th>
+                <th className="text-left px-5 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide hidden sm:table-cell">Type</th>
+                <th className="text-left px-3.5 sm:px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Product</th>
                 <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Qty</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide hidden lg:table-cell">Notes</th>
                 <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wide">Date</th>
@@ -250,12 +254,16 @@ export default function InventoryPage() {
                 const prod = productById.get(mov.productId);
                 return (
                   <tr key={mov.id} className="data-row">
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3.5 hidden sm:table-cell">
                       <span className={cn("text-[11px] font-bold uppercase px-2.5 py-1 rounded-lg", TYPE_STYLES[mov.type] ?? "bg-muted text-muted-foreground")}>
                         {mov.type.replace("_", " ")}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-3.5 sm:px-4 py-3.5">
+                      {/* Phones: the type here, its column is hidden */}
+                      <span className={cn("mb-1 inline-block text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-md sm:hidden", TYPE_STYLES[mov.type] ?? "bg-muted text-muted-foreground")}>
+                        {mov.type.replace("_", " ")}
+                      </span>
                       <p className="text-xs font-semibold">{prod?.name ?? "—"}</p>
                       <p className="text-[11px] text-muted-foreground font-mono">{prod?.sku}</p>
                     </td>
