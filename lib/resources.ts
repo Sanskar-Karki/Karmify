@@ -29,4 +29,5 @@ export const resources = {
   // instant whenever the order list has already loaded.
   customers: defineResource("sales", () => batchLoad("sales"), groupSalesByCustomer),
   notifications: batched("notifications"),
+  notes: batched("notes"),
 };

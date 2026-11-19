@@ -33,8 +33,9 @@ export function ShopSwitch() {
         value={shop}
         onChange={v => setShop(v as Shop)}
         options={SHOPS.map(s => ({ value: s, label: SHOP_LABELS[s] }))}
-        className="md:hidden w-32 shrink-0"
-        triggerClassName="py-1.5 text-xs"
+        // Gives up a few pixels on the narrowest phones so the top bar's buttons all fit.
+        className="md:hidden w-32 min-w-0 shrink"
+        triggerClassName="py-1.5 px-2.5 gap-1.5 text-xs"
       />
     </>
   );

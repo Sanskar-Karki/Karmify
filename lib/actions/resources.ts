@@ -15,6 +15,7 @@ const LOADERS = {
   orders: queries.getPurchaseOrders,
   activities: queries.getActivityLogs,
   notifications: queries.getNotifications,
+  notes: queries.getNotes,
 } satisfies Record<ResourceKey, (storeId: string) => Promise<unknown>>;
 
 /**

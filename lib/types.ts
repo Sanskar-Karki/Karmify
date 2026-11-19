@@ -1,6 +1,6 @@
 import type {
   getActivityLogs, getCategories, getProducts, getPurchaseOrders,
-  getNotifications, getSales, getStockMovements, getStocks, getSuppliers,
+  getNotes, getNotifications, getSales, getStockMovements, getStocks, getSuppliers,
 } from "@/lib/queries";
 
 export type ActionResult<T = void> = { ok: true; data: T } | { ok: false; message: string };
@@ -16,6 +16,7 @@ export type ResourceData = {
   orders: Awaited<ReturnType<typeof getPurchaseOrders>>;
   activities: Awaited<ReturnType<typeof getActivityLogs>>;
   notifications: Awaited<ReturnType<typeof getNotifications>>;
+  notes: Awaited<ReturnType<typeof getNotes>>;
 };
 
 export type ResourceKey = keyof ResourceData;
@@ -23,5 +24,6 @@ export type ResourceBatch = { [K in ResourceKey]?: ActionResult<ResourceData[K]>
 
 export type Product = ResourceData["products"][number];
 export type Sale = ResourceData["sales"][number];
+export type Note = ResourceData["notes"][number];
 export type PurchaseOrder = ResourceData["orders"][number];
 export type Supplier = ResourceData["suppliers"][number];

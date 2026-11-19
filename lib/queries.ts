@@ -103,3 +103,20 @@ export function getActivityLogs(storeId: string) {
     take: 50,
   });
 }
+
+/**
+ * The Notes page, newest first, with who wrote each: every open note (one jotted
+ * down long ago must never drop off), and the most recently ticked-off ones.
+ */
+export async function getNotes(storeId: string) {
+  const select = { id: true, body: true, pinned: true, doneAt: true, createdBy: true, createdAt: true, updatedAt: true } as const;
+  const [open, done] = await Promise.all([
+    db.note.findMany({ where: { storeId, doneAt: null }, orderBy: { createdAt: "desc" }, take: 2000, select }),
+    db.note.findMany({ where: { storeId, doneAt: { not: null } }, orderBy: { doneAt: "desc" }, take: 300, select }),
+  ]);
+  const notes = [...open, ...done].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const ids = [...new Set(notes.map(n => n.createdBy).filter((id): id is string => Boolean(id)))];
+  const users = ids.length ? await db.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+  const names = new Map(users.map(u => [u.id, u.name]));
+  return notes.map(n => ({ ...n, author: n.createdBy ? names.get(n.createdBy) ?? null : null }));
+}

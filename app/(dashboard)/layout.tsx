@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Dock } from "@/components/shared/Dock";
 import { GlobalSearch } from "@/components/shared/GlobalSearch";
+import { NotesButton } from "@/components/shared/NotesButton";
 import { NotificationBell } from "@/components/shared/NotificationBell";
 import { OfflineBanner } from "@/components/shared/OfflineBanner";
 import { ShopSwitch } from "@/components/shared/ShopSwitch";
@@ -71,7 +72,7 @@ export default function DashboardLayout({
       {/* Topbar */}
       {/* Taller by the notch/status bar height when the installed app draws under it. */}
       <header
-        className="relative z-30 flex items-center justify-between gap-2 h-[calc(4rem+env(safe-area-inset-top))] sm:h-[calc(4.5rem+env(safe-area-inset-top))] px-3 sm:px-5 bg-card/80 backdrop-blur-xl border-b border-border/70 shadow-[0_1px_0_rgba(0,0,0,0.02)] shrink-0"
+        className="relative z-30 flex items-center justify-between gap-1.5 sm:gap-2 h-[calc(4rem+env(safe-area-inset-top))] sm:h-[calc(4.5rem+env(safe-area-inset-top))] px-3 sm:px-5 bg-card/80 backdrop-blur-xl border-b border-border/70 shadow-[0_1px_0_rgba(0,0,0,0.02)] shrink-0"
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         {/* Brand */}
@@ -91,7 +92,9 @@ export default function DashboardLayout({
         <GlobalSearch />
 
         {/* Right actions */}
-        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto shrink-0">
+        <div className="flex items-center gap-1 sm:gap-2 ml-auto shrink-0">
+          {/* Notes: a side tool, so it's up here rather than in the dock */}
+          <NotesButton />
           <NotificationBell />
 
           {/* Theme toggle and Settings: in the bar from tablet size up; on phones,

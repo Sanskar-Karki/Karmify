@@ -7,7 +7,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { bookSaleWithUpaya, createFutureOrder, createSale, estimateCourierRate, getCourierStatus } from "@/app/actions";
+import { bookSaleWithUpaya, createFutureOrder, createSale, estimateCourierRate, getCourierStatus, updateNote } from "@/app/actions";
+import { NoteReference } from "@/components/notes/NoteReference";
 import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
 import { BATCH_COURIER_SERVICES, courierMobile, DOOR_TO_DOOR, type CourierArea } from "@/lib/courier";
 import { cn, formatNPR } from "@/lib/utils";
@@ -20,6 +21,7 @@ import { ReceiptDialog } from "@/components/shared/ReceiptDialog";
 import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
+import { fetchResource } from "@/lib/resourceCache";
 import { mutate } from "@/lib/mutate";
 import { countsAsSale, deliveryAddress, findCustomerMatches, itemOptions, itemOptionsText, PAYMENT_STYLES, type CustomerMatch } from "@/lib/orders";
 import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
@@ -86,7 +88,24 @@ type Draft = {
   linkedId?: string | null;
   /** Saved as a future order (sent later, once restocked) instead of completed now. */
   future?: boolean;
+  /** The note this order is being entered from (Notes → Enter as order). */
+  noteId?: string | null;
 };
+
+/** Reloads the Notes list in the background, so it shows a note ticked off from here. */
+const refreshNotes = () => fetchResource(resources.notes.key, resources.notes.fetcher, { force: true }).catch(() => {});
+
+/** Ticks off the note an order was entered from, once the order is saved. */
+async function tickOffNote(id: string) {
+  const done = await updateNote(id, { done: true }).catch(() => null);
+  if (!done?.ok) return; // deleted meanwhile: nothing left to tick
+  void refreshNotes();
+  toast.success("The note is ticked off.", {
+    id: `note-done-${id}`,
+    description: "It's under Notes → Done.",
+    action: { label: "Undo", onClick: () => void updateNote(id, { done: false }).then(refreshNotes, () => {}) },
+  });
+}
 
 const smallField = "w-full pl-8 pr-3 py-2.5 text-xs rounded-xl border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20";
 
@@ -105,6 +124,8 @@ export default function SalesPage() {
 
   const [rawCart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState(BLANK_CUSTOMER);
+  // The note this order is being entered from, shown above the details.
+  const [noteId, setNoteId] = useState<string | null>(null);
   // An existing customer staff confirmed this is, and the ones they said it isn't.
   const [linkedId, setLinkedId] = useState<string | null>(null);
   const [notSame, setNotSame] = useState<string[]>([]);
@@ -185,9 +206,17 @@ export default function SalesPage() {
         if (BATCH_COURIER_SERVICES.some(sv => sv.id === d.courierService)) setCourierService(d.courierService as number);
         if (typeof d.linkedId === "string") setLinkedId(d.linkedId);
         if (d.future === true) setFuture(true);
+        if (typeof d.noteId === "string") setNoteId(d.noteId);
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
+    }
+    // Notes → Enter as order: the link names the note (over one kept in the draft).
+    // It's then dropped from the address, so a reload doesn't bring back a finished note.
+    const fromNote = new URLSearchParams(window.location.search).get("note");
+    if (fromNote) {
+      setNoteId(fromNote);
+      window.history.replaceState(null, "", window.location.pathname);
     }
     draftLoaded.current = true;
     });
@@ -196,12 +225,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, noteId };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, noteId]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -455,6 +484,13 @@ export default function SalesPage() {
     setCourierService(DOOR_TO_DOOR);
   }
 
+  /** The order is saved: tick off the note it was entered from, and put the note away. */
+  function finishNote() {
+    if (!noteId) return;
+    setNoteId(null);
+    void tickOffNote(noteId);
+  }
+
   async function handleCheckout() {
     if (cart.length === 0) return;
     if (fieldErrors.name) return void toast.error(fieldErrors.name);
@@ -515,6 +551,7 @@ export default function SalesPage() {
       if (!saved.ok) return;
       resetOrder();
       setFuture(false);
+      finishNote();
       return;
     }
 
@@ -545,6 +582,7 @@ export default function SalesPage() {
     setShowReceipt(true);
     const bookedService = courierService;
     resetOrder();
+    finishNote();
 
     // The sale is saved; now book it with Upaya. A failure leaves the sale as it
     // is, and it can be booked later from the customer's order.
@@ -587,8 +625,17 @@ export default function SalesPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[19rem_minmax(0,1fr)_20rem] xl:grid-cols-[22rem_minmax(0,1fr)_23rem] gap-4 items-start">
-        {/* LEFT: Customer & payment (after the cart on phones) */}
-        <div className="order-2 lg:order-none lg:sticky lg:top-0 min-w-0">
+        {/* LEFT: Customer & payment. Phones stack the three columns in the same
+            order as a computer: details, then products, then the cart. */}
+        <div className="lg:sticky lg:top-0 min-w-0">
+          {noteId && (
+            <NoteReference
+              noteId={noteId}
+              customer={customer}
+              onFill={(field, value) => setCustomer(c => ({ ...c, [field]: value }))}
+              onClose={() => setNoteId(null)}
+            />
+          )}
           <div className="bg-card border border-border/80 rounded-2xl shadow-sm p-4 space-y-2.5">
               {/* Sale type */}
               <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-muted" role="radiogroup" aria-label="Sale type">
@@ -937,7 +984,7 @@ export default function SalesPage() {
         </div>
 
         {/* MIDDLE: Product Catalog */}
-        <div className="order-1 lg:order-none min-w-0 space-y-3">
+        <div className="min-w-0 space-y-3">
           <div className="flex gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -1030,7 +1077,7 @@ export default function SalesPage() {
         </div>
 
         {/* RIGHT: Cart, total & checkout */}
-        <div className="order-3 lg:order-none lg:sticky lg:top-0 min-w-0 space-y-3">
+        <div className="lg:sticky lg:top-0 min-w-0 space-y-3">
           <div ref={cartRef} className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden scroll-mt-3">
             {/* Cart Header */}
             <div className="p-4 border-b border-border/60 flex items-center justify-between">

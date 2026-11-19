@@ -26,6 +26,7 @@ export default function manifest(): MetadataRoute.Manifest {
     // Long-press the app icon for these.
     shortcuts: [
       { name: "New sale", short_name: "POS", url: "/sales", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
+      { name: "New note", short_name: "Note", url: "/notes?new=1", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
       { name: "Orders", url: "/customers", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
       { name: "Analytics", url: "/analytics", icons: [{ src: "/icons/icon-192.png", sizes: "192x192" }] },
     ],

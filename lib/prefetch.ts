@@ -12,6 +12,7 @@ const ROUTE_RESOURCES: Record<string, (keyof typeof resources)[]> = {
   "/products": ["products", "categories", "suppliers", "stocks"],
   "/inventory": ["products", "stocks", "movements"],
   "/sales": ["activeProducts", "categories", "stocks", "sales"],
+  "/notes": ["notes"],
 };
 
 // Safe to call repeatedly: fetchResource skips fresh entries and shares any

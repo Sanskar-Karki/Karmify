@@ -67,6 +67,7 @@ model Store {
   sales          Sale[]
   deletedSales   DeletedSale[]
   futureOrders   FutureOrder[]
+  notes          Note[]
   customers      Customer[]
   customerSeq    Int             @default(0) // Last customer number issued; only ever goes up
   activities     ActivityLog[]
@@ -347,6 +348,22 @@ model FutureOrder {
   createdBy     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([storeId, createdAt])
+}
+
+// The Notes page: quick jottings while taking orders in a rush, or longer
+// plans. Shared by everyone in the store. The first line reads as the title.
+model Note {
+  id        String    @id @default(uuid())
+  storeId   String
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  body      String
+  pinned    Boolean   @default(false)
+  doneAt    DateTime? // ticked off (e.g. the order was entered); kept under Done
+  createdBy String? // user id
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
   @@index([storeId, createdAt])
 }

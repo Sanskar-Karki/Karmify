@@ -31,6 +31,7 @@ const dockItems: DockItem[] = [
   { name: "Customers", short: "Orders", href: "/customers", icon: Users },
   // Purchases is hidden for now (the page still exists at /purchases).
   { name: "POS & Sales", short: "POS", href: "/sales", icon: ShoppingCart },
+  // Notes is a side tool, so it's in the top bar (NotesButton), not here.
 ];
 
 // Magnification falls off smoothly with distance from the hovered icon,
