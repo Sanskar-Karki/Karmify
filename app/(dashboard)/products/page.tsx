@@ -26,6 +26,7 @@ import { Button } from "@/components/shared/Button";
 import { mutate } from "@/lib/mutate";
 import { useUrlState } from "@/lib/useUrlState";
 import type { Product } from "@/lib/types";
+import { CostMargin } from "@/components/products/CostMargin";
 import { SHOP_BRAND, useShop } from "@/lib/shop";
 import { summarizeVariants, variantCountLabel } from "@/components/shared/VariantStock";
 import { StockTableEditor } from "@/components/products/StockTableEditor";
@@ -154,7 +155,6 @@ export default function ProductsPage() {
     if (result.ok) await refetch();
   }
 
-  const margin = (p: Product) => (p.sellingPrice > 0 ? (((p.sellingPrice - p.costPrice) / p.sellingPrice) * 100).toFixed(0) : "0");
 
   const seededCategories = useRef(false);
 
@@ -380,7 +380,7 @@ export default function ProductsPage() {
                             <div className="min-w-0">
                               <p className="text-sm font-bold text-foreground">{formatNPR(p.sellingPrice)}</p>
                               <p className="text-[11px] text-muted-foreground">
-                                cost {formatNPR(p.costPrice)} · <span className="font-semibold text-emerald-700 dark:text-emerald-400">{margin(p)}%</span>
+                                <CostMargin cost={p.costPrice} price={p.sellingPrice} marginWord={false} />
                                 {p.status !== "active" && <span className="ml-1.5 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-zinc-500 dark:bg-zinc-800">{p.status}</span>}
                               </p>
                             </div>
@@ -407,7 +407,7 @@ export default function ProductsPage() {
                     </td>
                     <td className="px-4 py-4 text-right hidden md:table-cell">
                       <p className="font-bold text-foreground">{formatNPR(p.sellingPrice)}</p>
-                      <p className="text-[11px] text-muted-foreground">cost {formatNPR(p.costPrice)} · <span className="text-emerald-700 dark:text-emerald-400 font-semibold">{margin(p)}% margin</span></p>
+                      <p className="text-[11px] text-muted-foreground"><CostMargin cost={p.costPrice} price={p.sellingPrice} /></p>
                     </td>
                     <td className="px-4 py-4 text-right hidden md:table-cell">
                       <div className="flex flex-col items-end gap-1">

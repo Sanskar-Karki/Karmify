@@ -12,6 +12,7 @@ import { Button } from "@/components/shared/Button";
 import { mutate } from "@/lib/mutate";
 import { SHOP_BRAND, productShop } from "@/lib/shop";
 import type { Product } from "@/lib/types";
+import { useOwnerUnlocked } from "@/lib/ownerLock";
 
 type ProductForm = {
   name: string; sku: string; barcode: string; description: string; brand: string;
@@ -133,6 +134,8 @@ function initialFor(target: EditorTarget, categories: Props["categories"], suppl
 
 function Editor({ target, categories, suppliers, currentStock, onClose, onSaved, onSuppliersChanged }: Props & { target: EditorTarget }) {
   const editingId = target.mode === "edit" ? target.product.id : null;
+  // Cost price is the owner's (Dashboard unlocked on this device); staff never see it, and a save keeps it as it was.
+  const owner = useOwnerUnlocked();
   const [initial] = useState(() => initialFor(target, categories, suppliers, currentStock));
   const [form, setForm] = useState<ProductForm>(initial.form);
   const [variantRows, setVariantRows] = useState<VariantRow[]>(initial.rows);
@@ -153,7 +156,6 @@ function Editor({ target, categories, suppliers, currentStock, onClose, onSaved,
     const missing: string[] = [];
     if (!form.name.trim()) missing.push("Product Name");
     if (!form.categoryId) missing.push("Category");
-    if (!(form.costPrice > 0)) missing.push("Cost Price");
     if (!(form.sellingPrice > 0)) missing.push("Selling Price");
     // A product that has sold out still has to be editable, so 0 is only
     // rejected when creating one.
@@ -169,7 +171,7 @@ function Editor({ target, categories, suppliers, currentStock, onClose, onSaved,
 
     const supplierId = form.supplierId || suppliers[0]?.id || "";
 
-    if (form.sellingPrice < form.costPrice) {
+    if (form.costPrice > 0 && form.sellingPrice < form.costPrice) {
       toast.warning("Selling price is below cost. Saving anyway.", { id: "below-cost" });
     }
 
@@ -338,8 +340,10 @@ function Editor({ target, categories, suppliers, currentStock, onClose, onSaved,
               <p className="text-[11px] text-muted-foreground">Who makes or supplies this product. Full supplier details are in Settings.</p>
             </div>
 
+            {/* Cost price: optional (staff adding a product may not know it), and only the owner sees it. */}
+            {owner && (
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">Cost Price (Rs.) <span className="text-primary">*</span></label>
+              <label className="text-xs font-semibold text-muted-foreground">Cost Price (Rs.) <span className="font-normal">· optional</span></label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -348,10 +352,12 @@ function Editor({ target, categories, suppliers, currentStock, onClose, onSaved,
                 aria-label="Cost Price"
                 placeholder="0.00"
                 value={form.costPrice || ""}
-                onChange={e => setForm(f => ({ ...f, costPrice: parseFloat(e.target.value) || 0 }))}
+                onChange={e => setForm(f => ({ ...f, costPrice: Math.max(0, parseFloat(e.target.value) || 0) }))}
                 className="w-full px-3 py-2.5 rounded-xl border border-border/60 bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/40  focus:border-primary/30 transition-all hover:border-border/80"
               />
+              <p className="text-[11px] text-muted-foreground">Leave empty if you don&apos;t know it yet; add it later to see the margin.</p>
             </div>
+            )}
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground">Selling Price (Rs.) <span className="text-primary">*</span></label>

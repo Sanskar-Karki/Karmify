@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Search, Users, ChevronRight, Plus, Edit2, X, Calendar, RefreshCw, Globe, Trash2,
   ShoppingBag, Wallet, Truck, Download, Tag, Receipt, ClipboardList, ArchiveRestore,
+  ListChecks,
 } from "lucide-react";
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
 import { FutureOrdersPanel } from "@/components/orders/FutureOrdersPanel";
@@ -39,6 +40,7 @@ import { mutate } from "@/lib/mutate";
 import { countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,instantCourierLabel, isPR, itemName, codToCollect, codAmountOf, referralLabel, isFromAd,
 } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
+import { useOwnerUnlocked } from "@/lib/ownerLock";
 import { useOrderFilters } from "@/lib/useOrderFilters";
 import { downloadCsv } from "@/lib/csv";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -371,6 +373,8 @@ export default function CustomersPage() {
   const allVisibleSelected = displayed.length > 0 && selectedVisible.length === displayed.length;
 
   // Sent with Upaya: the same three numbers Analytics shows for these days.
+  // The owner unlocked Dashboard & Analytics on this device; elsewhere it's staff.
+  const ownerUnlocked = useOwnerUnlocked();
   const upayaSummary = useMemo(() => (byUpayaSend ? upayaTotals(filtered) : null), [byUpayaSend, filtered]);
   const summary = useMemo(() => ({
     revenue: filtered.filter(countsAsSale).reduce((total, s) => total + s.totalAmount, 0),
@@ -711,16 +715,17 @@ export default function CustomersPage() {
             {(upayaSummary
               ? [
                   { label: upayaSummary.parcels === 1 ? "parcel sent with Upaya" : "parcels sent with Upaya", val: upayaSummary.parcels.toLocaleString(), icon: Truck },
-                  { label: "order value sent", val: formatNPR(upayaSummary.value), icon: Wallet },
-                  { label: "COD for Upaya to collect", val: formatNPR(upayaSummary.cod), icon: Receipt },
+                  { label: "order value sent", val: formatNPR(upayaSummary.value), icon: Wallet, money: true },
+                  { label: "COD for Upaya to collect", val: formatNPR(upayaSummary.cod), icon: Receipt, money: true },
                 ]
               : [
                   { label: filtered.length === 1 ? "order" : "orders", val: filtered.length.toLocaleString(), icon: ShoppingBag },
-                  { label: "revenue", val: formatNPR(summary.revenue), icon: Wallet },
+                  { label: "revenue", val: formatNPR(summary.revenue), icon: Wallet, money: true },
                   { label: "to deliver", val: summary.pending.toLocaleString(), icon: Truck },
                   { label: "unpaid", val: summary.unpaid.toLocaleString(), icon: Receipt },
                 ]
-            ).map(stat => (
+            // Money totals are for the owner: staff (Dashboard not unlocked here) see only the counts.
+            ).filter(stat => ownerUnlocked || !("money" in stat)).map(stat => (
               <span key={stat.label} className="flex items-center gap-1.5 whitespace-nowrap">
                 <stat.icon size={13} aria-hidden />
                 {loading ? <Pulse className="h-3.5 w-10" /> : <span className="font-bold text-foreground tabular-nums">{stat.val}</span>}
@@ -778,6 +783,14 @@ export default function CustomersPage() {
               <Truck size={14} className={cn(refreshingCourier && "animate-pulse")} /> <span className="hidden sm:inline">Refresh Upaya</span>
             </Button>
           )}
+          <Link
+            href="/upaya"
+            aria-label="Upaya follow-up"
+            title="Only the orders booked with Upaya, by where they are now, for follow-up"
+            className="flex w-10 flex-none items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-0 py-2 text-[13px] font-semibold text-foreground hover:bg-muted transition-colors whitespace-nowrap sm:w-auto sm:px-3"
+          >
+            <ListChecks size={14} /> <span className="hidden sm:inline">Upaya follow-up</span>
+          </Link>
           <Link
             href="/sales"
             className="flex items-center justify-center gap-1.5 flex-1 sm:flex-none px-3.5 py-2 text-[13px] font-semibold bg-primary text-primary-foreground rounded-lg shadow-sm shadow-primary/20 hover:bg-primary/90 transition-colors whitespace-nowrap"

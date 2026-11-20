@@ -13,6 +13,7 @@ import {
   Package,
   ArrowLeftRight,
   ShoppingCart,
+  Truck,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -28,8 +29,10 @@ interface DockItem {
 const dockItems: DockItem[] = [
   { name: "Dashboard", short: "Home", href: "/dashboard", icon: LayoutDashboard },
   { name: "Analytics", short: "Analytics", href: "/analytics", icon: ChartColumn },
-  { name: "Inventory", short: "Stock", href: "/inventory", icon: ArrowLeftRight },
+  // Upaya follow-up: only the orders booked with Upaya, by where they are.
+  { name: "Upaya", short: "Upaya", href: "/upaya", icon: Truck },
   { name: "Products", short: "Products", href: "/products", icon: Package },
+  { name: "Inventory", short: "Stock", href: "/inventory", icon: ArrowLeftRight },
   { name: "Customers", short: "Orders", href: "/customers", icon: Users },
   // Purchases is hidden for now (the page still exists at /purchases).
   { name: "POS & Sales", short: "POS", href: "/sales", icon: ShoppingCart },

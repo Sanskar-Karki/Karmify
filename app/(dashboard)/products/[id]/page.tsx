@@ -11,6 +11,7 @@ import {
 import { adjustStock, getProductHistory, setVariantStock } from "@/app/actions";
 import { ProductEditor } from "@/components/products/ProductEditor";
 import { mutate } from "@/lib/mutate";
+import { CostMargin } from "@/components/products/CostMargin";
 import { cn, formatNPR } from "@/lib/utils";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
@@ -157,7 +158,6 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
 
   const category = categories.find(c => c.id === product.categoryId)?.name ?? "—";
   const supplier = suppliers.find(s => s.id === product.supplierId)?.companyName ?? "—";
-  const margin = product.sellingPrice > 0 ? Math.round(((product.sellingPrice - product.costPrice) / product.sellingPrice) * 100) : 0;
   const movements = history ? history.movements.filter(m => filter === "all" || MOVEMENT[m.type]?.group === filter) : [];
 
   return (
@@ -194,7 +194,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             </div>
             <p className="mt-2 text-sm">
               <span className="font-black">{formatNPR(product.sellingPrice)}</span>
-              <span className="text-[12px] text-muted-foreground"> · cost {formatNPR(product.costPrice)} · <span className="font-semibold text-emerald-700 dark:text-emerald-400">{margin}% margin</span></span>
+              <span className="text-[12px] text-muted-foreground"><CostMargin cost={product.costPrice} price={product.sellingPrice} prefix=" · " /></span>
             </p>
           </div>
         </div>

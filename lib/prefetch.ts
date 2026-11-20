@@ -9,6 +9,7 @@ const ROUTE_RESOURCES: Record<string, (keyof typeof resources)[]> = {
   "/dashboard": ["products", "sales", "stocks", "movements", "categories", "activities"],
   "/analytics": ["sales", "products", "categories"],
   "/customers": ["sales"],
+  "/upaya": ["sales"],
   "/products": ["products", "categories", "suppliers", "stocks"],
   "/inventory": ["products", "stocks", "movements"],
   "/sales": ["activeProducts", "categories", "stocks", "sales"],

@@ -21,6 +21,43 @@ const RETURN_STATUSES = [
   "return-received-at-central-facility", "out-for-return", "on-field-failed-return",
 ];
 
+/**
+ * Where a parcel is, in the steps Upaya's own dashboard counts (the Upaya page's
+ * boxes). Together they make up "In process": everything not delivered, returned
+ * to us, waiting on a return follow-up, lost or cancelled.
+ */
+export const UPAYA_STAGES = [
+  { id: "ready", label: "Ready for pickup", statuses: ["unassigned-pickup", "assigned-pickup"] },
+  { id: "picked", label: "Picked up", statuses: ["picked-up-by-rider"] },
+  { id: "failed-pickup", label: "Failed pickup", statuses: ["failed-pickup"] },
+  { id: "origin-hub", label: "Received at origin hub", statuses: ["inbound-at-warehouse"] },
+  { id: "with-rider", label: "Dispatched with rider", statuses: ["dispatched-with-rider", "redirected"] },
+  { id: "transit", label: "In transit", statuses: ["midmile-sortation", "prepared-for-transit", "in-transit-to-hub", "in-transit"] },
+  { id: "dest-hub", label: "Arrived at destination hub", statuses: ["received-at-hub", "ready-for-dispatch"] },
+  { id: "return", label: "Return process", statuses: RETURN_STATUSES.filter(s => s !== "followup-for-return") },
+  { id: "hold", label: "Hold", statuses: ["hold"] },
+  { id: "failed-delivery", label: "On-field failed delivery", statuses: ["on-field-failed-delivery"] },
+] as const;
+
+export type UpayaStage = (typeof UPAYA_STAGES)[number]["id"] | "other";
+export type UpayaBucket = "delivered" | "process" | "rto" | "followup" | "lost" | "cancelled";
+
+/**
+ * Which box an Upaya status belongs in. A booking not read back yet counts as
+ * ready for pickup; a status Upaya adds later counts as in process ("other"),
+ * as Upaya's docs ask.
+ */
+export function upayaPlace(slug?: string | null): { bucket: UpayaBucket; stage: UpayaStage | null } {
+  const status = slug || "unassigned-pickup";
+  if (status === "delivered") return { bucket: "delivered", stage: null };
+  if (status === "returned-to-vendor") return { bucket: "rto", stage: null };
+  if (status === "followup-for-return") return { bucket: "followup", stage: null };
+  if (status === "loss-and-damage" || status === "dispose") return { bucket: "lost", stage: null };
+  if (status === "cancelled") return { bucket: "cancelled", stage: null };
+  const stage = UPAYA_STAGES.find(s => (s.statuses as readonly string[]).includes(status));
+  return { bucket: "process", stage: stage?.id ?? "other" };
+}
+
 /** Track-order reports "Picked Up By Rider"; webhooks and lists say "picked-up-by-rider". */
 export const courierStatusSlug = (display: string) => display.trim().toLowerCase().replace(/\s+/g, "-");
 

@@ -38,6 +38,7 @@ const PAGES: SearchResult[] = [
   { id: "p-inventory", type: "Page", label: "Inventory", sub: "Stock & movements", href: "/inventory", icon: ArrowLeftRight },
   { id: "p-products", type: "Page", label: "Products", sub: "Catalog management", href: "/products", icon: Package },
   { id: "p-customers", type: "Page", label: "Customers", sub: "Customers & orders", href: "/customers", icon: Users },
+  { id: "p-upaya", type: "Page", label: "Upaya", sub: "Upaya orders for follow-up", href: "/upaya", icon: Truck },
   { id: "p-sales", type: "Page", label: "POS & Sales", sub: "Checkout terminal", href: "/sales", icon: ShoppingCart },
   { id: "p-settings", type: "Page", label: "Settings", sub: "Store & suppliers", href: "/settings", icon: Settings },
 ];

@@ -203,7 +203,7 @@ export default function NotesPage() {
     <div className="mx-auto max-w-6xl space-y-4 animate-fade-in">
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight">Notes</h1>
-        <p className="mt-0.5 text-xs text-muted-foreground">Jot things down in a rush, or write out a plan. Everyone in the shop sees them.</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">Jot things down .</p>
       </div>
 
       {/* Quick box */}

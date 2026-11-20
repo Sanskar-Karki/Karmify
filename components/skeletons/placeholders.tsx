@@ -396,6 +396,28 @@ export function CustomersPlaceholder() {
   );
 }
 
+/** The Upaya page: title, the five totals, the step boxes and the list. */
+export function UpayaPlaceholder() {
+  return (
+    <Loading label="Loading Upaya orders">
+      <div className="space-y-2">
+        <Pulse className="h-2.5 w-40" />
+        <Pulse className="h-6 w-48" />
+        <Pulse className="h-3 w-80 max-w-full" />
+      </div>
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+        {Array.from({ length: 5 }, (_, i) => <Pulse key={i} className={cn("h-[86px] rounded-2xl", i === 0 && "col-span-2 sm:col-span-1")} />)}
+      </div>
+      <div className={cn(card, "grid grid-cols-2 gap-2 p-2.5 sm:grid-cols-3 lg:grid-cols-5")}>
+        {Array.from({ length: 10 }, (_, i) => <Pulse key={i} className="h-[62px] rounded-xl" />)}
+      </div>
+      <div className={cn(card, "space-y-2 p-3")}>
+        {Array.from({ length: 5 }, (_, i) => <Pulse key={i} className="h-14 w-full rounded-xl" />)}
+      </div>
+    </Loading>
+  );
+}
+
 export function CustomerDetailPlaceholder() {
   return (
     <Loading label="Loading customer">
