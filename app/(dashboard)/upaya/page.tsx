@@ -2,8 +2,9 @@
 
 import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
-  AlertTriangle, ArrowUpDown, Bike, CheckCircle2, ChevronRight, Gift, Globe, Megaphone, Package, PackageOpen, Phone, RefreshCw, Route, Search, Truck, Undo2, X,
+  AlertTriangle, ArrowUpDown, Bike, CheckCircle2, ChevronRight, Gift, Globe, Megaphone, MessageSquare, Package, PackageOpen, Phone, RefreshCw, Route, Search, Truck, Undo2, X,
   type LucideIcon,
 } from "lucide-react";
 import { refreshCourierShipments } from "@/app/actions";
@@ -120,7 +121,7 @@ export default function UpayaPage() {
   const [sortChoice, setSortChoice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [tracking, setTracking] = useState<Sale | null>(null);
+  const [tracking, setTracking] = useState<{ sale: Sale; comment: boolean } | null>(null);
   const listRef = useRef<HTMLElement>(null);
 
   // Orders booked with Upaya (a cancelled booking doesn't count, as on Upaya's dashboard).
@@ -404,29 +405,30 @@ export default function UpayaPage() {
           <>
             {/* Computers: a table */}
             <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[76rem] table-fixed text-left">
+            <table className="w-full min-w-[86rem] table-fixed text-left">
               <thead>
                 <tr className="bg-muted/60 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   <th scope="col" className="w-14 py-2.5 pl-4 pr-2"><span className="sr-only">Row </span>#</th>
-                  <th scope="col" className="w-40 px-3 py-2.5">Order</th>
-                  <th scope="col" className="w-48 px-3 py-2.5">Customer</th>
-                  <th scope="col" className="px-3 py-2.5">Going to</th>
-                  <th scope="col" className="w-36 px-3 py-2.5">Type</th>
-                  <th scope="col" className="w-44 px-3 py-2.5">Upaya status</th>
-                  <th scope="col" className="w-32 px-3 py-2.5 text-right">COD</th>
-                  <th scope="col" className="w-32 px-3 py-2.5">Booked</th>
-                  <th scope="col" className="w-48 py-2.5 pl-3 pr-4 text-right"><span className="sr-only">Tracking</span></th>
+                  <th scope="col" className="w-36 px-3 py-2.5">Order</th>
+                  <th scope="col" className="px-3 py-2.5">Customer</th>
+                  <th scope="col" className="w-48 px-3 py-2.5">Going to</th>
+                  <th scope="col" className="w-28 px-3 py-2.5">Type</th>
+                  <th scope="col" className="w-40 px-3 py-2.5">Upaya status</th>
+                  <th scope="col" className="w-24 px-3 py-2.5 text-right">COD</th>
+                  <th scope="col" className="w-56 px-3 py-2.5">Latest comment</th>
+                  <th scope="col" className="w-44 px-3 py-2.5">Tracking</th>
+                  <th scope="col" className="w-28 py-2.5 pl-3 pr-4">Booked</th>
                 </tr>
               </thead>
               <tbody>
-                {visible.map((row, i) => <TableRow key={row.sale.id} n={i + 1} {...row} onTrack={setTracking} />)}
+                {visible.map((row, i) => <TableRow key={row.sale.id} n={i + 1} {...row} onTrack={(sale, comment) => setTracking({ sale, comment })} />)}
               </tbody>
             </table>
             </div>
 
             {/* Phones: numbered cards */}
             <ol className="divide-y divide-border/50 md:hidden">
-              {visible.map((row, i) => <CardRow key={row.sale.id} n={i + 1} {...row} onTrack={setTracking} />)}
+              {visible.map((row, i) => <CardRow key={row.sale.id} n={i + 1} {...row} onTrack={(sale, comment) => setTracking({ sale, comment })} />)}
             </ol>
           </>
         )}
@@ -434,7 +436,14 @@ export default function UpayaPage() {
       </section>
 
       {tracking && (
-        <CourierDialog key={tracking.id} open onClose={() => setTracking(null)} sale={tracking} onChanged={() => refetch({ quiet: true })} />
+        <CourierDialog
+          key={tracking.sale.id}
+          open
+          onClose={() => setTracking(null)}
+          sale={tracking.sale}
+          focusComment={tracking.comment}
+          onChanged={() => refetch({ quiet: true })}
+        />
       )}
     </div>
   );
@@ -447,7 +456,7 @@ function Count({ value, loading, className }: { value: number; loading: boolean;
     : <span className={cn("font-display tabular-nums", className)}>{value.toLocaleString()}</span>;
 }
 
-type RowProps = { n: number; sale: Sale; at: Date; bucket: UpayaBucket; onTrack: (sale: Sale) => void };
+type RowProps = { n: number; sale: Sale; at: Date; bucket: UpayaBucket; onTrack: (sale: Sale, comment: boolean) => void };
 
 /** What a row says about its age: still moving and old is amber, very old red. */
 function age({ at, bucket }: Pick<RowProps, "at" | "bucket">) {
@@ -495,12 +504,30 @@ function CallLink({ sale, className }: { sale: Sale; className?: string }) {
   );
 }
 
+/**
+ * A click anywhere on a row opens the customer's page, as on Customers & Orders,
+ * except on the row's own links and buttons, or while selecting text to copy.
+ */
+function useOpenCustomer() {
+  const router = useRouter();
+  return (e: React.MouseEvent<HTMLElement>, sale: Sale) => {
+    const target = e.target as HTMLElement;
+    if (!e.currentTarget.contains(target)) return;
+    if (target.closest("a, button, input, select, textarea, label, [role='dialog']")) return;
+    if (window.getSelection()?.toString()) return;
+    const href = `/customers/${encodeURIComponent(customerKey(sale))}`;
+    if (e.ctrlKey || e.metaKey) window.open(href, "_blank");
+    else router.push(href);
+  };
+}
+
 function TableRow({ n, sale, at, bucket, onTrack }: RowProps) {
   const { tone, text } = age({ at, bucket });
   const cod = upayaCod(sale);
   const address = deliveryAddress(sale.customerAddress);
+  const openCustomer = useOpenCustomer();
   return (
-    <tr className="border-t border-border/50 align-middle transition-colors hover:bg-muted/40">
+    <tr onClick={e => openCustomer(e, sale)} className="data-row cursor-pointer border-t border-border/50 align-middle">
       <td className="py-3 pl-4 pr-2"><RowNumber n={n} /></td>
       <td className="px-3 py-3">
         <Link href={`/customers/${encodeURIComponent(customerKey(sale))}`} className="font-mono text-xs font-bold hover:text-primary">{sale.invoiceNumber}</Link>
@@ -524,22 +551,25 @@ function TableRow({ n, sale, at, bucket, onTrack }: RowProps) {
       <td className="px-3 py-3 text-right">
         {cod > 0 ? <span className="whitespace-nowrap text-[13px] font-bold tabular-nums">{formatNPR(cod)}</span> : <span className="text-xs text-muted-foreground">No COD</span>}
       </td>
-      <td className="px-3 py-3" title={at.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}>
+      <td className="px-3 py-3">
+        <LatestComment sale={sale} onTrack={onTrack} />
+      </td>
+      <td className="px-3 py-3">
+        <TrackButton sale={sale} onTrack={onTrack} />
+      </td>
+      <td className="py-3 pl-3 pr-4" title={at.toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}>
         <p className={cn("text-xs", tone)}>{text}</p>
         <p className="text-[10px] text-muted-foreground">{shortDate(at)}</p>
-      </td>
-      <td className="py-3 pl-3 pr-4 text-right">
-        <TrackButton sale={sale} onTrack={onTrack} />
       </td>
     </tr>
   );
 }
 
-function TrackButton({ sale, onTrack }: { sale: Sale; onTrack: (sale: Sale) => void }) {
+function TrackButton({ sale, onTrack }: Pick<RowProps, "sale" | "onTrack">) {
   return (
     <button
       type="button"
-      onClick={() => onTrack(sale)}
+      onClick={() => onTrack(sale, false)}
       title="Upaya's tracking history for this parcel"
       aria-label={`Track ${sale.invoiceNumber} (${sale.courierTrackingCode})`}
       className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold transition-colors hover:border-primary/40 hover:bg-primary/5"
@@ -550,12 +580,53 @@ function TrackButton({ sale, onTrack }: { sale: Sale; onTrack: (sale: Sale) => v
   );
 }
 
+/**
+ * The newest comment on the parcel (saved each time Karmify checks it with
+ * Upaya), and who wrote it. Opens the full thread with the cursor in the box.
+ */
+function LatestComment({ sale, onTrack, className }: Pick<RowProps, "sale" | "onTrack"> & { className?: string }) {
+  const comment = sale.courierComment?.trim();
+  if (!comment) {
+    return (
+      <button
+        type="button"
+        onClick={() => onTrack(sale, true)}
+        aria-label={`Comment to Upaya on ${sale.invoiceNumber}`}
+        className={cn("inline-flex items-center gap-1 rounded-md py-1 text-xs text-muted-foreground transition-colors hover:text-primary", className)}
+      >
+        <MessageSquare size={12} aria-hidden /> Add comment
+      </button>
+    );
+  }
+  const by = sale.courierCommentBy ?? "Upaya";
+  const ours = by === "You";
+  return (
+    <button
+      type="button"
+      onClick={() => onTrack(sale, true)}
+      title={`${by}: ${comment}`}
+      aria-label={`Latest comment on ${sale.invoiceNumber}, from ${by}: ${comment}. Open comments`}
+      className={cn(
+        "block w-full rounded-lg border px-2.5 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-primary/5",
+        ours ? "border-primary/15 bg-primary/5" : "border-border bg-muted/40",
+        className,
+      )}
+    >
+      <span className={cn("flex items-center gap-1 text-[10px] font-bold", ours ? "text-primary dark:text-pink-300" : "text-muted-foreground")}>
+        <MessageSquare size={10} aria-hidden /> {by}
+      </span>
+      <span className="line-clamp-2 break-words text-xs text-foreground">{comment}</span>
+    </button>
+  );
+}
+
 function CardRow({ n, sale, at, bucket, onTrack }: RowProps) {
   const { tone, text } = age({ at, bucket });
   const cod = upayaCod(sale);
   const address = deliveryAddress(sale.customerAddress);
+  const openCustomer = useOpenCustomer();
   return (
-    <li className="flex gap-3 px-3 py-3.5">
+    <li onClick={e => openCustomer(e, sale)} className="data-row flex cursor-pointer gap-3 px-3 py-3.5">
       <RowNumber n={n} />
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex items-baseline justify-between gap-2">
@@ -570,6 +641,7 @@ function CardRow({ n, sale, at, bucket, onTrack }: RowProps) {
         <p className="text-xs text-muted-foreground">
           {address || "No address"}{sale.courierAreaTitle && <> · Hub: {sale.courierAreaTitle}</>}
         </p>
+        <LatestComment sale={sale} onTrack={onTrack} />
         <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
           <span className="flex flex-wrap items-center gap-2">
             <StatusPill sale={sale} />

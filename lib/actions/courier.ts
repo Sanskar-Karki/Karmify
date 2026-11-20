@@ -6,13 +6,13 @@ import { requireTenant } from "@/lib/tenant";
 import { logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
 import {
-  courierCodAmount, courierMobile, courierReference, courierStillOpen, DOOR_TO_DOOR, isCourierService, splitCourierAddress, type CourierOrderForm,
+  COURIER_COMMENT_MAX, courierCodAmount, courierMobile, courierReference, courierStillOpen, DOOR_TO_DOOR, isCourierService, splitCourierAddress, type CourierOrderForm,
 } from "@/lib/courier";
 import { instantCourierLabel, itemName } from "@/lib/orders";
 import { exchangeLineName, exchangeOf, type SaleExchange } from "@/lib/exchange";
-import { courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
+import { commentWriter, courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
-  createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError, valleyLocationIds,
+  addOrderComment, createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError, valleyLocationIds,
 } from "@/lib/upaya";
 
 // Longer than the slowest booking can take, so a live claim is never stolen.
@@ -296,6 +296,37 @@ export async function getCourierTracking(saleId: string) {
       if (result.changed) revalidatePath("/customers");
       return result;
     } catch (err) {
+      throw upayaMessage(err, "Could not reach Upaya. Try again shortly.");
+    }
+  });
+}
+
+/** Sends a message about a booked parcel to Upaya's team (e.g. "deliver after 4 PM"). */
+export async function addCourierComment(saleId: string, comment: string) {
+  return guarded("Could not send the comment to Upaya.", async () => {
+    const tenant = await requireCourierTenant();
+    const text = comment.replace(/\s+/g, " ").trim();
+    if (!text) throw new UserError("Write a comment first.");
+    if (text.length > COURIER_COMMENT_MAX) throw new UserError(`Keep the comment under ${COURIER_COMMENT_MAX} characters.`);
+
+    const sale = await db.sale.findFirst({
+      where: { id: saleId, storeId: tenant.storeId },
+      select: { invoiceNumber: true, courierTrackingCode: true, courierStatus: true },
+    });
+    if (!sale?.courierTrackingCode || sale.courierStatus === "cancelled") throw new UserError("This order isn't booked with Upaya.");
+
+    try {
+      const saved = await addOrderComment(sale.courierTrackingCode, text);
+      await db.sale.updateMany({
+        where: { id: saleId, storeId: tenant.storeId },
+        data: { courierComment: saved.text, courierCommentBy: commentWriter(saved) },
+      }).catch(err => console.error("[upaya] couldn't save the latest comment", err));
+      await logActivity(tenant, "Upaya Comment", `${sale.invoiceNumber}: ${text}`);
+      revalidatePath("/upaya");
+      return saved;
+    } catch (err) {
+      // No reply means it may have arrived: say so, so nobody posts it twice.
+      if (isUncertainOutcome(err)) throw new UserError("Upaya didn't answer, so the comment may or may not have arrived. Reopen this parcel to check before sending it again.");
       throw upayaMessage(err, "Could not reach Upaya. Try again shortly.");
     }
   });

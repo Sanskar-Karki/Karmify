@@ -144,7 +144,14 @@ export type CourierTracking = {
   serviceCharge: number | null;
   serviceChargeStatus: string | null;
   history: { at: string | null; status: string | null; by: string | null; hub: string | null; remarks: string | null }[];
+  /** Messages between us and Upaya about this parcel, newest first as Upaya sends them. `fromUs` is a comment Karmify (or the shop) sent. */
+  comments: CourierComment[];
 };
+
+export type CourierComment = { by: string | null; text: string; at: string | null; fromUs: boolean };
+
+/** Upaya doesn't publish a limit; this keeps a comment to a readable message. */
+export const COURIER_COMMENT_MAX = 500;
 
 export const DOOR_TO_DOOR = 3;
 export const DOOR_TO_BRANCH = 9;

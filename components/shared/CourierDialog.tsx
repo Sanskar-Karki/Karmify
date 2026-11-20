@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, Copy, MapPin, Search, Truck, X } from "lucide-react";
+import { AlertCircle, Check, Copy, MapPin, MessageSquare, Search, Send, Truck, X } from "lucide-react";
 import { toast } from "sonner";
-import { estimateCourierRate, getCourierSetup, getCourierTracking, searchCourierAreas, sendOrderToCourier } from "@/app/actions";
+import { addCourierComment, estimateCourierRate, getCourierSetup, getCourierTracking, searchCourierAreas, sendOrderToCourier } from "@/app/actions";
 import { Modal } from "@/components/shared/Modal";
 import { Button } from "@/components/shared/Button";
 import { Dropdown } from "@/components/shared/Dropdown";
@@ -12,8 +12,8 @@ import { cn, formatNPR } from "@/lib/utils";
 import { mutate } from "@/lib/mutate";
 import { itemName, codToCollect } from "@/lib/orders";
 import {
-  COURIER_SERVICES, courierMobile, courierStatusLabel, courierStatusStyle, splitCourierAddress,
-  type CourierArea, type CourierCategory, type CourierTracking,
+  COURIER_COMMENT_MAX, COURIER_SERVICES, courierMobile, courierStatusLabel, courierStatusStyle, splitCourierAddress,
+  type CourierArea, type CourierCategory, type CourierComment, type CourierTracking,
 } from "@/lib/courier";
 import type { Sale } from "@/lib/types";
 
@@ -273,11 +273,93 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
   );
 }
 
-function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }) {
+function TrackingView({ sale, onUpdated, focusComment }: { sale: Sale; onUpdated: () => void; focusComment?: boolean }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-6">
-      <CourierTrackingPanel sale={sale} onUpdated={onUpdated} />
+      <CourierTrackingPanel sale={sale} onUpdated={onUpdated} focusComment={focusComment} />
     </div>
+  );
+}
+
+/**
+ * The conversation with Upaya about one parcel, newest first as on Upaya's
+ * dashboard: a box to send a new one, then their team's and the rider's notes,
+ * ours on the right. Upaya's API gives no times, so only a comment just sent has one.
+ */
+function CourierComments({ sale, comments, onSent, focus }: {
+  sale: Sale; comments: CourierComment[]; onSent: (comment: CourierComment) => void; focus?: boolean;
+}) {
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const box = useRef<HTMLTextAreaElement>(null);
+  const id = `courier-comment-${sale.id}`;
+  const text = draft.trim();
+
+  // The box appears only once Upaya has answered, after the dialog has placed its focus.
+  useEffect(() => {
+    if (focus) box.current?.focus({ preventScroll: false });
+  }, [focus]);
+
+  async function send() {
+    if (!text || sending) return;
+    setSending(true);
+    const result = await mutate(() => addCourierComment(sale.id, text), { loading: "Sending to Upaya…", success: "Comment sent to Upaya." });
+    setSending(false);
+    if (!result.ok) return;
+    onSent(result.data);
+    setDraft("");
+  }
+
+  return (
+    <section aria-labelledby={`${id}-title`} className="space-y-2.5">
+      <h3 id={`${id}-title`} className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+        <MessageSquare size={13} aria-hidden /> Comments{comments.length > 0 && <span className="tabular-nums">· {comments.length}</span>}
+      </h3>
+      <div className="space-y-1.5">
+        <label htmlFor={id} className="sr-only">Comment for Upaya</label>
+        <textarea
+          id={id}
+          ref={box}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          rows={2}
+          maxLength={COURIER_COMMENT_MAX}
+          placeholder="e.g. Customer asked for delivery after 4 PM"
+          className={cn(fieldClass, "resize-y min-h-[3.75rem]")}
+        />
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] text-muted-foreground">Goes to Upaya&apos;s operations team. {draft.length > COURIER_COMMENT_MAX - 50 && <span className="tabular-nums">{draft.length}/{COURIER_COMMENT_MAX}</span>}</p>
+          <Button onClick={() => void send()} loading={sending} disabled={!text} className="shrink-0 px-3.5 py-2 text-xs">
+            {!sending && <Send size={13} aria-hidden />} {sending ? "Sending…" : "Send"}
+          </Button>
+        </div>
+      </div>
+      {comments.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No comments yet. Their team&apos;s and the rider&apos;s replies show up here, newest first.</p>
+      ) : (
+        <ol className="space-y-2">
+          {comments.map((c, i) => (
+            <li key={i} className={cn("flex", c.fromUs ? "justify-end" : "justify-start")}>
+              <div className={cn(
+                "max-w-[85%] rounded-2xl px-3 py-2 text-sm",
+                c.fromUs ? "rounded-br-md bg-primary/10 text-foreground" : "rounded-bl-md border border-border bg-muted/50",
+              )}>
+                <p className="text-[11px] font-semibold text-muted-foreground">
+                  {c.fromUs ? "You" : c.by ?? "Rider"}{c.at && <span className="font-normal"> · {c.at}</span>}
+                </p>
+                <p className="whitespace-pre-wrap break-words">{c.text}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 
@@ -287,7 +369,11 @@ function TrackingView({ sale, onUpdated }: { sale: Sale; onUpdated: () => void }
  * dialog and inline on a customer's order while it's on its way; `latest`
  * shows only that many recent updates at first, with the rest a click away.
  */
-export function CourierTrackingPanel({ sale, onUpdated, latest }: { sale: Sale; onUpdated: () => void; latest?: number }) {
+export function CourierTrackingPanel({ sale, onUpdated, latest, focusComment }: {
+  sale: Sale; onUpdated: () => void; latest?: number;
+  /** Opened to write a comment: the comment box takes the focus. */
+  focusComment?: boolean;
+}) {
   const [tracking, setTracking] = useState<CourierTracking | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -365,6 +451,19 @@ export function CourierTrackingPanel({ sale, onUpdated, latest }: { sale: Sale; 
               </div>
             ))}
           </dl>
+          <CourierComments
+            sale={sale}
+            comments={tracking.comments}
+            focus={focusComment}
+            onSent={comment => {
+              setTracking(t => t && { ...t, comments: [comment, ...t.comments] });
+              // The order now has a new latest comment: lists showing it reload.
+              onUpdated();
+            }}
+          />
+          {history.length > 0 && (
+            <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Tracking history</h3>
+          )}
           {history.length > 0 && (
             <ol className="border-l-2 border-border ml-1 space-y-3">
               {shown.map((entry, i) => (
@@ -394,10 +493,12 @@ interface CourierDialogProps {
   sale: Sale;
   /** The order's courier details changed and the list should reload. */
   onChanged: () => void;
+  /** For a booked parcel: open with the cursor in the comment box. */
+  focusComment?: boolean;
 }
 
 /** Books an order with Upaya, or shows where it is once booked. */
-export function CourierDialog({ open, onClose, sale, onChanged }: CourierDialogProps) {
+export function CourierDialog({ open, onClose, sale, onChanged, focusComment }: CourierDialogProps) {
   const booked = Boolean(sale.courierTrackingCode) && sale.courierStatus !== "cancelled";
 
   return (
@@ -411,7 +512,7 @@ export function CourierDialog({ open, onClose, sale, onChanged }: CourierDialogP
     >
       <div className="flex flex-col max-h-[calc(92dvh-5rem)]">
         {booked
-          ? <TrackingView sale={sale} onUpdated={onChanged} />
+          ? <TrackingView sale={sale} onUpdated={onChanged} focusComment={focusComment} />
           : <SendForm sale={sale} onClose={onClose} onBooked={() => { onChanged(); onClose(); }} />}
       </div>
     </Modal>

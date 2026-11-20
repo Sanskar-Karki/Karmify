@@ -1,6 +1,8 @@
 import "server-only";
 
-import { courierStatusSlug, isValleyHub, sameCourierReference, type CourierArea, type CourierCategory, type CourierTracking } from "@/lib/courier";
+import {
+  courierStatusSlug, isValleyHub, sameCourierReference, type CourierArea, type CourierCategory, type CourierComment, type CourierTracking,
+} from "@/lib/courier";
 
 // Client for the Upaya courier API. The key stays on the server: this module
 // can't be imported by browser code, and neither the key nor request headers
@@ -203,7 +205,37 @@ type RawTracking = {
   serviceCharge?: number | string;
   serviceChargeStatus?: string;
   trackingHistory?: { createdAt?: string; status?: string; activityBy?: string; hubName?: string; actionRemarks?: string }[];
+  comments?: RawComment[];
 };
+
+// Upaya sends userName, comment and isClient only, newest first (checked on a
+// real order 2026-11-20). There's no time; the other time names are tried in
+// case one appears. Riders come through with an empty userName, and Upaya's
+// team as "hub_admin" (their dashboard calls them "Upaya Staff").
+type RawComment = {
+  userName?: string; commentedBy?: string; comment?: string; isClient?: boolean | number | string;
+  createdAt?: string; commentedAt?: string; created_at?: string;
+};
+
+const isTrue = (value: unknown) => value === true || value === 1 || value === "1" || value === "true";
+
+function commenter(name: string | null, fromUs: boolean) {
+  if (fromUs) return name;
+  if (!name) return "Rider";
+  return /admin|staff/i.test(name) ? "Upaya staff" : name;
+}
+
+function readComment(raw: RawComment): CourierComment | null {
+  const body = text(raw.comment);
+  if (!body) return null;
+  const fromUs = isTrue(raw.isClient) || raw.commentedBy === "Client";
+  return {
+    by: commenter(text(raw.userName) ?? text(raw.commentedBy), fromUs),
+    text: body,
+    at: text(raw.createdAt) ?? text(raw.commentedAt) ?? text(raw.created_at),
+    fromUs,
+  };
+}
 
 export async function trackOrder(trackingCode: string): Promise<CourierTracking> {
   const { data } = await read<{ data: RawTracking }>(`/track-order/${encodeURIComponent(trackingCode)}`);
@@ -227,6 +259,26 @@ export async function trackOrder(trackingCode: string): Promise<CourierTracking>
       hub: text(entry.hubName),
       remarks: text(entry.actionRemarks),
     })),
+    comments: (Array.isArray(data.comments) ? data.comments : []).map(readComment).filter((c): c is CourierComment => c !== null),
+  };
+}
+
+/**
+ * Sends a message to Upaya's operations team about a parcel. Sent once only:
+ * a repeat would post the message twice. Replies come back as comment
+ * webhooks and in trackOrder's comments.
+ */
+export async function addOrderComment(trackingCode: string, comment: string): Promise<CourierComment> {
+  const result = await call<{ data?: { resource?: RawComment } }>(`/orders/${encodeURIComponent(trackingCode)}/comments`, {
+    method: "POST",
+    body: { comment },
+  });
+  const saved = result.data?.resource;
+  return {
+    by: text(saved?.commentedBy) ?? "Client",
+    text: text(saved?.comment) ?? comment,
+    at: text(saved?.commentedAt),
+    fromUs: true,
   };
 }
 

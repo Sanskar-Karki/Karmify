@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextResponse } from "next/server";
-import { syncShipmentByTrackingCode } from "@/lib/courierSync";
+import { noteCourierComment, syncShipmentByTrackingCode } from "@/lib/courierSync";
 
 const digest = (value: string) => createHash("sha256").update(value).digest();
 
@@ -21,6 +21,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
     // Upaya expects a reply within 10 seconds, so the lookup runs after it.
     after(() => syncShipmentByTrackingCode(trackingCode).catch(err => {
       console.error("[upaya] webhook sync failed", trackingCode, err);
+    }));
+  }
+
+  if (!isTest && event?.update_type === "comment" && typeof event.tracking_code === "string" && typeof event.comment === "string") {
+    const trackingCode: string = event.tracking_code;
+    const comment: string = event.comment;
+    const by = typeof event.commented_by === "string" ? event.commented_by : null;
+    after(() => noteCourierComment(trackingCode, comment, by).catch(err => {
+      console.error("[upaya] webhook comment failed", trackingCode, err);
     }));
   }
 
