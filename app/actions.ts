@@ -10,6 +10,7 @@ export * from "@/lib/actions/sales";
 export * from "@/lib/actions/trash";
 export * from "@/lib/actions/futureOrders";
 export * from "@/lib/actions/notes";
+export * from "@/lib/actions/ownerAccess";
 export * from "@/lib/actions/purchases";
 export * from "@/lib/actions/websiteSync";
 export * from "@/lib/actions/courier";

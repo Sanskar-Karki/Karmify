@@ -5,13 +5,14 @@ import { MovementType, PaymentMethod, PaymentStatus, DeliveryStatus } from "@pri
 import { requireTenant } from "@/lib/tenant";
 import { documentStem, getDefaultWarehouseIdFor, lockDocumentNumbering, logActivity, nextDocumentNumber } from "@/lib/actions/helpers";
 import { guarded, retryOnUniqueConflict, UserError } from "@/lib/actions/result";
-import { isIgnored } from "@/lib/lowStock";
 import { customerIdentityKey, findOrCreateCustomerId, nameProblem, phoneProblem } from "@/lib/customerIdentity";
 import { syncStockTotal } from "@/lib/variants";
 import { courierStillOpen, isCourierService } from "@/lib/courier";
 import { deletedOrderDetails, WEBSITE_ORDER_DELETED } from "@/lib/websiteOrders";
 import { formatNPR } from "@/lib/utils";
 import { instantCourierLabel, isInstantCourier } from "@/lib/orders";
+import { sameLines, setAsideByLine, type FutureOrderData } from "@/lib/futureOrders";
+import { takeStock, type StockLine } from "@/lib/stockOut";
 import { revalidatePath } from "next/cache";
 
 type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
@@ -693,9 +694,25 @@ export async function createSale(data: SaleInput & {
     // Retried because two tills can claim the same invoice number at once.
     const sale = await retryOnUniqueConflict(() => db.$transaction(async (tx) => {
       await lockDocumentNumbering(tx, storeId);
+      // A future order being sent: removed in this same step, so it can't become two
+      // orders. Stock set aside for it when it was saved becomes this order's instead
+      // of being taken again; only the rest is taken now. That's only allowed for
+      // exactly the items that were saved (this action can be called directly).
+      let setAsideMovements = 0;
+      let toTake: StockLine[] = data.items;
       if (data.futureOrderId) {
-        const removed = await tx.futureOrder.deleteMany({ where: { id: data.futureOrderId, storeId } });
-        if (removed.count === 0) throw new UserError("This future order was already moved to the orders or deleted.");
+        const future = await tx.futureOrder.findFirst({ where: { id: data.futureOrderId, storeId }, select: { data: true } });
+        const removed = future ? await tx.futureOrder.deleteMany({ where: { id: data.futureOrderId, storeId } }) : { count: 0 };
+        if (!future || removed.count === 0) throw new UserError("This future order was already moved to the orders or deleted.");
+        const saved = future.data as unknown as FutureOrderData;
+        const aside = setAsideByLine(saved);
+        if (aside.some(n => n > 0)) {
+          if (!sameLines(saved.sale.items, data.items)) throw new UserError("These items don't match the stock set aside for this future order. Refresh and try again.");
+          setAsideMovements = aside.filter(n => n > 0).length;
+          toTake = saved.lines
+            .map((l, i) => ({ productId: l.productId, variantId: l.variantId, quantity: l.quantity - aside[i] }))
+            .filter(l => l.quantity > 0);
+        }
       }
       const stem = documentStem("INV");
       const todays = await tx.sale.findMany({
@@ -756,65 +773,27 @@ export async function createSale(data: SaleInput & {
         },
       });
 
-      for (const item of data.items) {
-        if (item.variantId) {
-          // Sized product: that size/colour must have enough, checked and taken in one statement.
-          const took = await tx.productVariant.updateMany({
-            where: { id: item.variantId, productId: item.productId, storeId, quantity: { gte: item.quantity } },
-            data: { quantity: { decrement: item.quantity } },
-          });
-          if (took.count === 0) {
-            const line = newSale.items.find(i => i.productId === item.productId);
-            throw new UserError(`Not enough stock of that size/colour for "${line?.product.name ?? "a product in the cart"}". Refresh and adjust the cart.`);
-          }
-        }
-        // The stock check and the decrement are one statement, so two
-        // simultaneous checkouts can't both take the last unit.
-        const deducted = await tx.stock.updateMany({
-          where: { storeId, productId: item.productId, warehouseId, quantity: { gte: item.quantity } },
-          data: { quantity: { decrement: item.quantity } },
+      if (setAsideMovements > 0) {
+        // That stock went out when the future order was saved: those movements become this order's,
+        // so returns, item edits and delete-with-restock see it like any other order's stock.
+        const moved = await tx.stockMovement.updateMany({
+          where: { storeId, referenceId: data.futureOrderId, type: MovementType.STOCK_OUT },
+          data: { referenceId: newSale.id, notes: `POS Sale invoice ${invoiceNumber} (set aside for a future order)` },
         });
-
-        if (deducted.count === 0) {
-          const line = newSale.items.find(i => i.productId === item.productId);
-          throw new UserError(`Not enough stock for "${line?.product.name ?? "a product in the cart"}". Refresh and adjust the cart.`);
+        if (moved.count !== setAsideMovements) {
+          throw new UserError("The stock set aside for this future order doesn't add up, so nothing was changed. Check the product's stock history.");
         }
-
-        await tx.stockMovement.create({
-          data: {
-            storeId,
-            productId: item.productId,
-            quantity: item.quantity,
-            type: MovementType.STOCK_OUT,
-            sourceWhId: warehouseId,
-            referenceId: newSale.id,
-            notes: `POS Sale invoice ${invoiceNumber}`,
-            userId: tenant.userId,
-          },
+      }
+      if (toTake.length > 0) {
+        await takeStock(tx, {
+          storeId,
+          warehouseId,
+          userId: tenant.userId,
+          referenceId: newSale.id,
+          notes: `POS Sale invoice ${invoiceNumber}`,
+          items: toTake,
+          nameOf: productId => newSale.items.find(i => i.productId === productId)?.product.name,
         });
-
-        // Low stock is judged per size/colour for sized products, on the total otherwise.
-        // An alert that was ignored stays quiet until the item is restocked.
-        const stock = await tx.stock.findUniqueOrThrow({
-          where: { productId_warehouseId: { productId: item.productId, warehouseId } },
-          select: { quantity: true, product: { select: { name: true, minStockLevel: true, lowStockIgnoredQty: true } } },
-        });
-        const variant = item.variantId
-          ? await tx.productVariant.findUnique({ where: { id: item.variantId }, select: { size: true, color: true, quantity: true, lowStockIgnoredQty: true } })
-          : null;
-        const left = variant ? variant.quantity : stock.quantity;
-        const ignoredAt = variant ? variant.lowStockIgnoredQty : stock.product.lowStockIgnoredQty;
-        if (left < stock.product.minStockLevel && !isIgnored(left, ignoredAt)) {
-          const part = variant ? [variant.size, variant.color].filter(Boolean).join(" · ") : "";
-          await tx.notification.create({
-            data: {
-              storeId,
-              title: "Low Stock Alert",
-              message: `Stock of "${stock.product.name}"${part ? ` (${part})` : ""} is low (${left} units left).`,
-              type: "warning",
-            },
-          });
-        }
       }
 
       return newSale;

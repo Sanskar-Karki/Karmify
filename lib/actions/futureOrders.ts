@@ -1,45 +1,48 @@
 "use server";
 
+import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { requireTenant } from "@/lib/tenant";
 import { getDefaultWarehouseIdFor, logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
 import { createSale, type SaleInput } from "@/lib/actions/sales";
 import { nameProblem, phoneProblem } from "@/lib/customerIdentity";
+import {
+  addDays, futureKindOf, isYmd, MAX_DAYS_AHEAD, nepalToday, sendOnLabel, setAsideByLine,
+  type FutureKind, type FutureLine, type FutureMode, type FutureOrderData,
+} from "@/lib/futureOrders";
+import { putBackStock, takeStock } from "@/lib/stockOut";
 import { formatNPR } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 
-// "Future orders": an order taken before its items are in stock, to be sent in a
-// few days once they're restocked. Saving one takes no stock and isn't a sale, so
-// it stays out of revenue, Analytics and the orders list. "Move to orders" creates
-// the real order at that moment (taking the stock then), at the top of the list.
-
-type FutureMode = "walkin" | "delivery" | "pr";
-
-type FutureLine = {
-  productId: string;
-  variantId: string | null;
-  name: string;
-  variantLabel: string | null;
-  quantity: number;
-  /** The price charged for one. */
-  unitPrice: number;
-};
-
-type FutureOrderData = {
-  sale: SaleInput;
-  lines: FutureLine[];
-  mode: FutureMode;
-  /** Delivery: what the customer has already paid up front. */
-  advance: number;
-};
+// "Future orders": orders taken now and sent later. Two kinds (lib/futureOrders.ts):
+//   restock    taken before all the items are in stock: any size or colour. What's on
+//              the shelf is set aside when saved; the rest is taken once restocked.
+//   scheduled  in stock, sent on the customer's date: all its stock is set aside when saved.
+// Neither is a sale, so both stay out of revenue, Analytics and the orders list until
+// "Move to orders" creates the real order, at the top of the list.
 
 const isMode = (m: unknown): m is FutureMode => m === "walkin" || m === "delivery" || m === "pr";
 
-/** Saves an order to send later. Any size or colour can be ordered, sold out or not. */
-export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMode; advance?: number }) {
+/** The send date for a scheduled order: a real date, after today (Nepal), within a year. */
+function checkSendOn(sendOn: unknown) {
+  if (!isYmd(sendOn)) throw new UserError("Choose the date to send it on.");
+  const today = nepalToday();
+  if (sendOn <= today) throw new UserError("Choose a date after today. To send it today, complete it as a normal order.");
+  if (sendOn > addDays(today, MAX_DAYS_AHEAD)) throw new UserError("That date is more than a year away. Choose an earlier one.");
+  return sendOn;
+}
+
+/**
+ * Saves an order to send later. "restock" (the default): any size or colour, sold
+ * out or not; what's in stock is taken out now and kept for the customer, and the
+ * rest waits. "scheduled": the items must all be in stock, and they're taken out
+ * now and kept for the customer until `sendOn`.
+ */
+export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMode; advance?: number; kind?: FutureKind; sendOn?: string }) {
   return guarded("Could not save this future order.", async () => {
     const { sale, mode } = input;
+    const kind: FutureKind = input.kind === "scheduled" ? "scheduled" : "restock";
     if (!isMode(mode)) throw new UserError("Choose Walk-in, Delivery or PR.");
     if (!Array.isArray(sale.items) || sale.items.length === 0) throw new UserError("Add at least one product to the cart.");
     if (sale.items.some(i => !Number.isInteger(i.quantity) || i.quantity <= 0 || !Number.isFinite(i.unitPrice) || i.unitPrice < 0)) {
@@ -52,6 +55,7 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
     if (!name) throw new UserError("Enter who the order is for, so you know whose it is when it's sent.");
     if (nameProblem(name)) throw new UserError(nameProblem(name)!);
     if (sale.customerPhone?.trim() && phoneProblem(sale.customerPhone)) throw new UserError(phoneProblem(sale.customerPhone)!);
+    const sendOn = kind === "scheduled" ? checkSendOn(input.sendOn) : null;
     const advance = Math.max(0, Number(input.advance) || 0);
 
     const tenant = await requireTenant();
@@ -81,31 +85,99 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
 
     const walkIn = mode === "walkin";
     const totalAmount = mode === "pr" ? 0 : sale.totalAmount + (walkIn ? 0 : sale.deliveryAmount);
-    const data: FutureOrderData = {
-      sale: { ...sale, customerName: name, items: lines.map(l => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice, variantId: l.variantId })) },
-      lines,
-      mode,
-      advance,
-    };
-    const row = await db.futureOrder.create({
-      data: {
-        storeId,
-        customerName: name,
-        customerPhone: sale.customerPhone?.trim() || null,
-        totalAmount,
-        data: data as unknown as object,
-        createdBy: tenant.userId,
-      },
-      select: { id: true },
-    });
+    const items = lines.map(l => ({ productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice, variantId: l.variantId }));
+    const warehouseId = await getDefaultWarehouseIdFor(storeId);
+
+    // Saved and its stock set aside in one step. A scheduled order needs all of it in
+    // stock (if anything isn't, nothing is saved); one waiting for stock takes what's
+    // on the shelf now and waits for the rest.
+    const saved = await db.$transaction(async (tx) => {
+      const takes = kind === "scheduled" ? lines.map(l => l.quantity) : await shelfTakes(tx, storeId, warehouseId, lines);
+      const tookAny = takes.some(n => n > 0);
+      const data: FutureOrderData = {
+        sale: { ...sale, customerName: name, items },
+        lines: lines.map((l, i) => ({ ...l, setAside: takes[i] })),
+        mode,
+        advance,
+        kind,
+        sendOn,
+        setAsideFrom: tookAny ? warehouseId : null,
+      };
+      const created = await tx.futureOrder.create({
+        data: {
+          storeId,
+          customerName: name,
+          customerPhone: sale.customerPhone?.trim() || null,
+          totalAmount,
+          data: data as unknown as object,
+          createdBy: tenant.userId,
+        },
+        select: { id: true },
+      });
+      if (tookAny) {
+        await takeStock(tx, {
+          storeId,
+          warehouseId,
+          userId: tenant.userId,
+          referenceId: created.id,
+          notes: sendOn ? `Set aside for ${name}'s future order, to send on ${sendOnLabel(sendOn)}` : `Set aside for ${name}'s future order`,
+          items: lines.map((l, i) => ({ productId: l.productId, variantId: l.variantId, quantity: takes[i] })).filter(l => l.quantity > 0),
+          nameOf: productId => lines.find(l => l.productId === productId)?.name,
+        });
+      }
+      return { id: created.id, setAside: takes.reduce((n, t) => n + t, 0) };
+    }, { timeout: 20_000, maxWait: 10_000 });
+
     const units = lines.reduce((n, l) => n + l.quantity, 0);
-    await logActivity(tenant, "Future Order Saved", `Future order for ${name}: ${units} item${units === 1 ? "" : "s"}, ${formatNPR(totalAmount)}. Not sent yet.`);
+    const waiting = units - saved.setAside;
+    const what = `${units} item${units === 1 ? "" : "s"}, ${formatNPR(totalAmount)}`;
+    await logActivity(
+      tenant,
+      "Future Order Saved",
+      sendOn
+        ? `Future order for ${name}: ${what}, to send on ${sendOnLabel(sendOn)}. Its stock is set aside.`
+        : `Future order for ${name}: ${what}. ${
+            saved.setAside === 0 ? "Waiting for stock; nothing taken yet."
+              : waiting === 0 ? "All in stock: set aside."
+                : `${saved.setAside} in stock set aside; ${waiting} waiting for stock.`
+          }`
+    );
     revalidatePath("/customers");
-    return { id: row.id, customerName: name };
+    if (saved.setAside > 0) {
+      revalidatePath("/inventory");
+      revalidatePath("/products");
+    }
+    return { id: saved.id, customerName: name, kind, sendOn, setAside: saved.setAside, waiting };
   });
 }
 
-/** Future orders, oldest first (waiting longest), each with whether its stock is in yet. */
+/**
+ * How many of each line the shelf can give right now, in cart order. Lines of one
+ * product share its stock (and lines of one size/colour share that), so each line
+ * gets what the lines before it left.
+ */
+async function shelfTakes(tx: Prisma.TransactionClient, storeId: string, warehouseId: string, lines: FutureLine[]) {
+  const productIds = [...new Set(lines.map(l => l.productId))];
+  const variantIds = [...new Set(lines.map(l => l.variantId).filter((id): id is string => Boolean(id)))];
+  const stocks = await tx.stock.findMany({ where: { storeId, warehouseId, productId: { in: productIds } }, select: { productId: true, quantity: true } });
+  const variants = variantIds.length
+    ? await tx.productVariant.findMany({ where: { storeId, id: { in: variantIds } }, select: { id: true, quantity: true } })
+    : [];
+  const product = new Map(stocks.map(s => [s.productId, Math.max(0, s.quantity)]));
+  const variant = new Map(variants.map(v => [v.id, Math.max(0, v.quantity)]));
+  return lines.map(line => {
+    const room = Math.min(product.get(line.productId) ?? 0, line.variantId ? variant.get(line.variantId) ?? 0 : Infinity);
+    const take = Math.max(0, Math.min(line.quantity, room));
+    product.set(line.productId, (product.get(line.productId) ?? 0) - take);
+    if (line.variantId) variant.set(line.variantId, (variant.get(line.variantId) ?? 0) - take);
+    return take;
+  });
+}
+
+/**
+ * Future orders: the ones with a send date first (soonest first), then the ones
+ * waiting for stock (waiting longest first), each line with whether it can go.
+ */
 export async function listFutureOrders() {
   return guarded("Could not load future orders.", async () => {
     const tenant = await requireTenant();
@@ -126,24 +198,36 @@ export async function listFutureOrders() {
     const variantStock = new Map(variants.map(v => [v.id, v.quantity]));
     const exists = new Set(products.map(p => p.id));
 
-    return all.map(({ row, data }) => {
-      // Lines of one product share its total, so what each needs is added up first.
+    const list = all.map(({ row, data }) => {
+      const kind = futureKindOf(data);
+      const aside = setAsideByLine(data);
+      // Set-aside units are already off the shelf, so only the rest needs stock. Lines
+      // of one product share its total, so what they still need is added up first.
       const needProduct = new Map<string, number>();
       const needVariant = new Map<string, number>();
-      for (const l of data.lines) {
-        needProduct.set(l.productId, (needProduct.get(l.productId) ?? 0) + l.quantity);
-        if (l.variantId) needVariant.set(l.variantId, (needVariant.get(l.variantId) ?? 0) + l.quantity);
-      }
-      const lines = data.lines.map(l => {
+      data.lines.forEach((l, i) => {
+        const rest = l.quantity - aside[i];
+        needProduct.set(l.productId, (needProduct.get(l.productId) ?? 0) + rest);
+        if (l.variantId) needVariant.set(l.variantId, (needVariant.get(l.variantId) ?? 0) + rest);
+      });
+      const lines = data.lines.map((l, i) => {
         const gone = !exists.has(l.productId) || (l.variantId !== null && !variantStock.has(l.variantId));
         const inStock = l.variantId ? variantStock.get(l.variantId) ?? 0 : productStock.get(l.productId) ?? 0;
-        const enough = !gone
-          && (l.variantId ? inStock >= (needVariant.get(l.variantId) ?? 0) : true)
-          && (productStock.get(l.productId) ?? 0) >= (needProduct.get(l.productId) ?? 0);
-        return { name: l.name, variantLabel: l.variantLabel, quantity: l.quantity, unitPrice: l.unitPrice, inStock: gone ? 0 : inStock, ready: enough, gone };
+        const enough = !gone && (aside[i] === l.quantity || (
+          (l.variantId ? inStock >= (needVariant.get(l.variantId) ?? 0) : true)
+          && (productStock.get(l.productId) ?? 0) >= (needProduct.get(l.productId) ?? 0)
+        ));
+        return {
+          name: l.name, variantLabel: l.variantLabel, quantity: l.quantity, unitPrice: l.unitPrice,
+          inStock: gone ? 0 : inStock, setAside: aside[i], ready: enough, gone,
+        };
       });
       return {
         id: row.id,
+        kind,
+        sendOn: kind === "scheduled" && isYmd(data.sendOn) ? data.sendOn : null,
+        /** Units taken out of stock for it when it was saved. */
+        setAside: aside.reduce((n, a) => n + a, 0),
         customerName: row.customerName,
         customerPhone: row.customerPhone,
         address: data.sale.customerAddress ?? null,
@@ -157,13 +241,16 @@ export async function listFutureOrders() {
         ready: lines.every(l => l.ready),
       };
     });
+
+    const dated = list.filter(o => o.sendOn).sort((a, b) => a.sendOn!.localeCompare(b.sendOn!));
+    return [...dated, ...list.filter(o => !o.sendOn)];
   });
 }
 
 /**
  * Sends a future order now: creates the real order (new invoice number, dated now,
- * so it's at the top of the orders) and takes its stock. Refused if the stock
- * isn't in yet; nothing changes then.
+ * so it's at the top of the orders). The order takes over the stock set aside for
+ * it and takes the rest now, and is refused if the rest isn't in yet.
  */
 export async function moveFutureOrder(id: string) {
   const found = await guarded("Could not load this future order.", async () => {
@@ -183,17 +270,45 @@ export async function moveFutureOrder(id: string) {
   return result;
 }
 
-/** Drops a future order that won't be sent (the customer cancelled, say). It never took stock. */
+/**
+ * Drops a future order that won't be sent (the customer cancelled, say). Any stock
+ * set aside for it goes back on the shelf in the same step.
+ */
 export async function deleteFutureOrder(id: string) {
   return guarded("Could not delete this future order.", async () => {
     const tenant = await requireTenant();
-    const row = await db.futureOrder.findFirst({ where: { id, storeId: tenant.storeId }, select: { id: true, customerName: true, totalAmount: true } });
-    if (!row) throw new UserError("This future order was already moved to the orders or deleted.");
-    // deleteMany: deleted at the same moment elsewhere reads as "already deleted", not an error.
-    const removed = await db.futureOrder.deleteMany({ where: { id: row.id, storeId: tenant.storeId } });
-    if (removed.count === 0) throw new UserError("This future order was already moved to the orders or deleted.");
-    await logActivity(tenant, "Future Order Deleted", `Deleted the future order for ${row.customerName ?? "a customer"} (${formatNPR(row.totalAmount)}).`);
+    const storeId = tenant.storeId;
+    const result = await db.$transaction(async (tx) => {
+      const row = await tx.futureOrder.findFirst({ where: { id, storeId }, select: { id: true, customerName: true, totalAmount: true, data: true } });
+      if (!row) throw new UserError("This future order was already moved to the orders or deleted.");
+      // deleteMany: deleted at the same moment elsewhere reads as "already deleted", not an error.
+      const removed = await tx.futureOrder.deleteMany({ where: { id: row.id, storeId } });
+      if (removed.count === 0) throw new UserError("This future order was already moved to the orders or deleted.");
+      const data = row.data as unknown as FutureOrderData;
+      const aside = setAsideByLine(data);
+      const putBack = aside.some(n => n > 0)
+        ? await putBackStock(tx, {
+            storeId,
+            warehouseId: data.setAsideFrom!,
+            userId: tenant.userId,
+            referenceId: row.id,
+            notes: `Back on the shelf: ${row.customerName ?? "a customer"}'s future order was deleted`,
+            items: data.lines.map((l, i) => ({ productId: l.productId, variantId: l.variantId, quantity: aside[i] })).filter(l => l.quantity > 0),
+          })
+        : 0;
+      return { customerName: row.customerName, totalAmount: row.totalAmount, putBack };
+    }, { timeout: 20_000, maxWait: 10_000 });
+
+    await logActivity(
+      tenant,
+      "Future Order Deleted",
+      `Deleted the future order for ${result.customerName ?? "a customer"} (${formatNPR(result.totalAmount)})${result.putBack ? `; ${result.putBack} item${result.putBack === 1 ? "" : "s"} put back in stock` : ""}.`
+    );
     revalidatePath("/customers");
-    return { customerName: row.customerName };
+    if (result.putBack) {
+      revalidatePath("/inventory");
+      revalidatePath("/products");
+    }
+    return { customerName: result.customerName, putBack: result.putBack };
   });
 }

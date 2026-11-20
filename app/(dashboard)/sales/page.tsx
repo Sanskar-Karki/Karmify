@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingCart, Search, Plus, Minus, X, CheckCircle, User, Phone, MapPin,
   Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap, UserCheck, Users, CalendarClock,
+  CalendarDays, Hourglass,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -27,6 +28,7 @@ import { countsAsSale, deliveryAddress, findCustomerMatches, itemOptions, itemOp
 import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
 import { shopOfProducts, useShop } from "@/lib/shop";
+import { addDays, MAX_DAYS_AHEAD, nepalToday, sendOnLabel, type FutureKind } from "@/lib/futureOrders";
 import { Swatch, VariantPicker } from "@/components/shared/VariantStock";
 
 /** "size", "colour" or "colour and size": what a product makes you choose. */
@@ -86,8 +88,12 @@ type Draft = {
   hub?: CourierArea | null;
   /** The existing customer this order is linked to. */
   linkedId?: string | null;
-  /** Saved as a future order (sent later, once restocked) instead of completed now. */
+  /** Saved as a future order (sent later) instead of completed now. */
   future?: boolean;
+  /** Which kind: waiting for stock, or in stock and sent on the customer's date. */
+  futureKind?: FutureKind;
+  /** Scheduled: the date to send it on (YYYY-MM-DD). */
+  sendOn?: string;
   /** The note this order is being entered from (Notes → Enter as order). */
   noteId?: string | null;
 };
@@ -141,9 +147,15 @@ export default function SalesPage() {
   const [advance, setAdvance] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [mode, setMode] = useState<SaleMode>("delivery");
-  // A future order: taken now, sent in a few days once restocked. Any size/colour can be
-  // added, sold out or not, and saving it takes no stock and isn't counted as a sale.
+  // A future order: taken now, sent later, and not counted as a sale until it's moved
+  // to the orders. Two kinds: waiting for stock (any size/colour, sold out or not; what's
+  // in stock is set aside now), or in stock and sent on the customer's date (all set aside now).
   const [future, setFuture] = useState(false);
+  const [futureKind, setFutureKind] = useState<FutureKind>("restock");
+  const [sendOn, setSendOn] = useState("");
+  // Only an order waiting for restock may go beyond what's in stock today.
+  const restockFuture = future && futureKind === "restock";
+  const scheduled = future && futureKind === "scheduled";
   const [walkInVia, setWalkInVia] = useState<WalkInVia>("studio");
   const [cashReceived, setCashReceived] = useState("");
   const [receiptExtras, setReceiptExtras] = useState<{
@@ -206,6 +218,8 @@ export default function SalesPage() {
         if (BATCH_COURIER_SERVICES.some(sv => sv.id === d.courierService)) setCourierService(d.courierService as number);
         if (typeof d.linkedId === "string") setLinkedId(d.linkedId);
         if (d.future === true) setFuture(true);
+        if (d.futureKind === "scheduled" || d.futureKind === "restock") setFutureKind(d.futureKind);
+        if (typeof d.sendOn === "string") setSendOn(d.sendOn);
         if (typeof d.noteId === "string") setNoteId(d.noteId);
       }
     } catch {
@@ -225,12 +239,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, noteId };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, noteId]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -307,12 +321,12 @@ export default function SalesPage() {
     const available = lineStock(line);
     const label = variant ? [variant.size, variant.color].filter(Boolean).join(" · ") : undefined;
     const fullName = label ? `${p.name} (${label})` : p.name;
-    // A future order is sent after restocking, so what's in stock today doesn't limit it.
-    if (!future && available <= 0) {
+    // An order waiting for restock is sent once it's in, so today's stock doesn't limit it.
+    if (!restockFuture && available <= 0) {
       if (variant) toast.info(`"${fullName}" is sold out.`, { id: "cart-stock-limit" });
       return;
     }
-    if (!future && (cart.find(c => lineKey(c) === lineKey(line))?.quantity ?? 0) >= available) {
+    if (!restockFuture && (cart.find(c => lineKey(c) === lineKey(line))?.quantity ?? 0) >= available) {
       notifyLimit(fullName, available);
       return;
     }
@@ -349,7 +363,7 @@ export default function SalesPage() {
 
   function updateQty(item: CartItem, delta: number) {
     const available = lineStock(item);
-    if (!future && delta > 0 && item.quantity >= available) {
+    if (!restockFuture && delta > 0 && item.quantity >= available) {
       notifyLimit(item.name, available);
       return;
     }
@@ -363,12 +377,27 @@ export default function SalesPage() {
     setCart(prev => prev.map(c => (lineKey(c) === lineKey(item) ? { ...c, unitPrice: price } : c)));
   }
 
+  /**
+   * Moving to something that must come out of today's stock (a normal sale, or a
+   * future order set aside for the customer's date): warns about lines beyond it.
+   */
+  function warnIfOverStock(to: "sale" | "scheduled") {
+    const over = cart.filter(c => c.quantity > lineStock(c));
+    if (!over.length) return;
+    toast.warning(
+      `More than is in stock: ${over.slice(0, 3).map(c => `${c.name} (${Math.max(0, lineStock(c))} left)`).join(", ")}${over.length > 3 ? "…" : ""}. ${
+        to === "sale" ? "Lower the quantity or keep it a future order." : "Lower the quantity, or keep it waiting for stock."
+      }`,
+      { id: "future-off-stock", duration: 8000 },
+    );
+  }
+
   /** A typed quantity, kept between 1 and what's in stock. */
   function setQty(item: CartItem, value: number) {
     if (!Number.isFinite(value)) return;
     const available = lineStock(item);
-    const qty = future ? Math.max(1, Math.floor(value)) : Math.max(1, Math.min(Math.floor(value), Math.max(1, available)));
-    if (!future && value > available) notifyLimit(item.name, available);
+    const qty = restockFuture ? Math.max(1, Math.floor(value)) : Math.max(1, Math.min(Math.floor(value), Math.max(1, available)));
+    if (!restockFuture && value > available) notifyLimit(item.name, available);
     setCart(prev => prev.map(c => (lineKey(c) === lineKey(item) ? { ...c, quantity: qty } : c)));
   }
 
@@ -498,6 +527,14 @@ export default function SalesPage() {
     const cod = parseFloat(codAmount) || 0;
     // A future order is looked up by whose it is when it's sent.
     if (future && !customer.name.trim()) return void toast.error("Enter who the future order is for.");
+    if (scheduled) {
+      if (!sendOn) return void toast.error("Choose the date the customer wants it sent.");
+      if (sendOn <= nepalToday()) return void toast.error("Choose a date after today. To send it today, untick Future order.");
+      const over = cart.filter(c => c.quantity > lineStock(c));
+      if (over.length) {
+        return void toast.error(`Not enough in stock to set aside: ${over.slice(0, 3).map(c => `${c.name} (${Math.max(0, lineStock(c))} left)`).join(", ")}. Lower the quantity, or save it as waiting for stock.`);
+      }
+    }
     if (pr) {
       if (!customer.name.trim()) return void toast.error("Enter who the PR order is for.");
     } else if (walkIn) {
@@ -544,14 +581,31 @@ export default function SalesPage() {
     setCourierBooking(null);
 
     if (future) {
-      const saved = await mutate(() => createFutureOrder({ sale: payload, mode, advance: advancePaid }), {
-        success: r => `Future order saved for ${r.customerName}. It's waiting in Customers & Orders → Future orders.`,
-      });
+      const saved = await mutate(
+        () => createFutureOrder({ sale: payload, mode, advance: advancePaid, kind: futureKind, ...(scheduled && { sendOn }) }),
+        {
+          success: r => r.sendOn
+            ? `Future order saved for ${r.customerName}, to send on ${sendOnLabel(r.sendOn)}. Its stock is set aside.`
+            : r.setAside === 0
+              ? `Future order saved for ${r.customerName}. It's waiting in Customers & Orders → Future orders.`
+              : r.waiting === 0
+                ? `Future order saved for ${r.customerName}. Everything was in stock and is set aside.`
+                : `Future order saved for ${r.customerName}. ${r.setAside} in stock ${r.setAside === 1 ? "is" : "are"} set aside; ${r.waiting} waiting for stock.`,
+        },
+      );
       setSubmitting(false);
-      if (!saved.ok) return;
+      if (!saved.ok) {
+        // Stock may have changed under the cart since it loaded.
+        await refetch({ quiet: true });
+        return;
+      }
       resetOrder();
       setFuture(false);
+      setFutureKind("restock");
+      setSendOn("");
       finishNote();
+      // It took stock (all of it, or what was in): the cards should show what's left.
+      if (saved.data.setAside > 0) await refetch({ quiet: true });
       return;
     }
 
@@ -692,41 +746,85 @@ export default function SalesPage() {
                 </p>
               )}
 
-              {/* Future order: taken now, sent once the items are restocked */}
-              <label
+              {/* Future order: taken now, sent later. Waiting for stock, or on the customer's date. */}
+              <div
                 className={cn(
-                  "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors",
+                  "rounded-xl border transition-colors",
                   future ? "border-amber-300 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30" : "border-border bg-muted/40 hover:border-primary/30"
                 )}
               >
-                <input
-                  type="checkbox"
-                  checked={future}
-                  onChange={e => {
-                    const on = e.target.checked;
-                    setFuture(on);
-                    // Back to a normal sale: lines added beyond today's stock can't be completed now.
-                    const over = on ? [] : cart.filter(c => c.quantity > lineStock(c));
-                    if (over.length) {
-                      toast.warning(
-                        `More than is in stock: ${over.slice(0, 3).map(c => `${c.name} (${Math.max(0, lineStock(c))} left)`).join(", ")}${over.length > 3 ? "…" : ""}. Lower the quantity or keep it a future order.`,
-                        { id: "future-off-stock", duration: 8000 },
-                      );
-                    }
-                  }}
-                  className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
-                />
-                <span className="min-w-0 text-[12px]">
-                  <span className={cn("flex items-center gap-1.5 font-semibold", future ? "text-amber-900 dark:text-amber-100" : "text-foreground")}>
-                    <CalendarClock size={13} /> Future order · send later
+                <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={future}
+                    onChange={e => {
+                      const on = e.target.checked;
+                      setFuture(on);
+                      // Back to a normal sale (or a scheduled order): lines beyond today's stock can't go.
+                      if (!on) warnIfOverStock("sale");
+                      else if (futureKind === "scheduled") warnIfOverStock("scheduled");
+                    }}
+                    className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                  />
+                  <span className="min-w-0 text-[12px]">
+                    <span className={cn("flex items-center gap-1.5 font-semibold", future ? "text-amber-900 dark:text-amber-100" : "text-foreground")}>
+                      <CalendarClock size={13} /> Future order · send later
+                    </span>
+                    <span className={cn("block text-[11px]", future ? "text-amber-800 dark:text-amber-200" : "text-muted-foreground")}>
+                      {!future
+                        ? "For items you'll restock, or a parcel the customer wants on a later date."
+                        : scheduled
+                          ? "In stock, sent on the customer's date. The stock is set aside now so nobody else gets it. Not a sale until you move it to the orders."
+                          : "Any size or colour, even sold out. What's in stock is set aside now; the rest waits for restock. Not a sale until you move it to the orders."}
+                    </span>
                   </span>
-                  <span className={cn("block text-[11px]", future ? "text-amber-800 dark:text-amber-200" : "text-muted-foreground")}>
-                    {future
-                      ? "Any size or colour can be added, even sold out. Saving takes no stock and isn't counted as a sale until you move it to the orders."
-                      : "For items you'll restock and send in a few days."}
-                  </span>
-                </span>
-              </label>
+                </label>
+
+                {future && (
+                  <div className="space-y-2 px-3 pb-3">
+                    <div className="grid grid-cols-2 gap-1 rounded-lg bg-amber-100/80 p-1 dark:bg-amber-900/30" role="radiogroup" aria-label="Kind of future order">
+                      {([
+                        { value: "restock", label: "Waiting for stock", icon: Hourglass },
+                        { value: "scheduled", label: "Customer's date", icon: CalendarDays },
+                      ] as const).map(option => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={futureKind === option.value}
+                          onClick={() => {
+                            setFutureKind(option.value);
+                            if (option.value === "scheduled") warnIfOverStock("scheduled");
+                          }}
+                          className={cn(
+                            "flex items-center justify-center gap-1.5 rounded-md px-2 py-2 text-[11px] font-semibold transition-all",
+                            futureKind === option.value ? "bg-card text-foreground shadow-sm" : "text-amber-900 hover:bg-card/50 dark:text-amber-100"
+                          )}
+                        >
+                          <option.icon size={12} /> {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    {scheduled && (
+                      <div>
+                        <label htmlFor="future-send-on" className="mb-1 block text-[11px] font-semibold text-amber-900 dark:text-amber-100">
+                          Send on <span aria-hidden>*</span>
+                        </label>
+                        <input
+                          id="future-send-on"
+                          type="date"
+                          value={sendOn}
+                          min={addDays(nepalToday(), 1)}
+                          max={addDays(nepalToday(), MAX_DAYS_AHEAD)}
+                          onChange={e => setSendOn(e.target.value)}
+                          required
+                          className="w-full rounded-xl border border-amber-300 bg-card px-3 py-2 text-base text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 sm:text-xs dark:border-amber-800/60"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
               <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 {pr ? "Given to" : "Customer"}{walkIn && <span className="font-medium normal-case tracking-normal"> · optional</span>}
@@ -953,7 +1051,7 @@ export default function SalesPage() {
                       role="radio"
                       aria-checked={paymentMethod === option.value}
                       onClick={() => setPaymentMethod(option.value)}
-                      className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all", paymentMethod === option.value ? "bg-primary/10 border-primary/40 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
+                      className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all", paymentMethod === option.value ? "bg-primary/10 border-primary/40 text-primary dark:text-pink-300" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
                     >
                       <option.icon size={12} /> {option.label}
                     </button>
@@ -972,7 +1070,7 @@ export default function SalesPage() {
                       role="radio"
                       aria-checked={deliveryPay === option.value}
                       onClick={() => setDeliveryPay(option.value)}
-                      className={cn("flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-[12px] font-semibold rounded-xl border transition-all", deliveryPay === option.value ? "bg-primary/10 border-primary/40 text-primary" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
+                      className={cn("flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-[12px] font-semibold rounded-xl border transition-all", deliveryPay === option.value ? "bg-primary/10 border-primary/40 text-primary dark:text-pink-300" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
                     >
                       <option.icon size={13} /> {option.label}
                     </button>
@@ -1027,8 +1125,8 @@ export default function SalesPage() {
             {!loading && displayedProducts.map(p => {
               const avail = getStock(p.id);
               const inCart = cart.filter(c => c.productId === p.id).reduce((sum, c) => sum + c.quantity, 0);
-              // A future order can take sold-out products: they'll be restocked before it's sent.
-              const exhausted = avail <= 0 && !future;
+              // An order waiting for restock can take sold-out products: they'll be in before it's sent.
+              const exhausted = avail <= 0 && !restockFuture;
               return (
                 <button
                   key={p.id}
@@ -1055,9 +1153,9 @@ export default function SalesPage() {
                     <p className="text-[12px] font-bold text-foreground line-clamp-2 leading-tight">{p.name}</p>
                   </div>
                   <div className="flex flex-wrap items-center justify-between w-full mt-auto gap-1">
-                    <p className="text-xs font-extrabold text-primary">{formatNPR(p.sellingPrice)}</p>
+                    <p className="text-xs font-extrabold text-primary dark:text-pink-300">{formatNPR(p.sellingPrice)}</p>
                     <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap", avail <= p.minStockLevel ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
-                      {avail <= 0 ? (future ? "Out · order" : "Sold out") : `${avail} left`}
+                      {avail <= 0 ? (restockFuture ? "Out · order" : "Sold out") : `${avail} left`}
                     </span>
                   </div>
                 </button>
@@ -1239,7 +1337,7 @@ export default function SalesPage() {
                 )}
                 {shortDiscount > 0 && <div className="flex justify-between font-bold text-foreground"><span>Paid</span><span>{formatNPR(amountDue)}</span></div>}
                 {advancePaid > 0 && <div className="flex justify-between text-muted-foreground"><span>Advance paid</span><span>−{formatNPR(advancePaid)}</span></div>}
-                {!walkIn && <div className="flex justify-between font-bold text-primary"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>}
+                {!walkIn && <div className="flex justify-between font-bold text-primary dark:text-pink-300"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>}
                 {change !== null && (
                   <div className="flex justify-between font-bold text-emerald-600">
                     <span>Change to give</span><span>{formatNPR(change)}</span>
@@ -1253,7 +1351,9 @@ export default function SalesPage() {
                 <p className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100">
                   <CalendarClock size={13} className="mt-0.5 shrink-0" />
                   <span>
-                    Saved as a future order: no stock is taken and it isn&apos;t counted in sales yet. Send it from{" "}
+                    {scheduled
+                      ? <>Saved as a future order{sendOn ? <> to send on <strong>{sendOnLabel(sendOn)}</strong></> : null}: its stock is set aside now, and it isn&apos;t counted in sales yet. Send it from{" "}</>
+                      : <>Saved as a future order: what&apos;s in stock is set aside now, the rest waits for restock, and it isn&apos;t counted in sales yet. Send it from{" "}</>}
                     <Link href="/customers?future=1" className="font-semibold underline underline-offset-2">Customers &amp; Orders → Future orders</Link>.
                   </span>
                 </p>
@@ -1342,7 +1442,7 @@ export default function SalesPage() {
                 const v = picking.variants.find(x => x.id === id);
                 if (v) addToCart(picking, v);
               }}
-              allowSoldOut={future}
+              allowSoldOut={restockFuture}
             />
           </div>
         )}
@@ -1401,7 +1501,7 @@ export default function SalesPage() {
               {lastSale.deliveryAmount > 0 && <div className="flex justify-between text-muted-foreground"><span>Delivery</span><span>{formatNPR(lastSale.deliveryAmount)}</span></div>}
               <div className="flex justify-between font-extrabold text-base text-foreground pt-1 border-t border-border/60"><span>TOTAL</span><span>{formatNPR(lastSale.totalAmount + lastSale.deliveryAmount)}</span></div>
               {receiptExtras.advance > 0 && <div className="flex justify-between text-muted-foreground"><span>Advance paid</span><span>−{formatNPR(receiptExtras.advance)}</span></div>}
-              {!receiptExtras.walkIn && lastSale.paymentMethod === "COD" && <div className="flex justify-between font-bold text-primary"><span>COD to Collect</span><span>{formatNPR(lastSale.codAmount)}</span></div>}
+              {!receiptExtras.walkIn && lastSale.paymentMethod === "COD" && <div className="flex justify-between font-bold text-primary dark:text-pink-300"><span>COD to Collect</span><span>{formatNPR(lastSale.codAmount)}</span></div>}
               {receiptExtras.cashReceived !== null && (
                 <>
                   <div className="flex justify-between text-muted-foreground"><span>{lastSale.paymentMethod === "QR" ? "QR received" : "Cash received"}</span><span>{formatNPR(receiptExtras.cashReceived)}</span></div>

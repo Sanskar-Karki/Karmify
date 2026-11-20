@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { SupplierRowPlaceholder } from "@/components/skeletons/placeholders";
 import { Modal } from "@/components/shared/Modal";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { OwnerLockCard } from "@/components/shared/OwnerLockCard";
 import { Button } from "@/components/shared/Button";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { mutate } from "@/lib/mutate";
@@ -267,6 +268,8 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-extrabold tracking-tight">Settings</h1>
         <p className="text-xs text-muted-foreground mt-0.5">Manage your store profile, suppliers and team</p>
       </div>
+
+      <OwnerLockCard />
 
       <div role="tablist" className="grid grid-cols-2 gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl sm:flex sm:flex-wrap sm:w-fit max-w-full">
         {TABS.map(tab => (

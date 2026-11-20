@@ -1,6 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server'
 import { NextResponse } from 'next/server'
 import { updateSession } from '@/utils/supabase/middleware'
+import { verifyOwnerToken } from '@/lib/ownerAccess'
+import { isOwnerPath, LOCKED_HOME, OWNER_COOKIE, OWNER_HINT_COOKIE } from '@/lib/ownerPaths'
 
 // Everything except the marketing/auth pages requires a signed-in user.
 const isPublicRoute = createRouteMatcher(['/', '/sign-in(.*)', '/sign-up(.*)', '/__clerk(.*)'])
@@ -13,6 +15,16 @@ export default clerkMiddleware(async (auth, request) => {
 
   if (!isPublicRoute(request)) {
     await auth.protect()
+  }
+
+  // Dashboard and Analytics stay locked on a device until the owner unlocks them
+  // in Settings (signed cookie, see lib/ownerAccess.ts). A locked device goes to
+  // Orders instead, whether it typed the address, followed a link or opened the app.
+  if (isOwnerPath(request.nextUrl.pathname) && !(await verifyOwnerToken(request.cookies.get(OWNER_COOKIE)?.value))) {
+    const locked = NextResponse.redirect(new URL(LOCKED_HOME, request.url))
+    locked.cookies.delete(OWNER_COOKIE)
+    locked.cookies.delete(OWNER_HINT_COOKIE)
+    return locked
   }
 
   // Refresh the Supabase session cookies so both Clerk and Supabase session logic runs.

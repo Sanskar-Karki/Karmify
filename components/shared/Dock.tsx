@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { prefetchRoute } from "@/lib/prefetch";
+import { useOwnerUnlocked } from "@/lib/ownerLock";
+import { isOwnerPath } from "@/lib/ownerPaths";
 import {
   LayoutDashboard,
   ChartColumn,
@@ -71,7 +73,11 @@ export function Dock() {
     setPending(null);
   }
 
-  const routeIndex = dockItems.findIndex(item => isActiveFor(pathname, item.href));
+  // Dashboard and Analytics only show once the owner has unlocked them on this device.
+  const unlocked = useOwnerUnlocked();
+  const items = unlocked ? dockItems : dockItems.filter(item => !isOwnerPath(item.href));
+
+  const routeIndex = items.findIndex(item => isActiveFor(pathname, item.href));
   const activeIndex = pending ?? routeIndex;
 
   const chipRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -114,7 +120,7 @@ export function Dock() {
         <div className="absolute inset-0 rounded-full bg-gradient-to-b from-white/10 via-transparent to-black/5 pointer-events-none hidden sm:block" />
         <div className="absolute inset-x-4 top-0.5 h-px bg-gradient-to-r from-transparent via-foreground/20 to-transparent pointer-events-none hidden sm:block" />
 
-        {dockItems.map((item, i) => {
+        {items.map((item, i) => {
           const isActive = i === activeIndex;
           const Icon = item.icon;
           const distance = hovered === null ? Infinity : Math.abs(hovered - i);

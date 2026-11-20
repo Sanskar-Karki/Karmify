@@ -13,6 +13,8 @@ import { customerKey, groupSalesByCustomer } from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
 import { resources } from "@/lib/resources";
 import { readResource } from "@/lib/useResources";
+import { useOwnerUnlocked } from "@/lib/ownerLock";
+import { isOwnerPath } from "@/lib/ownerPaths";
 import type { Product, PurchaseOrder, Sale } from "@/lib/types";
 
 interface SearchResult {
@@ -48,10 +50,13 @@ const SCANNER_MAX_KEY_GAP_MS = 60;
 
 function useSearchResults(query: string, index: SearchIndex) {
   const customers = useMemo(() => groupSalesByCustomer(index.sales), [index.sales]);
+  // Dashboard and Analytics are only offered where the owner has unlocked them.
+  const unlocked = useOwnerUnlocked();
 
   return useMemo<SearchResult[]>(() => {
+    const pages = unlocked ? PAGES : PAGES.filter(p => !isOwnerPath(p.href));
     const q = (parseCustomerCode(query) ?? query.trim()).toLowerCase();
-    if (!q) return PAGES.slice(0, 6);
+    if (!q) return pages.slice(0, 6);
 
     const customerResults: SearchResult[] = customers
       .filter(c => c.code?.toLowerCase().includes(q) || c.name.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q))
@@ -73,11 +78,11 @@ function useSearchResults(query: string, index: SearchIndex) {
       .slice(0, 5)
       .map(po => ({ id: `po-${po.id}`, type: "Purchase Order", label: po.orderNumber, sub: po.supplier.companyName, href: `/purchases?q=${encodeURIComponent(po.orderNumber)}`, icon: Truck }));
 
-    const pageResults = PAGES.filter(p => p.label.toLowerCase().includes(q));
+    const pageResults = pages.filter(p => p.label.toLowerCase().includes(q));
 
     // Grouped order, so arrow keys walk the list in the order it's displayed.
     return [...customerResults, ...productResults, ...saleResults, ...poResults, ...pageResults].slice(0, 12);
-  }, [query, index, customers]);
+  }, [query, index, customers, unlocked]);
 }
 
 function ResultsList({

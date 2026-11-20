@@ -12,6 +12,8 @@ import { AlertTriangle, CheckCircle2, Info, Loader2, Moon, Sun, Settings, XCircl
 import { UserButton, useAuth } from "@clerk/nextjs";
 import { Toaster } from "sonner";
 import { prefetchAllRoutesOnce } from "@/lib/prefetch";
+import { useOwnerUnlocked } from "@/lib/ownerLock";
+import { LOCKED_HOME } from "@/lib/ownerPaths";
 import { bindCacheToUser } from "@/lib/resourceCache";
 
 type Theme = "light" | "dark";
@@ -43,6 +45,8 @@ export default function DashboardLayout({
 }) {
   const theme = useSyncExternalStore(subscribeToTheme, readTheme, serverTheme);
   const { userId } = useAuth();
+  // Dashboard is the logo's home only where the owner has unlocked it.
+  const ownerUnlocked = useOwnerUnlocked();
 
   // Runs during render so it happens before any page under this layout reads
   // the cache. It's idempotent and doesn't notify subscribers.
@@ -76,7 +80,7 @@ export default function DashboardLayout({
         style={{ paddingTop: "env(safe-area-inset-top)" }}
       >
         {/* Brand */}
-        <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0 shrink-0" aria-label="Karmify dashboard">
+        <Link href={ownerUnlocked ? "/dashboard" : LOCKED_HOME} className="flex items-center gap-2.5 min-w-0 shrink-0" aria-label={ownerUnlocked ? "Karmify dashboard" : "Karmify home"}>
           <div aria-hidden className="flex items-center justify-center w-9 h-9 rounded-2xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground font-display font-extrabold text-base shrink-0 shadow-lg shadow-primary/25">
             K
           </div>
