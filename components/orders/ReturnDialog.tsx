@@ -10,13 +10,19 @@ import { itemOptionsText } from "@/lib/orders";
 import { cn, formatNPR } from "@/lib/utils";
 import type { Sale } from "@/lib/types";
 
-/** Pick which items of an order came back and how many; they go back into stock. */
-export function ReturnDialog({ sale, onClose, onDone }: { sale: Sale | null; onClose: () => void; onDone: () => Promise<unknown> | void }) {
-  return sale ? <ReturnForm key={sale.id} sale={sale} onClose={onClose} onDone={onDone} /> : null;
+type Held = Map<string, number>;
+
+/**
+ * Pick which items of an order came back and how many; they go back into stock.
+ * `held`: units of each line on their way back in an exchange, which come back
+ * through the exchange instead.
+ */
+export function ReturnDialog({ sale, held, onClose, onDone }: { sale: Sale | null; held?: Held; onClose: () => void; onDone: () => Promise<unknown> | void }) {
+  return sale ? <ReturnForm key={sale.id} sale={sale} held={held} onClose={onClose} onDone={onDone} /> : null;
 }
 
-function ReturnForm({ sale, onClose, onDone }: { sale: Sale; onClose: () => void; onDone: () => Promise<unknown> | void }) {
-  const lines = sale.items.map(item => ({ item, left: item.quantity - (item.returnedQty ?? 0) }));
+function ReturnForm({ sale, held, onClose, onDone }: { sale: Sale; held?: Held; onClose: () => void; onDone: () => Promise<unknown> | void }) {
+  const lines = sale.items.map(item => ({ item, left: Math.max(0, item.quantity - (item.returnedQty ?? 0) - (held?.get(item.id) ?? 0)) }));
   const returnable = lines.filter(l => l.left > 0);
   // With a single line, it starts ticked: that's almost always what came back.
   const [picked, setPicked] = useState<Record<string, number>>(() =>
@@ -109,7 +115,12 @@ function ReturnForm({ sale, onClose, onDone }: { sale: Sale; onClose: () => void
                   <div className="min-w-0 flex-1">
                     <p className="break-words text-sm font-semibold">{item.product.name}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {[options, `${item.quantity} × ${formatNPR(item.unitPrice)}`, item.returnedQty ? `${item.returnedQty} already returned` : null].filter(Boolean).join(" · ")}
+                      {[
+                        options,
+                        `${item.quantity} × ${formatNPR(item.unitPrice)}`,
+                        item.returnedQty ? `${item.returnedQty} already returned` : null,
+                        held?.get(item.id) ? `${held.get(item.id)} coming back in an exchange` : null,
+                      ].filter(Boolean).join(" · ")}
                     </p>
                   </div>
                   {!done && left > 1 && (

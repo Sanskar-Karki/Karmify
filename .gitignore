@@ -47,3 +47,6 @@ next-env.d.ts
 !public/icons/*.png
 !app/icon.png
 !app/apple-icon.png
+
+# Upaya API doc saved from their portal: it shows the live webhook address, whose secret path must stay private (this repo is public).
+upayaapidoc.md

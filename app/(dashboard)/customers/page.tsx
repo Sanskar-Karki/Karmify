@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
 import { FutureOrdersPanel } from "@/components/orders/FutureOrdersPanel";
+import { ExchangeBadge } from "@/components/orders/ExchangeInfo";
+import { awaitingReturn, exchangeOf } from "@/lib/exchange";
 import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, stockChanges, type EditLine } from "@/components/orders/OrderItemsEditor";
 import { ItemChangeConfirm } from "@/components/orders/ItemChangeConfirm";
 import { PackingListDialog } from "@/components/orders/PackingListDialog";
@@ -112,14 +114,16 @@ function searchMatcher(search: string): (sale: Sale) => boolean {
 // Where an order came from, matching the Analytics channels.
 const SOURCE_FILTERS = [
   { value: "all", label: "All sources" },
-  { value: "website", label: "Website" },
-  { value: "pos", label: "Shop (POS)" },
   { value: "waiting", label: "Waiting to send" },
   { value: "upaya", label: "Sent with Upaya" },
   { value: "instant", label: "Sent with Yango" },
+  { value: "website", label: "Website" },
+  { value: "pos", label: "Shop (POS)" },
   { value: "store", label: "In store" },
   { value: "pr", label: "PR (given free)" },
   { value: "ad", label: "From an ad" },
+  { value: "exchange", label: "Exchanges" },
+  { value: "exchange-due", label: "Exchanges due back" },
 ];
 
 const AREA_FILTERS = [
@@ -149,6 +153,9 @@ function matchesSource(sale: Sale, source: string) {
   if (source === "instant") return Boolean(sale.deliveryVia);
   if (source === "pr") return sale.kind === "pr";
   if (source === "ad") return isFromAd(sale.referral);
+  // Exchange orders, and the ones whose old items haven't been ticked received yet.
+  if (source === "exchange") return exchangeOf(sale) !== null;
+  if (source === "exchange-due") return awaitingReturn(sale);
   return channelOf(sale) === "store";
 }
 
@@ -555,7 +562,7 @@ export default function CustomersPage() {
       rows.map(s => [
         new Date(s.createdAt).toLocaleString(),
         s.invoiceNumber,
-        s.source,
+        exchangeOf(s) ? `${s.source} · exchange for ${exchangeOf(s)!.ofInvoice}` : s.source,
         s.customer?.code,
         s.customerName,
         s.customerPhone,
@@ -998,6 +1005,7 @@ export default function CustomersPage() {
                             {isPR(sale) && (
                               <span className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-pink-700 dark:bg-pink-950/40 dark:text-pink-300" title="Given free for promotion">PR</span>
                             )}
+                            <ExchangeBadge sale={sale} />
                           </p>
                           <p className="mt-1 truncate text-[13px] font-semibold text-foreground">{sale.customerName || "Walk-in Customer"}</p>
                         </div>
@@ -1155,6 +1163,7 @@ export default function CustomersPage() {
                         {isPR(sale) && (
                           <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300" title="Given free for promotion">PR</span>
                         )}
+                        <ExchangeBadge sale={sale} className="whitespace-nowrap" />
                       </div>
                       <p className="text-[11px] text-muted-foreground mt-0.5 md:hidden">{new Date(sale.createdAt).toLocaleDateString()} · {new Date(sale.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</p>
                     </td>

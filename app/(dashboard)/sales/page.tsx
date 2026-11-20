@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingCart, Search, Plus, Minus, X, CheckCircle, User, Phone, MapPin,
   Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap, UserCheck, Users, CalendarClock,
-  CalendarDays, Hourglass,
+  CalendarDays, Hourglass, ArrowLeftRight,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -29,6 +29,7 @@ import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/
 import { useStoreProfile } from "@/lib/storeProfile";
 import { shopOfProducts, useShop } from "@/lib/shop";
 import { addDays, MAX_DAYS_AHEAD, nepalToday, sendOnLabel, type FutureKind } from "@/lib/futureOrders";
+import { creditFor, exchangeableUnits, exchangeOf, unitCredits, unitsInOpenExchanges } from "@/lib/exchange";
 import { Swatch, VariantPicker } from "@/components/shared/VariantStock";
 
 /** "size", "colour" or "colour and size": what a product makes you choose. */
@@ -96,7 +97,12 @@ type Draft = {
   sendOn?: string;
   /** The note this order is being entered from (Notes → Enter as order). */
   noteId?: string | null;
+  /** An exchange: the order whose items come back, and how many of each line. */
+  exchange?: Exchange | null;
 };
+
+/** An exchange in progress (lib/exchange.ts): the order being swapped from, and units coming back per line. */
+type Exchange = { saleId: string; picked: Record<string, number> };
 
 /** Reloads the Notes list in the background, so it shows a note ticked off from here. */
 const refreshNotes = () => fetchResource(resources.notes.key, resources.notes.fetcher, { force: true }).catch(() => {});
@@ -156,6 +162,11 @@ export default function SalesPage() {
   // Only an order waiting for restock may go beyond what's in stock today.
   const restockFuture = future && futureKind === "restock";
   const scheduled = future && futureKind === "scheduled";
+  // An exchange: this order sends replacements for items of an earlier order, which
+  // come back (credited against this order). Started from that order's Exchange button.
+  const [exchange, setExchange] = useState<Exchange | null>(null);
+  // The exchange whose customer, address and hub were filled in already, so it happens once.
+  const exchangeFilled = useRef<string | null>(null);
   const [walkInVia, setWalkInVia] = useState<WalkInVia>("studio");
   const [cashReceived, setCashReceived] = useState("");
   const [receiptExtras, setReceiptExtras] = useState<{
@@ -187,7 +198,7 @@ export default function SalesPage() {
     const id = ++rateRequest.current;
     if (!area) return setHubRate(null);
     setHubRate({ state: "loading" });
-    const result = await estimateCourierRate(area.locationId, 1, service).catch(() => null);
+    const result = await estimateCourierRate(area.locationId, 1, service, exchange !== null).catch(() => null);
     if (id !== rateRequest.current) return; // a newer hub was chosen meanwhile
     if (result?.ok && typeof result.data === "number" && result.data > 0) {
       setDeliveryAmount(result.data);
@@ -221,17 +232,26 @@ export default function SalesPage() {
         if (d.futureKind === "scheduled" || d.futureKind === "restock") setFutureKind(d.futureKind);
         if (typeof d.sendOn === "string") setSendOn(d.sendOn);
         if (typeof d.noteId === "string") setNoteId(d.noteId);
+        if (d.exchange && typeof d.exchange.saleId === "string") {
+          setExchange({ saleId: d.exchange.saleId, picked: d.exchange.picked && typeof d.exchange.picked === "object" ? d.exchange.picked : {} });
+          exchangeFilled.current = d.exchange.saleId; // already filled in before the reload
+        }
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
     }
     // Notes → Enter as order: the link names the note (over one kept in the draft).
     // It's then dropped from the address, so a reload doesn't bring back a finished note.
-    const fromNote = new URLSearchParams(window.location.search).get("note");
-    if (fromNote) {
-      setNoteId(fromNote);
-      window.history.replaceState(null, "", window.location.pathname);
+    const params = new URLSearchParams(window.location.search);
+    const fromNote = params.get("note");
+    if (fromNote) setNoteId(fromNote);
+    // An order's Exchange button: start an exchange for it (filled in once the orders load).
+    const fromExchange = params.get("exchange");
+    if (fromExchange) {
+      setExchange({ saleId: fromExchange, picked: {} });
+      exchangeFilled.current = null;
     }
+    if (fromNote || fromExchange) window.history.replaceState(null, "", window.location.pathname);
     draftLoaded.current = true;
     });
     return () => cancelAnimationFrame(frame);
@@ -239,12 +259,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId, exchange };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId, exchange]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -449,6 +469,76 @@ export default function SalesPage() {
     setLinkedId(null);
   }
 
+  // The exchange in progress: the order it swaps from, what each of its lines can
+  // still give back (not returned, not in another open exchange), and their worth.
+  const exchangeSale = exchange ? sales.find(s => s.id === exchange.saleId) ?? null : null;
+  const exchangeLines = useMemo(() => {
+    if (!exchangeSale) return [];
+    const held = unitsInOpenExchanges(sales, exchangeSale.id);
+    const credits = unitCredits(exchangeSale);
+    return exchangeSale.items.map(item => ({ item, can: exchangeableUnits(item, held), unitCredit: credits.get(item.id) ?? item.unitPrice }));
+  }, [exchangeSale, sales]);
+  const comingBack = exchange
+    ? exchangeLines
+        .map(l => ({ ...l, quantity: Math.min(l.can, Math.max(0, Math.floor(exchange.picked[l.item.id] ?? 0))) }))
+        .filter(l => l.quantity > 0)
+    : [];
+  const exchangeWorth = creditFor(comingBack);
+
+  // Fills in the exchange's customer, address and Upaya hub from the order, once, when the orders have loaded.
+  useEffect(() => {
+    if (!exchange || loading || exchangeFilled.current === exchange.saleId) return;
+    const frame = requestAnimationFrame(() => {
+      exchangeFilled.current = exchange.saleId;
+      const original = sales.find(s => s.id === exchange.saleId);
+      if (!original) {
+        toast.error("The order being exchanged wasn't found. It may have been deleted.");
+        setExchange(null);
+        return;
+      }
+      if (rawCart.length > 0) toast.info("The cart already had items. Remove any that aren't part of this exchange.", { id: "exchange-cart" });
+      const address = deliveryAddress(original.customerAddress);
+      setMode(address ? "delivery" : "walkin");
+      setFuture(false);
+      setNoteId(null);
+      setCustomer({ name: original.customerName ?? "", phone: original.customerPhone ?? "", address });
+      if (original.customerId) setLinkedId(original.customerId);
+      const service = BATCH_COURIER_SERVICES.some(sv => sv.id === original.courierServiceId) ? (original.courierServiceId as number) : DOOR_TO_DOOR;
+      setCourierService(service);
+      if (address && original.courierAreaId && original.courierLocationId) {
+        void chooseHub({ areaId: original.courierAreaId, locationId: original.courierLocationId, title: original.courierAreaTitle ?? "", hub: null }, service);
+      }
+      // One line that can come back: it's ticked, since that's almost always the one.
+      const held = unitsInOpenExchanges(sales, original.id);
+      const open = original.items.filter(item => exchangeableUnits(item, held) > 0);
+      if (open.length === 1 && Object.keys(exchange.picked).length === 0) {
+        setExchange({ saleId: original.id, picked: { [open[0].id]: exchangeableUnits(open[0], held) } });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+    // chooseHub and the cart are read once, at fill time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exchange, loading, sales]);
+
+  /** Ticks or unticks a line of the order being exchanged (ticking takes all it can give). */
+  function toggleComingBack(itemId: string, can: number) {
+    setExchange(e => {
+      if (!e) return e;
+      const picked = { ...e.picked };
+      if (picked[itemId]) delete picked[itemId];
+      else picked[itemId] = can;
+      return { ...e, picked };
+    });
+  }
+  function setComingBack(itemId: string, qty: number, can: number) {
+    setExchange(e => (e ? { ...e, picked: { ...e.picked, [itemId]: Math.max(0, Math.min(can, qty)) } } : e));
+  }
+  /** Back to a normal sale: the cart and customer stay. */
+  function stopExchange() {
+    setExchange(null);
+    exchangeFilled.current = null;
+  }
+
   const walkIn = mode === "walkin";
   const pr = mode === "pr";
   // PR orders may be handed over (no address) or sent like a delivery.
@@ -458,7 +548,11 @@ export default function SalesPage() {
   const instantLabel = instant ? "Yango" : null;
   const subtotal = cart.reduce((a, c) => a + c.listPrice * c.quantity, 0);
   const discountAmount = cart.reduce((a, c) => a + Math.max(0, c.listPrice - c.unitPrice) * c.quantity, 0);
-  const total = subtotal - discountAmount;
+  // An exchange: the old items' worth comes off the new ones (recorded as discount). When
+  // they're worth more, the difference is owed back to the customer, outside Karmify.
+  const exchangeCredit = exchange ? Math.min(exchangeWorth, Math.max(0, subtotal - discountAmount)) : 0;
+  const refundDue = exchange && cart.length > 0 ? Math.max(0, exchangeWorth - exchangeCredit) : 0;
+  const total = subtotal - discountAmount - exchangeCredit;
   const delivery = walkIn || pr ? 0 : deliveryAmount;
   const fullTotal = total + delivery;
   // Staff can type a lower final total; the gap is recorded as discount. It can't go
@@ -511,6 +605,8 @@ export default function SalesPage() {
     setHub(null);
     setHubRate(null);
     setCourierService(DOOR_TO_DOOR);
+    setExchange(null);
+    exchangeFilled.current = null;
   }
 
   /** The order is saved: tick off the note it was entered from, and put the note away. */
@@ -525,6 +621,10 @@ export default function SalesPage() {
     if (fieldErrors.name) return void toast.error(fieldErrors.name);
     if (fieldErrors.phone) return void toast.error(fieldErrors.phone);
     const cod = parseFloat(codAmount) || 0;
+    if (exchange) {
+      if (!exchangeSale) return void toast.error("The order being exchanged wasn't found. Stop the exchange, or open it again from the order.");
+      if (comingBack.length === 0) return void toast.error("Tick the item the customer is sending back.");
+    }
     // A future order is looked up by whose it is when it's sent.
     if (future && !customer.name.trim()) return void toast.error("Enter who the future order is for.");
     if (scheduled) {
@@ -561,7 +661,7 @@ export default function SalesPage() {
       customerPhone: customer.phone.trim() || undefined,
       customerAddress: walkIn && !instant ? undefined : customer.address.trim() || undefined,
       items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, unitPrice: c.listPrice, variantId: c.variantId ?? null })),
-      discount: discountAmount + totalCut + shortDiscount,
+      discount: discountAmount + exchangeCredit + totalCut + shortDiscount,
       deliveryAmount: delivery,
       codAmount: walkIn || pr ? 0 : cod,
       totalAmount: total - totalCut - shortDiscount,
@@ -575,6 +675,7 @@ export default function SalesPage() {
       customerId: linkedCustomer?.customerId ?? null,
       // The shop being sold from; under "All shops", the cart's products' shop.
       brand: shop !== "all" ? shop : shopOfProducts(products.filter(p => cart.some(c => c.productId === p.id))),
+      ...(exchange && { exchangeOf: { saleId: exchange.saleId, items: comingBack.map(l => ({ itemId: l.item.id, quantity: l.quantity })) } }),
     };
 
     setSubmitting(true);
@@ -613,6 +714,12 @@ export default function SalesPage() {
       success: sale => {
         const who = sale.customerName?.trim();
         if (sale.kind === "pr") return `PR order ${sale.invoiceNumber} recorded for ${who}.`;
+        const swap = exchangeOf(sale);
+        if (swap) {
+          return swap.receivedAt
+            ? `Exchange ${sale.invoiceNumber} done${who ? ` for ${who}` : ""}: the old item is back in stock.`
+            : `Exchange ${sale.invoiceNumber} added for ${who}${sale.codAmount > 0 ? ` · COD ${formatNPR(sale.codAmount)}` : ""}. Tick the old item received on the order when it's back.`;
+        }
         if (walkIn) return `Sale ${sale.invoiceNumber} completed${who ? ` for ${who}` : ""} · ${formatNPR(sale.totalAmount)}.`;
         return `Order ${sale.invoiceNumber} added for ${who} · ${sale.paymentMethod === "COD" ? `COD ${formatNPR(sale.codAmount)}` : "paid"}.`;
       },
@@ -682,6 +789,79 @@ export default function SalesPage() {
         {/* LEFT: Customer & payment. Phones stack the three columns in the same
             order as a computer: details, then products, then the cart. */}
         <div className="lg:sticky lg:top-0 min-w-0">
+          {exchange && (
+            <section aria-label="Exchange" className="mb-3 rounded-2xl border border-teal-300 bg-teal-50 p-3 shadow-sm dark:border-teal-800/60 dark:bg-teal-950/30">
+              <div className="flex items-start justify-between gap-2">
+                <p className="flex min-w-0 items-center gap-1.5 text-[13px] font-bold text-teal-950 dark:text-teal-50">
+                  <ArrowLeftRight size={14} className="shrink-0" />
+                  <span className="truncate">Exchange for {exchangeSale ? <span className="font-mono">{exchangeSale.invoiceNumber}</span> : "an order"}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={stopExchange}
+                  aria-label="Stop the exchange (keeps the cart)"
+                  title="Stop the exchange (keeps the cart)"
+                  className="-mr-1 -mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-teal-900 hover:bg-teal-100 dark:text-teal-100 dark:hover:bg-teal-900/40"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              <p className="mt-1 text-[11px] text-teal-900 dark:text-teal-100">
+                Tick what the customer is sending back, then add the replacement from the products. Its price is credited; the customer pays the delivery.
+                {" "}{sending ? "Upaya's rider collects the old item when delivering the new one." : "Walk-in: the old item is handed back now and goes straight into stock."}
+              </p>
+              {!exchangeSale ? (
+                <p className="mt-2 text-[11px] text-teal-900 dark:text-teal-100">{loading ? "Loading the order…" : "That order wasn't found."}</p>
+              ) : (
+                <ul className="mt-2 divide-y divide-teal-200/70 overflow-hidden rounded-xl border border-teal-200 bg-card dark:divide-teal-900/50 dark:border-teal-900/50">
+                  {exchangeLines.map(({ item, can, unitCredit }) => {
+                    const qty = Math.min(can, exchange.picked[item.id] ?? 0);
+                    const options = itemOptionsText(item);
+                    const product = products.find(p => p.id === item.productId);
+                    return (
+                      <li key={item.id} className={cn("flex items-center gap-2.5 px-3 py-2", can === 0 && "opacity-55")}>
+                        <input
+                          type="checkbox"
+                          checked={qty > 0}
+                          disabled={can === 0}
+                          onChange={() => toggleComingBack(item.id, can)}
+                          aria-label={`${item.product.name}${options ? ` (${options})` : ""} is coming back`}
+                          className="h-4 w-4 shrink-0 cursor-pointer accent-primary"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words text-xs font-semibold text-foreground">{item.product.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {can === 0 ? [options, "already returned or in another exchange"].filter(Boolean).join(" · ") : [options, `${formatNPR(unitCredit)} each`].filter(Boolean).join(" · ")}
+                          </p>
+                          {qty > 0 && product && (
+                            <button
+                              type="button"
+                              onClick={() => addToCart(product)}
+                              className="mt-1 text-[11px] font-semibold text-primary underline underline-offset-2 hover:no-underline dark:text-pink-300"
+                            >
+                              {product.variants.length > 0 ? `Pick the new ${pickAxes(product)}` : "Add the replacement"}
+                            </button>
+                          )}
+                        </div>
+                        {can > 1 && qty > 0 && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button type="button" onClick={() => setComingBack(item.id, qty - 1, can)} disabled={qty <= 1} aria-label={`One fewer ${item.product.name} coming back`} className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-muted/70 disabled:opacity-40"><Minus size={11} /></button>
+                            <span className="w-9 text-center text-xs font-bold" aria-live="polite">{qty}/{can}</span>
+                            <button type="button" onClick={() => setComingBack(item.id, qty + 1, can)} disabled={qty >= can} aria-label={`One more ${item.product.name} coming back`} className="flex h-7 w-7 items-center justify-center rounded-lg bg-muted hover:bg-muted/70 disabled:opacity-40"><Plus size={11} /></button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {exchangeWorth > 0 && (
+                <p className="mt-2 flex justify-between text-[12px] font-bold text-teal-950 dark:text-teal-50">
+                  <span>Credit for what comes back</span><span>{formatNPR(exchangeWorth)}</span>
+                </p>
+              )}
+            </section>
+          )}
           {noteId && (
             <NoteReference
               noteId={noteId}
@@ -704,8 +884,9 @@ export default function SalesPage() {
                     role="radio"
                     aria-checked={mode === option.value}
                     onClick={() => setMode(option.value)}
-                    title={option.title}
-                    className={cn("flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-semibold rounded-lg transition-all", mode === option.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
+                    disabled={exchange !== null && option.value === "pr"}
+                    title={exchange !== null && option.value === "pr" ? "An exchange can't be a PR order" : option.title}
+                    className={cn("flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-semibold rounded-lg transition-all disabled:cursor-not-allowed disabled:opacity-40", mode === option.value ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}
                   >
                     <option.icon size={12} /> {option.label}
                   </button>
@@ -746,7 +927,8 @@ export default function SalesPage() {
                 </p>
               )}
 
-              {/* Future order: taken now, sent later. Waiting for stock, or on the customer's date. */}
+              {/* Future order: taken now, sent later. Waiting for stock, or on the customer's date. Not for exchanges. */}
+              {!exchange && (
               <div
                 className={cn(
                   "rounded-xl border transition-colors",
@@ -825,6 +1007,7 @@ export default function SalesPage() {
                   </div>
                 )}
               </div>
+              )}
 
               <p className="pt-1 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                 {pr ? "Given to" : "Customer"}{walkIn && <span className="font-medium normal-case tracking-normal"> · optional</span>}
@@ -1180,7 +1363,7 @@ export default function SalesPage() {
             {/* Cart Header */}
             <div className="p-4 border-b border-border/60 flex items-center justify-between">
               <h2 className="font-bold flex items-center gap-2 text-sm"><ShoppingCart size={15} className="text-primary" />Cart ({cartUnits} {cartUnits === 1 ? "item" : "items"})</h2>
-              {cart.length > 0 && <button type="button" onClick={() => setCart([])} className="text-[12px] text-red-500 font-semibold hover:underline">Clear All</button>}
+              {cart.length > 0 && <button type="button" onClick={() => setCart([])} className="text-[12px] text-red-600 dark:text-red-400 font-semibold hover:underline">Clear All</button>}
             </div>
 
             {/* Cart Items */}
@@ -1291,6 +1474,11 @@ export default function SalesPage() {
                     <span>Discount{shortDiscount > 0 && " (paid less)"}</span><span>−{formatNPR(discountAmount + totalCut + shortDiscount)}</span>
                   </div>
                 )}
+                {exchangeCredit > 0 && (
+                  <div className="flex justify-between gap-3 font-semibold text-teal-700 dark:text-teal-300">
+                    <span title={exchangeSale ? `For the items coming back from ${exchangeSale.invoiceNumber}` : undefined}>Exchange credit</span><span>−{formatNPR(exchangeCredit)}</span>
+                  </div>
+                )}
                 {delivery > 0 && <div className="flex justify-between text-muted-foreground"><span>Delivery</span><span>{formatNPR(delivery)}</span></div>}
                 <div className="flex items-center justify-between gap-2 font-extrabold text-base text-foreground pt-1 border-t border-border/60">
                   <label htmlFor="pos-final-total">Total</label>
@@ -1335,6 +1523,9 @@ export default function SalesPage() {
                 {Number.isFinite(typedTotal) && typedTotal < delivery && (
                   <p className="text-[11px] font-medium text-amber-600">The total can&apos;t be less than the delivery charge ({formatNPR(delivery)}).</p>
                 )}
+                {refundDue > 0 && (
+                  <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">The old item is worth {formatNPR(refundDue)} more than the new one. Give that back to the customer.</p>
+                )}
                 {shortDiscount > 0 && <div className="flex justify-between font-bold text-foreground"><span>Paid</span><span>{formatNPR(amountDue)}</span></div>}
                 {advancePaid > 0 && <div className="flex justify-between text-muted-foreground"><span>Advance paid</span><span>−{formatNPR(advancePaid)}</span></div>}
                 {!walkIn && <div className="flex justify-between font-bold text-primary dark:text-pink-300"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>}
@@ -1365,9 +1556,10 @@ export default function SalesPage() {
                 loading={submitting}
                 className="w-full py-3 font-bold"
               >
-                {!submitting && (future ? <CalendarClock size={15} /> : pr ? <Gift size={15} /> : <Receipt size={15} />)}
+                {!submitting && (exchange ? <ArrowLeftRight size={15} /> : future ? <CalendarClock size={15} /> : pr ? <Gift size={15} /> : <Receipt size={15} />)}
                 {submitting
-                  ? future ? "Saving future order…" : pr ? "Recording PR order…" : "Completing sale…"
+                  ? exchange ? "Creating exchange order…" : future ? "Saving future order…" : pr ? "Recording PR order…" : "Completing sale…"
+                  : exchange ? `Create exchange order · ${formatNPR(amountDue)}`
                   : future ? `Save future order · ${pr ? `${cartUnits} item${cartUnits === 1 ? "" : "s"}` : formatNPR(amountDue)}`
                   : pr ? `Record PR order · ${cartUnits} item${cartUnits === 1 ? "" : "s"} free` : `${walkIn ? "Complete Sale" : "Complete Sale & Invoice"} · ${formatNPR(amountDue)}`}
               </Button>

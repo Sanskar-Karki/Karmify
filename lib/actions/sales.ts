@@ -12,10 +12,22 @@ import { deletedOrderDetails, WEBSITE_ORDER_DELETED } from "@/lib/websiteOrders"
 import { formatNPR } from "@/lib/utils";
 import { instantCourierLabel, isInstantCourier } from "@/lib/orders";
 import { sameLines, setAsideByLine, type FutureOrderData } from "@/lib/futureOrders";
-import { takeStock, type StockLine } from "@/lib/stockOut";
+import { openExchangeUnits, ORDER_LEDGER_TYPES, returnOrderLines, takeStock, type StockLine } from "@/lib/stockOut";
+import { creditFor, exchangeableUnits, exchangeLineName, exchangeOf, unitCredits, type SaleExchange } from "@/lib/exchange";
 import { revalidatePath } from "next/cache";
 
 type Tx = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
+/** The order an exchange swaps items from, with what its lines cost and how many came back. */
+async function exchangeOriginal(tx: Tx, storeId: string, saleId: string) {
+  return tx.sale.findFirst({
+    where: { id: saleId, storeId },
+    select: {
+      id: true, invoiceNumber: true, warehouseId: true, deliveryStatus: true, kind: true, discount: true,
+      items: { select: { id: true, productId: true, variantId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
+    },
+  });
+}
 
 /** Points an existing customer at new contact details, keeping their ID. */
 async function changeCustomerIdentity(tx: Tx, storeId: string, customerId: string, identityKey: string) {
@@ -251,13 +263,6 @@ async function customerAfterEdit(
   return findOrCreateCustomerId(tx, storeId, after);
 }
 
-/**
- * The movements that say what an order still has out of stock: STOCK_OUT adds,
- * the rest take away. ADJUSTMENT counts only with the order as its reference,
- * which only an item edit writes, for removed units not put back in stock.
- */
-const ORDER_LEDGER_TYPES = [MovementType.STOCK_OUT, MovementType.RETURNED, MovementType.ADJUSTMENT];
-
 /** One line of an order as edited: an existing line keeps its itemId; a new one has none. */
 export type EditedLine = { itemId?: string | null; productId: string; variantId?: string | null; quantity: number; unitPrice: number };
 
@@ -290,6 +295,7 @@ async function applyItemEdit(
     where: { saleId: sale.id },
     select: { id: true, productId: true, variantId: true, quantity: true, returnedQty: true, unitPrice: true, variant: true, product: { select: { name: true } } },
   });
+  const inExchange = await openExchangeUnits(tx, storeId, sale.id);
   const productIds = [...new Set([...lines.map(l => l.productId), ...current.map(i => i.productId)])];
   const products = await tx.product.findMany({
     where: { id: { in: productIds }, storeId },
@@ -327,11 +333,21 @@ async function applyItemEdit(
       if (!unchangedProduct) throw new UserError(`"${nameOf(existing.productId, existing.variantId)}" has returns recorded, so its product and size can't be changed.`);
       if (l.quantity < existing.returnedQty) throw new UserError(`${existing.returnedQty} of "${nameOf(existing.productId, existing.variantId)}" came back already, so it can't go below ${existing.returnedQty}.`);
     }
+    // Units on their way back in an exchange are held the same way.
+    const exchanging = existing ? inExchange.get(existing.id) ?? 0 : 0;
+    if (existing && exchanging > 0) {
+      const floor = existing.returnedQty + exchanging;
+      if (!unchangedProduct) throw new UserError(`"${nameOf(existing.productId, existing.variantId)}" is being exchanged, so its product and size can't be changed.`);
+      if (l.quantity < floor) throw new UserError(`${exchanging} of "${nameOf(existing.productId, existing.variantId)}" ${exchanging === 1 ? "is" : "are"} being exchanged, so it can't go below ${floor}.`);
+    }
     return { ...l, variantId, existing };
   });
   for (const item of current) {
     if (!kept.has(item.id) && item.returnedQty > 0) {
       throw new UserError(`"${nameOf(item.productId, item.variantId)}" has returns recorded, so it can't be removed from the order.`);
+    }
+    if (!kept.has(item.id) && (inExchange.get(item.id) ?? 0) > 0) {
+      throw new UserError(`"${nameOf(item.productId, item.variantId)}" is being exchanged, so it can't be removed from the order.`);
     }
   }
 
@@ -639,9 +655,24 @@ export type SaleInput = {
 export async function createSale(data: SaleInput & {
   /** A future order being sent now: it's removed in the same step, so it can't become two orders. */
   futureOrderId?: string;
+  /**
+   * An exchange (lib/exchange.ts): this order sends the replacements for these
+   * lines of an earlier order, which the customer sends back. Their worth is in
+   * `discount`. A walk-in hands them over now, so they're back in stock at once;
+   * a delivery waits for staff to tick them received.
+   */
+  exchangeOf?: { saleId: string; items: { itemId: string; quantity: number }[] };
 }) {
   return guarded("Could not complete this sale. Nothing was charged or deducted.", async () => {
     const pr = data.pr === true;
+    if (data.exchangeOf) {
+      const lines = data.exchangeOf.items;
+      if (pr) throw new UserError("A PR order can't be an exchange.");
+      if (data.futureOrderId) throw new UserError("A future order can't be an exchange.");
+      if (typeof data.exchangeOf.saleId !== "string" || !Array.isArray(lines) || lines.length === 0) throw new UserError("Choose the items the customer is sending back.");
+      if (lines.some(l => typeof l.itemId !== "string" || !Number.isInteger(l.quantity) || l.quantity <= 0)) throw new UserError("Each item coming back needs a whole quantity of 1 or more.");
+      if (new Set(lines.map(l => l.itemId)).size !== lines.length) throw new UserError("An item coming back is listed twice. Refresh and try again.");
+    }
     if (pr && !data.customerName?.trim()) throw new UserError("Enter who the PR order is for.");
     if (data.customerName?.trim() && nameProblem(data.customerName)) throw new UserError(nameProblem(data.customerName)!);
     if (data.customerPhone?.trim() && phoneProblem(data.customerPhone)) throw new UserError(phoneProblem(data.customerPhone)!);
@@ -714,6 +745,42 @@ export async function createSale(data: SaleInput & {
             .filter(l => l.quantity > 0);
         }
       }
+      // An exchange: the items coming back must still be on that order, not returned
+      // and not already in another exchange. Sales are created one at a time per store
+      // (the numbering lock above), so two exchanges can't both claim the same units.
+      let exchange: SaleExchange | null = null;
+      let original: Awaited<ReturnType<typeof exchangeOriginal>> = null;
+      if (data.exchangeOf) {
+        original = await exchangeOriginal(tx, storeId, data.exchangeOf.saleId);
+        if (!original) throw new UserError("The order being exchanged no longer exists. Refresh and try again.");
+        if (original.deliveryStatus === DeliveryStatus.CANCELLED) throw new UserError(`${original.invoiceNumber} was cancelled, so there's nothing to exchange.`);
+        if (original.kind === "pr") throw new UserError(`${original.invoiceNumber} was a PR order, given free, so it can't be exchanged.`);
+        const open = await openExchangeUnits(tx, storeId, original.id);
+        const credits = unitCredits(original);
+        const lines = data.exchangeOf.items.map(line => {
+          const item = original!.items.find(i => i.id === line.itemId);
+          if (!item) throw new UserError(`An item being exchanged is no longer on ${original!.invoiceNumber}. Refresh and try again.`);
+          const can = exchangeableUnits(item, open);
+          if (line.quantity > can) {
+            throw new UserError(can === 0
+              ? `"${item.product.name}" on ${original!.invoiceNumber} was already returned or is in another exchange.`
+              : `Only ${can} of "${item.product.name}" on ${original!.invoiceNumber} can still be exchanged.`);
+          }
+          return {
+            itemId: item.id, productId: item.productId, variantId: item.variantId, name: item.product.name, variant: item.variant,
+            quantity: line.quantity, unitCredit: credits.get(item.id) ?? item.unitPrice,
+          };
+        });
+        exchange = {
+          ofSaleId: original.id,
+          ofInvoice: original.invoiceNumber,
+          items: lines,
+          credit: creditFor(lines),
+          // Handed over at the till: the old items are back now.
+          receivedAt: walkIn ? new Date().toISOString() : null,
+        };
+      }
+
       const stem = documentStem("INV");
       const todays = await tx.sale.findMany({
         where: { storeId, invoiceNumber: { startsWith: stem } },
@@ -756,6 +823,7 @@ export async function createSale(data: SaleInput & {
           ...(handedOver && { deliveryStatus: DeliveryStatus.DELIVERED }),
           ...(area && { courierAreaId: area.areaId, courierLocationId: area.locationId, courierAreaTitle: area.title.slice(0, 200) }),
           ...(!data.walkIn && isCourierService(Number(data.courierServiceId)) && { courierServiceId: Number(data.courierServiceId) }),
+          ...(exchange && { exchange: exchange as unknown as object }),
           items: {
             create: data.items.map(item => ({
               productId: item.productId,
@@ -796,16 +864,30 @@ export async function createSale(data: SaleInput & {
         });
       }
 
+      // A walk-in exchange: the old items were handed over, so they go back in stock now.
+      if (exchange?.receivedAt && original) {
+        await returnOrderLines(tx, {
+          storeId,
+          userId: tenant.userId,
+          sale: original,
+          lines: exchange.items.map(l => ({ itemId: l.itemId, quantity: l.quantity })),
+          notes: `Back from exchange ${invoiceNumber} (order ${original.invoiceNumber})`,
+        });
+      }
+
       return newSale;
     }, { timeout: 20_000, maxWait: 10_000 }));
 
     const via = instantCourierLabel(deliveryVia);
+    const swap = exchangeOf(sale);
     await logActivity(
       tenant,
-      data.futureOrderId ? "Future Order Sent" : pr ? "PR Order Created" : "POS Sale Created",
+      data.futureOrderId ? "Future Order Sent" : pr ? "PR Order Created" : swap ? "Exchange Order Created" : "POS Sale Created",
       pr
         ? `PR order ${sale.invoiceNumber} for ${data.customerName?.trim()}: ${formatNPR(goodsValue)} of goods given free${via ? `, sent with ${via}` : ""}.`
-        : `Completed sale ${sale.invoiceNumber} (${formatNPR(data.totalAmount)})${via ? `, sent with ${via}` : ""}.`
+        : swap
+          ? `Exchange ${sale.invoiceNumber} for ${swap.ofInvoice}: ${swap.items.map(l => `${l.quantity} × ${exchangeLineName(l)}`).join(", ")} ${swap.receivedAt ? "handed back" : "coming back"}, credit ${formatNPR(swap.credit)}; ${formatNPR(data.totalAmount + (walkIn ? 0 : data.deliveryAmount))} to pay.`.slice(0, 1000)
+          : `Completed sale ${sale.invoiceNumber} (${formatNPR(data.totalAmount)})${via ? `, sent with ${via}` : ""}.`
     );
 
     revalidatePath("/sales");
@@ -841,71 +923,14 @@ export async function returnSaleItems(saleId: string, lines: { itemId: string; q
       if (!sale) throw new UserError("That order no longer exists. Refresh the page and try again.");
       if (sale.deliveryStatus === DeliveryStatus.CANCELLED) throw new UserError("This order was cancelled, so there is nothing to return.");
 
-      // What the order took from stock per product, less what has come back already.
-      const ledger = await tx.stockMovement.groupBy({
-        by: ["productId", "type"],
-        where: { storeId, referenceId: sale.id, type: { in: ORDER_LEDGER_TYPES } },
-        _sum: { quantity: true },
+      const { units, restocked, parts } = await returnOrderLines(tx, {
+        storeId,
+        userId: tenant.userId,
+        sale,
+        lines: wanted,
+        notes: `Returned from order ${sale.invoiceNumber}`,
+        held: await openExchangeUnits(tx, storeId, sale.id),
       });
-      const stillOut = new Map<string, number>();
-      for (const row of ledger) {
-        const sign = row.type === MovementType.STOCK_OUT ? 1 : -1;
-        stillOut.set(row.productId, (stillOut.get(row.productId) ?? 0) + sign * (row._sum.quantity ?? 0));
-      }
-
-      const parts: string[] = [];
-      let units = 0;
-      let restocked = 0;
-      for (const line of wanted) {
-        const item = sale.items.find(i => i.id === line.itemId);
-        if (!item) throw new UserError("One of the items is no longer on this order. Refresh and try again.");
-        const left = item.quantity - item.returnedQty;
-        if (line.quantity > left) {
-          throw new UserError(`Only ${left} of "${item.product.name}" can still be returned.`);
-        }
-
-        // Claim the units on the line first, so two people returning at once can't both succeed.
-        const claimed = await tx.saleItem.updateMany({
-          where: { id: item.id, returnedQty: item.returnedQty },
-          data: { returnedQty: { increment: line.quantity } },
-        });
-        if (claimed.count === 0) throw new UserError("This order was just changed by someone else. Refresh and try again.");
-        units += line.quantity;
-
-        const back = Math.min(line.quantity, Math.max(0, stillOut.get(item.productId) ?? 0));
-        const label = item.variant ? `${item.product.name} (${item.variant})` : item.product.name;
-        parts.push(`${line.quantity} × ${label}${back < line.quantity ? ` (${back} restocked)` : ""}`);
-        if (back <= 0) continue;
-        stillOut.set(item.productId, (stillOut.get(item.productId) ?? 0) - back);
-
-        if (item.variantId) {
-          const toSize = await tx.productVariant.updateMany({ where: { id: item.variantId, storeId }, data: { quantity: { increment: back } } });
-          if (toSize.count > 0) await syncStockTotal(tx, storeId, item.productId, sale.warehouseId);
-          else {
-            // The size was deleted since: the units still go back to the product's total.
-            await tx.stock.updateMany({ where: { storeId, productId: item.productId, warehouseId: sale.warehouseId }, data: { quantity: { increment: back } } });
-          }
-        } else {
-          await tx.stock.upsert({
-            where: { productId_warehouseId: { productId: item.productId, warehouseId: sale.warehouseId } },
-            update: { quantity: { increment: back } },
-            create: { storeId, productId: item.productId, warehouseId: sale.warehouseId, quantity: back },
-          });
-        }
-        await tx.stockMovement.create({
-          data: {
-            storeId,
-            productId: item.productId,
-            quantity: back,
-            type: MovementType.RETURNED,
-            destWhId: sale.warehouseId,
-            referenceId: sale.id,
-            notes: `Returned from order ${sale.invoiceNumber}${item.variant ? ` · ${item.variant}` : ""}`,
-            userId: tenant.userId,
-          },
-        });
-        restocked += back;
-      }
 
       const allBack = sale.items.every(i => {
         const now = i.returnedQty + (wanted.find(l => l.itemId === i.id)?.quantity ?? 0);

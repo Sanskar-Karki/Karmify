@@ -156,12 +156,15 @@ export async function getCategories(): Promise<CourierCategory[]> {
   return categories;
 }
 
+/** Upaya order types: a delivery, or a delivery that also collects the old items (an exchange). */
+export type UpayaOrderType = "delivery_order" | "exchange_order";
+
 /** An estimate only. Not retried, because nothing depends on it. */
-export async function getRate(locationId: number, weight: number, serviceTypeId: number) {
+export async function getRate(locationId: number, weight: number, serviceTypeId: number, orderType: UpayaOrderType = "delivery_order") {
   const { data } = await call<{ data: { totalDeliveryCharge?: number } }>("/order-rates", {
     method: "POST",
     timeoutMs: 10_000,
-    body: { initial_weight: weight, location_id: locationId, service_type_id: serviceTypeId, order_type: "delivery_order", length: 1, breadth: 1, height: 1 },
+    body: { initial_weight: weight, location_id: locationId, service_type_id: serviceTypeId, order_type: orderType, length: 1, breadth: 1, height: 1 },
   });
   return typeof data.totalDeliveryCharge === "number" ? data.totalDeliveryCharge : null;
 }

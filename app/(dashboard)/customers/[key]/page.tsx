@@ -4,8 +4,10 @@ import React, { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, Megaphone, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Truck, Users, X, Zap,
+  ArrowLeft, ArrowLeftRight, Calendar, ChevronRight, Copy, Edit2, Globe, Mail, MapPin, Gift, Megaphone, MessageCircle, Phone, Receipt, RotateCcw, Save, Store, Tag, Truck, Users, X, Zap,
 } from "lucide-react";
+import { ExchangeBadge, ExchangedNote, ExchangeReturnBox } from "@/components/orders/ExchangeInfo";
+import { exchangeableUnits, exchangeOf, unitsInOpenExchanges } from "@/lib/exchange";
 import { ReturnDialog } from "@/components/orders/ReturnDialog";
 import { HubEditField, hubChanged, hubOf, serviceOf } from "@/components/orders/HubEditField";
 import { COURIER_FINAL_STATUSES, type CourierArea } from "@/lib/courier";
@@ -160,7 +162,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
       <div className={cn(card, "flex flex-col items-center gap-2 py-16 text-center text-muted-foreground")}>
         <Users size={36} className="opacity-30" />
         <p className="text-sm font-semibold">Customer not found</p>
-        <Link href="/customers" className="mt-2 text-xs font-semibold text-primary hover:underline">Back to Customers</Link>
+        <Link href="/customers" className="mt-2 text-xs font-semibold text-primary dark:text-pink-300 hover:underline">Back to Customers</Link>
       </div>
     );
   }
@@ -249,7 +251,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
               <div className="border-t border-border/60 p-5">
                 <div className="mb-2 flex items-center justify-between">
                   <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contact</h2>
-                  <button type="button" onClick={startEditing} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10">
+                  <button type="button" onClick={startEditing} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary dark:text-pink-300 hover:bg-primary/10">
                     <Edit2 size={12} /> Edit
                   </button>
                 </div>
@@ -316,7 +318,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                     filter === tab.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  {tab.label} <span className="text-[10px] opacity-70">{tab.count}</span>
+                  {tab.label} <span className="text-[10px] font-normal tabular-nums">{tab.count}</span>
                 </button>
               ))}
             </div>
@@ -329,6 +331,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
               <OrderCard
                 key={sale.id}
                 sale={sale}
+                related={customer.sales}
                 onLabel={() => { setLabelSale(sale); setShowLabel(true); }}
                 onReceipt={() => setReceiptSale(sale)}
                 onSaved={() => refetch({ quiet: true })}
@@ -364,7 +367,14 @@ function ContactRow({ icon: Icon, label, value, children }: { icon: typeof Phone
 }
 
 /** One order: summary, items, quick status change, and a full edit form. */
-function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel: () => void; onReceipt: () => void; onSaved: () => Promise<unknown> | void }) {
+function OrderCard({ sale, related, onLabel, onReceipt, onSaved }: {
+  sale: Sale;
+  /** The customer's other orders: exchanges of this one are among them. */
+  related: Sale[];
+  onLabel: () => void;
+  onReceipt: () => void;
+  onSaved: () => Promise<unknown> | void;
+}) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
@@ -385,8 +395,13 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
   const [confirmingItems, setConfirmingItems] = useState(false);
   const address = deliveryAddress(sale.customerAddress);
   const units = sale.items.reduce((n, i) => n + i.quantity, 0);
+  // Units on their way back in an exchange are held: they can't be returned or swapped again.
+  const held = useMemo(() => unitsInOpenExchanges(related, sale.id), [related, sale.id]);
+  const heldUnits = [...held.values()].reduce((n, q) => n + q, 0);
   const returnedUnits = sale.items.reduce((n, i) => n + (i.returnedQty ?? 0), 0);
-  const canReturn = sale.deliveryStatus !== "CANCELLED" && returnedUnits < units;
+  const canReturn = sale.deliveryStatus !== "CANCELLED" && returnedUnits + heldUnits < units;
+  // An exchange sends a replacement (another size, say) as a new order linked to this one.
+  const canExchange = sale.deliveryStatus !== "CANCELLED" && !isPR(sale) && sale.items.some(item => exchangeableUnits(item, held) > 0);
   const [courierOpen, setCourierOpen] = useState(false);
   const withUpaya = Boolean(sale.courierTrackingCode) && sale.courierStatus !== "cancelled";
   // Still on its way (out for delivery, or coming back as a return): its tracking shows right in the card.
@@ -518,6 +533,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
                   <Gift size={10} /> PR · free
                 </span>
               )}
+              <ExchangeBadge sale={sale} />
               {referralLabel(sale.referral) && (
                 <span title={sale.referral ?? ""} className="inline-flex items-center gap-1 rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
                   <Megaphone size={10} /> {referralLabel(sale.referral)}
@@ -574,6 +590,15 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
             >
               <RotateCcw size={12} /> Return
             </button>
+          )}
+          {canExchange && !editing && (
+            <Link
+              href={`/sales?exchange=${sale.id}`}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs font-semibold hover:bg-muted"
+              title="Swap items (another size, say): opens the POS with this order, and Upaya collects the old items when it delivers the new ones"
+            >
+              <ArrowLeftRight size={12} /> Exchange
+            </Link>
           )}
           {canUseCourier && (
             <button
@@ -716,9 +741,10 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
             {(sale.deliveryAmount > 0 || sale.discount > 0) && (
               <li className="space-y-0.5 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
                 {sale.deliveryAmount > 0 && <p className="flex justify-between"><span>Delivery</span><span>{formatNPR(sale.deliveryAmount)}</span></p>}
-                {sale.discount > 0 && <p className="flex justify-between"><span>Discount</span><span>−{formatNPR(sale.discount)}</span></p>}
+                {sale.discount > 0 && <p className="flex justify-between"><span>Discount{exchangeOf(sale) ? " (incl. exchange credit)" : ""}</span><span>−{formatNPR(sale.discount)}</span></p>}
               </li>
             )}
+            <ExchangedNote sale={sale} related={related} />
           </ul>
 
           {/* Delivery details */}
@@ -746,6 +772,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
           </div>
         </div>
       )}
+      {!editing && <ExchangeReturnBox sale={sale} onChanged={onSaved} />}
       {!editing && onItsWay && (
         <section aria-label={`Upaya tracking for ${sale.invoiceNumber}`} className="border-t border-border/50 px-4 pb-4 pt-3 sm:px-5 sm:pb-5">
           <h3 className="mb-2.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
@@ -757,7 +784,7 @@ function OrderCard({ sale, onLabel, onReceipt, onSaved }: { sale: Sale; onLabel:
       {courierOpen && (
         <CourierDialog open={courierOpen} onClose={() => setCourierOpen(false)} sale={sale} onChanged={() => void onSaved()} />
       )}
-      <ReturnDialog sale={returning ? sale : null} onClose={() => setReturning(false)} onDone={onSaved} />
+      <ReturnDialog sale={returning ? sale : null} held={held} onClose={() => setReturning(false)} onDone={onSaved} />
       <ItemChangeConfirm
         open={confirmingItems}
         invoiceNumber={sale.invoiceNumber}

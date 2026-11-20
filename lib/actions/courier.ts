@@ -9,6 +9,7 @@ import {
   courierCodAmount, courierMobile, courierReference, courierStillOpen, DOOR_TO_DOOR, isCourierService, splitCourierAddress, type CourierOrderForm,
 } from "@/lib/courier";
 import { instantCourierLabel, itemName } from "@/lib/orders";
+import { exchangeLineName, exchangeOf, type SaleExchange } from "@/lib/exchange";
 import { courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
   createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError, valleyLocationIds,
@@ -88,11 +89,30 @@ export async function listValleyLocations() {
   });
 }
 
-export async function estimateCourierRate(locationId: number, weight: number, serviceTypeId: number) {
+/** Upaya's charge for a delivery, or for an exchange (deliver the new items, collect the old) when `exchange` is set. */
+export async function estimateCourierRate(locationId: number, weight: number, serviceTypeId: number, exchange = false) {
   return guarded("Estimate unavailable.", async () => {
     await requireCourierTenant();
-    return getRate(locationId, weight, serviceTypeId);
+    return getRate(locationId, weight, serviceTypeId, exchange === true ? "exchange_order" : "delivery_order");
   });
+}
+
+/**
+ * The extra fields Upaya needs for an exchange order: what the rider collects.
+ * The three size keys must be sent (as null): leaving them out is an error.
+ */
+function exchangeFields(exchange: SaleExchange, categoryId: number) {
+  return {
+    order_type: "exchange_order",
+    return_product_name: exchange.items.map(l => `${l.quantity} x ${exchangeLineName(l)}`).join(", ").slice(0, 250),
+    return_product_weight: 1,
+    return_product_category_id: categoryId,
+    return_item_value: Math.max(1, Math.round(exchange.credit)),
+    return_product_description: `Exchange for order ${exchange.ofInvoice}`.slice(0, 250),
+    return_product_length: null,
+    return_product_breadth: null,
+    return_product_height: null,
+  };
 }
 
 function validated(form: CourierOrderForm, paidOnline: boolean) {
@@ -172,11 +192,13 @@ export async function sendOrderToCourier(saleId: string, form: CourierOrderForm)
 
     const sale = await db.sale.findFirst({
       where: { id: saleId, storeId },
-      select: { invoiceNumber: true, paymentMethod: true, deliveryStatus: true },
+      select: { invoiceNumber: true, paymentMethod: true, deliveryStatus: true, exchange: true },
     });
     if (!sale) throw new UserError("That order no longer exists. Refresh the page and try again.");
     if (sale.deliveryStatus !== "IN_PROCESS") throw new UserError("Only orders still in process can be sent to Upaya.");
-    const order = validated(form, sale.paymentMethod !== "COD");
+    // An exchange order goes as Upaya's exchange: the rider delivers it and collects the old items.
+    const swap = exchangeOf(sale);
+    const order = { ...validated(form, sale.paymentMethod !== "COD"), ...(swap && exchangeFields(swap, form.categoryId)) };
 
     // One claim at a time, so a double click or a second till can't book twice.
     const claimed = await db.sale.updateMany({
@@ -230,7 +252,7 @@ export async function bookSaleWithUpaya(saleId: string, service?: number) {
       where: { id: saleId, storeId: tenant.storeId },
       select: {
         customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, courierServiceId: true, notes: true, deliveryVia: true,
-        paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true,
+        paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true, exchange: true,
         items: { select: { quantity: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
       },
     });
@@ -240,7 +262,10 @@ export async function bookSaleWithUpaya(saleId: string, service?: number) {
 
     const serviceTypeId = service ?? (sale.courierServiceId && isCourierService(sale.courierServiceId) ? sale.courierServiceId : DOOR_TO_DOOR);
     const { address, landmark } = splitCourierAddress(sale.customerAddress);
-    const goods = sale.items.reduce((total, item) => total + item.quantity * item.unitPrice, 0) - sale.discount;
+    // The declared value (for claims) is what the parcel is worth: an exchange's credit
+    // for the old items is part of its discount, but the new items are still worth their price.
+    const swap = exchangeOf(sale);
+    const goods = sale.items.reduce((total, item) => total + item.quantity * item.unitPrice, 0) - Math.max(0, sale.discount - (swap?.credit ?? 0));
     const result = await sendOrderToCourier(saleId, {
       receiverName: sale.customerName ?? "",
       receiverPhone: sale.customerPhone ?? "",
@@ -253,7 +278,7 @@ export async function bookSaleWithUpaya(saleId: string, service?: number) {
       declaredValue: Math.max(1, Math.round(goods)),
       codAmount: courierCodAmount(sale),
       weight: 1,
-      note: (sale.notes ?? "").slice(0, 250),
+      note: (sale.notes || (swap ? `Exchange: collect ${swap.items.map(l => `${l.quantity} x ${exchangeLineName(l)}`).join(", ")} from the customer.` : "")).slice(0, 250),
     });
     if (!result.ok) throw new UserError(result.message);
     return result.data;

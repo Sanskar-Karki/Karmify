@@ -9,6 +9,7 @@ export * from "@/lib/actions/inventory";
 export * from "@/lib/actions/sales";
 export * from "@/lib/actions/trash";
 export * from "@/lib/actions/futureOrders";
+export * from "@/lib/actions/exchanges";
 export * from "@/lib/actions/notes";
 export * from "@/lib/actions/ownerAccess";
 export * from "@/lib/actions/purchases";
