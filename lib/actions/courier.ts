@@ -10,7 +10,7 @@ import {
 } from "@/lib/courier";
 import { instantCourierLabel, itemName } from "@/lib/orders";
 import { exchangeLineName, exchangeOf, type SaleExchange } from "@/lib/exchange";
-import { commentWriter, courierEnabledFor, shipmentFields, syncShipment } from "@/lib/courierSync";
+import { commentWriter, courierEnabledFor, keepCommentTime, shipmentFields, syncShipment } from "@/lib/courierSync";
 import {
   addOrderComment, createOrder, findOrderByReference, getCategories, getRate, isUncertainOutcome, searchAreas, sleep, suggestAreas, UpayaError, valleyLocationIds,
 } from "@/lib/upaya";
@@ -321,6 +321,8 @@ export async function addCourierComment(saleId: string, comment: string) {
         where: { id: saleId, storeId: tenant.storeId },
         data: { courierComment: saved.text, courierCommentBy: commentWriter(saved) },
       }).catch(err => console.error("[upaya] couldn't save the latest comment", err));
+      await keepCommentTime(saleId, { t: saved.text, us: true, at: saved.at ?? new Date().toISOString() })
+        .catch(err => console.error("[upaya] couldn't keep the comment time", err));
       await logActivity(tenant, "Upaya Comment", `${sale.invoiceNumber}: ${text}`);
       revalidatePath("/upaya");
       return saved;

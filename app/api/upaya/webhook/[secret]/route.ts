@@ -28,7 +28,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
     const trackingCode: string = event.tracking_code;
     const comment: string = event.comment;
     const by = typeof event.commented_by === "string" ? event.commented_by : null;
-    after(() => noteCourierComment(trackingCode, comment, by).catch(err => {
+    const at = typeof event.commented_at === "string" ? event.commented_at : null;
+    after(() => noteCourierComment(trackingCode, comment, by, at).catch(err => {
       console.error("[upaya] webhook comment failed", trackingCode, err);
     }));
   }

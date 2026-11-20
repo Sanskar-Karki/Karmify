@@ -12,7 +12,7 @@ import { cn, formatNPR } from "@/lib/utils";
 import { mutate } from "@/lib/mutate";
 import { itemName, codToCollect } from "@/lib/orders";
 import {
-  COURIER_COMMENT_MAX, COURIER_SERVICES, courierMobile, courierStatusLabel, courierStatusStyle, splitCourierAddress,
+  COURIER_COMMENT_MAX, COURIER_SERVICES, commentTimeLabel, courierMobile, courierStatusLabel, courierStatusStyle, splitCourierAddress,
   type CourierArea, type CourierCategory, type CourierComment, type CourierTracking,
 } from "@/lib/courier";
 import type { Sale } from "@/lib/types";
@@ -284,7 +284,7 @@ function TrackingView({ sale, onUpdated, focusComment }: { sale: Sale; onUpdated
 /**
  * The conversation with Upaya about one parcel, newest first as on Upaya's
  * dashboard: a box to send a new one, then their team's and the rider's notes,
- * ours on the right. Upaya's API gives no times, so only a comment just sent has one.
+ * ours on the right. Upaya's tracking gives no times, so times come from what Karmify kept (webhooks and our own sends); older comments have none.
  */
 function CourierComments({ sale, comments, onSent, focus }: {
   sale: Sale; comments: CourierComment[]; onSent: (comment: CourierComment) => void; focus?: boolean;
@@ -351,7 +351,7 @@ function CourierComments({ sale, comments, onSent, focus }: {
                 c.fromUs ? "rounded-br-md bg-primary/10 text-foreground" : "rounded-bl-md border border-border bg-muted/50",
               )}>
                 <p className="text-[11px] font-semibold text-muted-foreground">
-                  {c.fromUs ? "You" : c.by ?? "Rider"}{c.at && <span className="font-normal"> · {c.at}</span>}
+                  {c.fromUs ? "You" : c.by ?? "Rider"}{c.at && <time dateTime={c.at} title={new Date(c.at).toLocaleString()} className="font-normal"> · {commentTimeLabel(c.at)}</time>}
                 </p>
                 <p className="whitespace-pre-wrap break-words">{c.text}</p>
               </div>

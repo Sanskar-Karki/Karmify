@@ -4,7 +4,7 @@ import React, { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle, ArrowUpDown, Bike, CheckCircle2, ChevronRight, Gift, Globe, Megaphone, MessageSquare, Package, PackageOpen, Phone, RefreshCw, Route, Search, Truck, Undo2, X,
+  AlertTriangle, ArrowUpDown, Bike, CalendarDays, CheckCircle2, ChevronRight, Gift, Globe, Megaphone, MessageSquare, Package, PackageOpen, Phone, RefreshCw, Route, Search, Truck, Undo2, X,
   type LucideIcon,
 } from "lucide-react";
 import { refreshCourierShipments } from "@/app/actions";
@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/shared/EmptyState";
 import { Pulse } from "@/components/shared/Pulse";
 import { ShowMoreButton, useShowMore } from "@/components/shared/ShowMore";
 import { upayaCod } from "@/lib/analytics";
-import { COURIER_FINAL_STATUSES, courierStatusLabel, courierStatusStyle, UPAYA_STAGES, upayaPlace, type UpayaBucket, type UpayaStage } from "@/lib/courier";
+import { commentTimeLabel, COURIER_FINAL_STATUSES, courierStatusLabel, latestCommentTime, courierStatusStyle, UPAYA_STAGES, upayaPlace, type UpayaBucket, type UpayaStage } from "@/lib/courier";
 import { mutate } from "@/lib/mutate";
 import { customerKey, deliveryAddress, isPR, referralLabel } from "@/lib/orders";
 import { ExchangeBadge } from "@/components/orders/ExchangeInfo";
@@ -24,6 +24,7 @@ import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { useResources } from "@/lib/useResources";
 import { useUrlState } from "@/lib/useUrlState";
 import { useOwnerUnlocked } from "@/lib/ownerLock";
+import { DateRangeCalendar, fromDateKey, shortDay } from "@/components/shared/DateRangeCalendar";
 import { cn, formatNPR } from "@/lib/utils";
 import type { Sale } from "@/lib/types";
 
@@ -86,6 +87,8 @@ const STAGE_LABEL: Record<string, string> = {
 const DATE_FILTERS = [
   { value: "all", label: "Any time" },
   { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "3", label: "3 days" },
   { value: "7", label: "7 days" },
   { value: "30", label: "30 days" },
 ];
@@ -104,12 +107,30 @@ const shortDate = (d: Date) => d.toLocaleDateString(undefined, { day: "numeric",
 const LATE_DAYS = 3;
 const VERY_LATE_DAYS = 7;
 
-function inDateFilter(d: Date, filter: string) {
-  if (filter === "all") return true;
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  if (filter !== "today") start.setDate(start.getDate() - (Number(filter) - 1));
-  return d >= start;
+type CustomRange = { from: string; to: string };
+
+/** The days a date filter covers, as [start, end). "all" covers everything. */
+function dateRange(filter: string, custom: CustomRange | null): [Date, Date] | null {
+  if (filter === "all") return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayAfter = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+  if (filter === "custom") return custom ? [fromDateKey(custom.from), dayAfter(fromDateKey(custom.to))] : null;
+  if (filter === "yesterday") return [new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1), today];
+  const days = filter === "today" ? 1 : Number(filter);
+  return [new Date(today.getFullYear(), today.getMonth(), today.getDate() - (days - 1)), dayAfter(today)];
+}
+
+/**
+ * The day a parcel counts on: a finished one (delivered, returned) on the day it
+ * finished, so "Today" shows what was delivered today whenever it was booked; a
+ * moving one on the day it was booked. Karmify doesn't keep a separate finish
+ * time, but a finished parcel is never checked again, so its last check is when
+ * Upaya's webhook (or a refresh) told Karmify it had finished.
+ */
+function countsOn(sale: Sale, booked: Date) {
+  const finished = COURIER_FINAL_STATUSES.includes(sale.courierStatus ?? "");
+  return finished && sale.courierCheckedAt ? new Date(sale.courierCheckedAt) : booked;
 }
 
 const percent = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : 0);
@@ -118,6 +139,9 @@ export default function UpayaPage() {
   const { sales, loading, refetch } = useResources({ sales: resources.sales });
   const [view, setView] = useUrlState("view", "process");
   const [dateFilter, setDateFilter] = useState("all");
+  const [customRange, setCustomRange] = useState<CustomRange | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const customButton = useRef<HTMLButtonElement>(null);
   const [sortChoice, setSortChoice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [refreshing, setRefreshing] = useState(false);
@@ -131,7 +155,11 @@ export default function UpayaPage() {
       .map(sale => ({ sale, at: bookedAt(sale), ...upayaPlace(sale.courierStatus) })),
     [sales],
   );
-  const inRange = useMemo(() => booked.filter(o => inDateFilter(o.at, dateFilter)), [booked, dateFilter]);
+  const inRange = useMemo(() => {
+    const range = dateRange(dateFilter, customRange);
+    if (!range) return booked;
+    return booked.filter(o => { const d = countsOn(o.sale, o.at); return d >= range[0] && d < range[1]; });
+  }, [booked, dateFilter, customRange]);
 
   const counts = useMemo(() => {
     const c = new Map<string, number>([["all", inRange.length]]);
@@ -218,7 +246,7 @@ export default function UpayaPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div role="radiogroup" aria-label="Booked when" className="flex items-center gap-0.5 rounded-xl border border-border/70 bg-muted/70 p-1">
+          <div role="radiogroup" aria-label="When" title="Moving parcels count on the day they were booked; delivered and returned ones on the day they finished" className="flex flex-wrap items-center gap-0.5 rounded-xl border border-border/70 bg-muted/70 p-1">
             {DATE_FILTERS.map(f => (
               <button
                 key={f.value}
@@ -234,7 +262,37 @@ export default function UpayaPage() {
                 {f.label}
               </button>
             ))}
+            <button
+              ref={customButton}
+              type="button"
+              role="radio"
+              aria-checked={dateFilter === "custom"}
+              onClick={() => setPickerOpen(true)}
+              className={cn(
+                "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap transition-all",
+                dateFilter === "custom" ? "bg-card text-foreground shadow-sm ring-1 ring-border/60" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <CalendarDays size={12} aria-hidden />
+              {dateFilter === "custom" && customRange
+                ? customRange.from === customRange.to ? shortDay(customRange.from) : `${shortDay(customRange.from)} – ${shortDay(customRange.to)}`
+                : "Custom"}
+            </button>
           </div>
+          {pickerOpen && (
+            <DateRangeCalendar
+              open={pickerOpen}
+              onClose={() => setPickerOpen(false)}
+              anchorRef={customButton}
+              initialStart={customRange?.from}
+              initialEnd={customRange?.to}
+              onApply={(from, to) => {
+                setCustomRange({ from, to });
+                setDateFilter("custom");
+                setPickerOpen(false);
+              }}
+            />
+          )}
           <button
             type="button"
             onClick={() => void refresh()}
@@ -600,6 +658,7 @@ function LatestComment({ sale, onTrack, className }: Pick<RowProps, "sale" | "on
   }
   const by = sale.courierCommentBy ?? "Upaya";
   const ours = by === "You";
+  const at = latestCommentTime(sale);
   return (
     <button
       type="button"
@@ -614,6 +673,7 @@ function LatestComment({ sale, onTrack, className }: Pick<RowProps, "sale" | "on
     >
       <span className={cn("flex items-center gap-1 text-[10px] font-bold", ours ? "text-primary dark:text-pink-300" : "text-muted-foreground")}>
         <MessageSquare size={10} aria-hidden /> {by}
+        {at && <time dateTime={at} title={new Date(at).toLocaleString()} className="ml-auto font-medium tabular-nums">{commentTimeLabel(at)}</time>}
       </span>
       <span className="line-clamp-2 break-words text-xs text-foreground">{comment}</span>
     </button>

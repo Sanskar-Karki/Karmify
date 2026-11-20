@@ -150,6 +150,64 @@ export type CourierTracking = {
 
 export type CourierComment = { by: string | null; text: string; at: string | null; fromUs: boolean };
 
+/** Upaya's times ("2026-11-20 17:20:30") are Nepal time; this gives an ISO time, or null. */
+export function upayaTime(value: string | null | undefined): string | null {
+  const m = value?.trim().match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const date = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6] ?? "00"}+05:45`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/** When a comment was made, as kept on the order (`Sale.courierCommentTimes`). */
+export type CommentTime = { t: string; us: boolean; at: string };
+
+export function readCommentTimes(raw: string | null | undefined): CommentTime[] {
+  if (!raw) return [];
+  try {
+    const list = JSON.parse(raw);
+    return Array.isArray(list) ? list.filter(e => e && typeof e.t === "string" && typeof e.at === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Gives each comment its time from the kept list. The same words can be said
+ * twice, so each kept time is used once, oldest comment first.
+ */
+export function withCommentTimes(comments: CourierComment[], times: CommentTime[]): CourierComment[] {
+  const used = new Set<number>();
+  const timed = [...comments].reverse().map(c => {
+    if (c.at) return c;
+    const i = times.findIndex((e, j) => !used.has(j) && e.t === c.text && e.us === c.fromUs);
+    if (i < 0) return c;
+    used.add(i);
+    return { ...c, at: times[i].at };
+  });
+  return timed.reverse();
+}
+
+/** A comment's time for people: "5:20 PM" today, "Yesterday 5:20 PM", else "18 Nov, 5:20 PM". */
+export function commentTimeLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(new Date()) - day(d)) / 86_400_000);
+  if (diff === 0) return time;
+  if (diff === 1) return `Yesterday ${time}`;
+  return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, ${time}`;
+}
+
+/** When the order's latest comment was made, if Karmify knows. */
+export function latestCommentTime(sale: { courierComment?: string | null; courierCommentBy?: string | null; courierCommentTimes?: string | null }) {
+  if (!sale.courierComment) return null;
+  const us = sale.courierCommentBy === "You";
+  const times = readCommentTimes(sale.courierCommentTimes).filter(e => e.t === sale.courierComment && e.us === us);
+  return times.at(-1)?.at ?? null;
+}
+
 /** Upaya doesn't publish a limit; this keeps a comment to a readable message. */
 export const COURIER_COMMENT_MAX = 500;
 

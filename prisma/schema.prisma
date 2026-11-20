@@ -303,6 +303,7 @@ model Sale {
   courierServiceId    Int? // Upaya service: 3 = door to door, 9 = door to branch (null = door to door)
   courierComment      String? // Newest comment on the parcel at Upaya, shown in the Upaya list
   courierCommentBy    String? // Who wrote it: "You", "Rider", "Upaya staff" or a name
+  courierCommentTimes String? // JSON [{t, us, at}]: when each comment was made. Upaya's tracking has no times, so they're kept from its webhooks and our own sends
   notes           String? // The customer's note from the website checkout
   brand           String? // "originals" | "decor": which shop the sale belongs to (null = not set)
   kind            String         @default("sale") // "sale" | "pr" (given away free for promotion: stock goes out, no money comes in)

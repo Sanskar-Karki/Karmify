@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  courierStatusSlug, isValleyHub, sameCourierReference, type CourierArea, type CourierCategory, type CourierComment, type CourierTracking,
+  courierStatusSlug, isValleyHub, upayaTime, sameCourierReference, type CourierArea, type CourierCategory, type CourierComment, type CourierTracking,
 } from "@/lib/courier";
 
 // Client for the Upaya courier API. The key stays on the server: this module
@@ -232,7 +232,7 @@ function readComment(raw: RawComment): CourierComment | null {
   return {
     by: commenter(text(raw.userName) ?? text(raw.commentedBy), fromUs),
     text: body,
-    at: text(raw.createdAt) ?? text(raw.commentedAt) ?? text(raw.created_at),
+    at: upayaTime(text(raw.createdAt) ?? text(raw.commentedAt) ?? text(raw.created_at)),
     fromUs,
   };
 }
@@ -277,7 +277,7 @@ export async function addOrderComment(trackingCode: string, comment: string): Pr
   return {
     by: text(saved?.commentedBy) ?? "Client",
     text: text(saved?.comment) ?? comment,
-    at: text(saved?.commentedAt),
+    at: upayaTime(text(saved?.commentedAt)) ?? new Date().toISOString(),
     fromUs: true,
   };
 }

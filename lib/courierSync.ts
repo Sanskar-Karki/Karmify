@@ -2,7 +2,7 @@ import "server-only";
 
 import { DeliveryStatus, PaymentMethod, PaymentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
-import { courierStillOpen, deliveryStatusFor, type CourierComment } from "@/lib/courier";
+import { courierStillOpen, deliveryStatusFor, readCommentTimes, upayaTime, withCommentTimes, type CourierComment } from "@/lib/courier";
 import { trackOrder } from "@/lib/upaya";
 import { notify } from "@/lib/actions/helpers";
 
@@ -13,7 +13,7 @@ export const courierEnabledFor = (storeId: string) =>
 
 export const shipmentFields = {
   id: true, courierTrackingCode: true, courierStatus: true, deliveryStatus: true, paymentMethod: true,
-  courierComment: true, courierCommentBy: true,
+  courierComment: true, courierCommentBy: true, courierCommentTimes: true,
 } as const;
 
 type Shipment = {
@@ -24,6 +24,7 @@ type Shipment = {
   paymentMethod: PaymentMethod;
   courierComment?: string | null;
   courierCommentBy?: string | null;
+  courierCommentTimes?: string | null;
 };
 
 /** What the Upaya list shows for a comment's writer. */
@@ -78,6 +79,7 @@ export async function syncShipment(sale: Shipment) {
   const tracking = await trackOrder(trackingCode);
   const statusChanged = tracking.status ? await applyCourierStatus(sale, trackingCode, tracking.status) : false;
   const commentChanged = await saveLatestComment(sale, trackingCode, tracking.comments[0]);
+  tracking.comments = withCommentTimes(tracking.comments, readCommentTimes(sale.courierCommentTimes));
   return { tracking, changed: statusChanged || commentChanged };
 }
 
@@ -97,14 +99,24 @@ export async function syncShipmentByTrackingCode(trackingCode: string) {
 
 export const COURIER_COMMENT_NOTIFICATION = "Upaya comment on an order";
 
+/** Keeps when a comment was made (the newest 100), since Upaya's tracking leaves times out. */
+export async function keepCommentTime(saleId: string, entry: { t: string; us: boolean; at: string }) {
+  const sale = await db.sale.findUnique({ where: { id: saleId }, select: { courierCommentTimes: true } });
+  if (!sale) return;
+  const times = readCommentTimes(sale.courierCommentTimes);
+  if (times.some(e => e.t === entry.t && e.us === entry.us && e.at === entry.at)) return; // a repeated webhook
+  await db.sale.update({ where: { id: saleId }, data: { courierCommentTimes: JSON.stringify([...times, entry].slice(-100)) } });
+}
+
 /**
  * Handles a comment webhook: a note from Upaya's team or the rider ("customer
  * not reachable"). Like status webhooks it's unsigned, so it only counts once
  * the same words show up in Upaya's own record of the parcel. Comments we sent
  * ourselves come back too and are skipped.
  */
-export async function noteCourierComment(trackingCode: string, comment: string, by: string | null) {
+export async function noteCourierComment(trackingCode: string, comment: string, by: string | null, commentedAt: string | null = null) {
   const storeId = process.env.UPAYA_STORE_ID;
+  // Our own comments come back too: their time was kept when they were sent.
   if (!storeId || by === "Client") return;
   const sale = await db.sale.findFirst({
     where: { storeId, courierTrackingCode: trackingCode },
@@ -117,6 +129,7 @@ export async function noteCourierComment(trackingCode: string, comment: string, 
   const confirmed = tracking.comments.some(c => !c.fromUs && c.text === said);
   if (!confirmed) return;
 
+  await keepCommentTime(sale.id, { t: said, us: false, at: upayaTime(commentedAt) ?? new Date().toISOString() });
   const who = by?.trim() || "Upaya";
   const text = said.length > 300 ? `${said.slice(0, 299)}…` : said;
   await notify(storeId, COURIER_COMMENT_NOTIFICATION, `${who} on ${sale.invoiceNumber}${sale.customerName ? ` (${sale.customerName})` : ""}: ${text}`, "info");
