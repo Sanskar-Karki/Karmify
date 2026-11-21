@@ -81,9 +81,8 @@ export default function DashboardLayout({
       >
         {/* Brand */}
         <Link href={ownerUnlocked ? "/dashboard" : LOCKED_HOME} className="flex items-center gap-2.5 min-w-0 shrink-0" aria-label={ownerUnlocked ? "Karmify dashboard" : "Karmify home"}>
-          <div aria-hidden className="flex items-center justify-center w-9 h-9 rounded-2xl bg-gradient-to-br from-primary to-primary/75 text-primary-foreground font-display font-extrabold text-base shrink-0 shadow-lg shadow-primary/25">
-            K
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- a fixed 36px icon; next/image adds nothing here. */}
+          <img src="/icons/logo-72.png" alt="" aria-hidden width={36} height={36} className="w-9 h-9 rounded-[10px] shrink-0 shadow-md shadow-black/20 dark:ring-1 dark:ring-white/10" />
           <span className="hidden sm:inline font-display text-base font-extrabold tracking-tight text-foreground truncate">
             Karmify
           </span>

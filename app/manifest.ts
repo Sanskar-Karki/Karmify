@@ -3,7 +3,8 @@ import type { MetadataRoute } from "next";
 /**
  * Lets Karmify be installed on a phone or computer as its own app: its name,
  * icon, and opening full-screen (no browser bars) on the dashboard.
- * The icons are made from the header's "K" tile (public/icons, app/icon.png).
+ * The icons are made from the black "K" logo (public/icons, app/icon.png, app/apple-icon.png;
+ * public/icons/badge-96.png is the white K for notifications).
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {

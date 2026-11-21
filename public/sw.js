@@ -8,7 +8,7 @@
 // Bump VERSION to drop everything stored by an older worker. Do so whenever
 // offline.html or the icons change, or phones keep showing the old copies.
 
-const VERSION = "karmify-v1";
+const VERSION = "karmify-v2";
 const CACHE = `${VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/icons/icon-192.png", "/icons/icon-512.png"];
@@ -85,7 +85,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(self.registration.showNotification(title, {
     body: data.body || "",
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    // Android shows only the shape of the badge (white K) in the status bar.
+    badge: "/icons/badge-96.png",
     tag: data.tag || undefined,
     renotify: Boolean(data.tag),
     data: { url: typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/customers" },
