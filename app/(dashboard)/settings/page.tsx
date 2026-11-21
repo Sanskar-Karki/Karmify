@@ -13,6 +13,7 @@ import { SupplierRowPlaceholder } from "@/components/skeletons/placeholders";
 import { Modal } from "@/components/shared/Modal";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { OwnerLockCard } from "@/components/shared/OwnerLockCard";
+import { PhoneNotificationsCard } from "@/components/shared/PhoneNotificationsCard";
 import { Button } from "@/components/shared/Button";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { mutate } from "@/lib/mutate";
@@ -270,6 +271,7 @@ export default function SettingsPage() {
       </div>
 
       <OwnerLockCard />
+      <PhoneNotificationsCard />
 
       <div role="tablist" className="grid grid-cols-2 gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl sm:flex sm:flex-wrap sm:w-fit max-w-full">
         {TABS.map(tab => (

@@ -1,7 +1,9 @@
 import "server-only";
 
+import { after } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { pushNotification } from "@/lib/push";
 import type { Tenant } from "@/lib/tenant";
 
 // Best-effort helpers used by the action modules. They run after the real work
@@ -28,6 +30,16 @@ export async function notify(
     await db.notification.create({ data: { storeId, title, message, type } });
   } catch (err) {
     console.error("[notification] failed to create", title, err);
+    return;
+  }
+  // Phones with notifications switched on get it too. Sent after the reply, so
+  // a slow push service never holds up the save (or the website's order call).
+  const send = () => pushNotification(storeId, title, message);
+  try {
+    after(send);
+  } catch {
+    // Outside a request (scripts, tests): send now instead.
+    await send();
   }
 }
 

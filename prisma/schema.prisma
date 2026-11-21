@@ -52,9 +52,9 @@ enum DeliveryStatus {
 // A tenant. Every business/store using the app gets its own Store, and all
 // data rows below carry a storeId so tenants never see each other's data.
 model Store {
-  id             String          @id @default(uuid())
+  id             String           @id @default(uuid())
   name           String
-  ownerId        String          @unique // Clerk user ID of the store owner
+  ownerId        String           @unique // Clerk user ID of the store owner
   users          User[]
   categories     Category[]
   suppliers      Supplier[]
@@ -69,11 +69,12 @@ model Store {
   futureOrders   FutureOrder[]
   notes          Note[]
   customers      Customer[]
-  customerSeq    Int             @default(0) // Last customer number issued; only ever goes up
+  customerSeq    Int              @default(0) // Last customer number issued; only ever goes up
   activities     ActivityLog[]
   notifications  Notification[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  pushDevices    PushDevice[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 }
 
 model User {
@@ -146,32 +147,32 @@ model Warehouse {
 }
 
 model Product {
-  id            String          @id @default(uuid())
-  storeId       String
-  store         Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  name          String
-  sku           String
-  barcode       String?
-  description   String?
-  brand         String?
-  categoryId    String
-  category      Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  supplierId    String
-  supplier      Supplier        @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  costPrice     Float
-  sellingPrice  Float
-  minStockLevel Int             @default(5)
-  lowStockIgnoredQty Int?       // Low-stock alert ignored while stock stays at or below this (products without sizes)
-  imageUrl      String?
-  expiryDate    DateTime?
-  status        String          @default("active") // "active" | "inactive"
-  stocks        Stock[]
-  variants      ProductVariant[]
-  movements     StockMovement[]
-  purchaseItems PurchaseItem[]
-  saleItems     SaleItem[]
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  id                 String           @id @default(uuid())
+  storeId            String
+  store              Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  name               String
+  sku                String
+  barcode            String?
+  description        String?
+  brand              String?
+  categoryId         String
+  category           Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  supplierId         String
+  supplier           Supplier         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  costPrice          Float
+  sellingPrice       Float
+  minStockLevel      Int              @default(5)
+  lowStockIgnoredQty Int? // Low-stock alert ignored while stock stays at or below this (products without sizes)
+  imageUrl           String?
+  expiryDate         DateTime?
+  status             String           @default("active") // "active" | "inactive"
+  stocks             Stock[]
+  variants           ProductVariant[]
+  movements          StockMovement[]
+  purchaseItems      PurchaseItem[]
+  saleItems          SaleItem[]
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
   @@unique([storeId, sku])
   @@unique([storeId, barcode])
@@ -269,29 +270,29 @@ model Customer {
 }
 
 model Sale {
-  id              String         @id @default(uuid())
-  storeId         String
-  store           Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  invoiceNumber   String // e.g. INV-XXXX
-  customerName    String?
-  customerEmail   String?
-  customerPhone   String?
-  customerAddress String?
-  customerId      String?
-  customer        Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  warehouseId     String
-  warehouse       Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  items           SaleItem[]
-  taxAmount       Float          @default(0.0)
-  discount        Float          @default(0.0)
-  deliveryAmount  Float          @default(0.0)
-  codAmount       Float          @default(0.0)
-  totalAmount     Float
-  paymentStatus   PaymentStatus  @default(PAID)
-  paymentMethod   PaymentMethod  @default(COD)
-  deliveryStatus  DeliveryStatus @default(IN_PROCESS)
-  source          String         @default("pos") // "pos" | "website"
-  externalOrderId String? // website orders.order_id (e.g. "KRM-20260714-0001"), used to dedupe repeat syncs
+  id                  String         @id @default(uuid())
+  storeId             String
+  store               Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  invoiceNumber       String // e.g. INV-XXXX
+  customerName        String?
+  customerEmail       String?
+  customerPhone       String?
+  customerAddress     String?
+  customerId          String?
+  customer            Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  warehouseId         String
+  warehouse           Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  items               SaleItem[]
+  taxAmount           Float          @default(0.0)
+  discount            Float          @default(0.0)
+  deliveryAmount      Float          @default(0.0)
+  codAmount           Float          @default(0.0)
+  totalAmount         Float
+  paymentStatus       PaymentStatus  @default(PAID)
+  paymentMethod       PaymentMethod  @default(COD)
+  deliveryStatus      DeliveryStatus @default(IN_PROCESS)
+  source              String         @default("pos") // "pos" | "website"
+  externalOrderId     String? // website orders.order_id (e.g. "KRM-20260714-0001"), used to dedupe repeat syncs
   courierTrackingCode String? // Upaya tracking code, set once the courier has the order
   courierStatus       String? // Upaya status slug, e.g. "dispatched-with-rider"
   courierCheckedAt    DateTime? // Last time the status was read from Upaya
@@ -304,14 +305,14 @@ model Sale {
   courierComment      String? // Newest comment on the parcel at Upaya, shown in the Upaya list
   courierCommentBy    String? // Who wrote it: "You", "Rider", "Upaya staff" or a name
   courierCommentTimes String? // JSON [{t, us, at}]: when each comment was made. Upaya's tracking has no times, so they're kept from its webhooks and our own sends
-  notes           String? // The customer's note from the website checkout
-  brand           String? // "originals" | "decor": which shop the sale belongs to (null = not set)
-  kind            String         @default("sale") // "sale" | "pr" (given away free for promotion: stock goes out, no money comes in)
-  deliveryVia     String? // "yango": a walk-in paid at the till and sent with Yango (null = studio, Upaya or other)
-  referral        String? // Website orders: where the customer came from, "source · medium · campaign · /landing" (e.g. "instagram · paid · hoodie-reel · /product/x")
-  exchange        Json? // An exchange order: which order and items it replaces, and when the old items came back (lib/exchange.ts)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  notes               String? // The customer's note from the website checkout
+  brand               String? // "originals" | "decor": which shop the sale belongs to (null = not set)
+  kind                String         @default("sale") // "sale" | "pr" (given away free for promotion: stock goes out, no money comes in)
+  deliveryVia         String? // "yango": a walk-in paid at the till and sent with Yango (null = studio, Upaya or other)
+  referral            String? // Website orders: where the customer came from, "source · medium · campaign · /landing" (e.g. "instagram · paid · hoodie-reel · /product/x")
+  exchange            Json? // An exchange order: which order and items it replaces, and when the old items came back (lib/exchange.ts)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   @@unique([storeId, invoiceNumber])
   @@unique([storeId, externalOrderId])
@@ -373,18 +374,18 @@ model Note {
 }
 
 model SaleItem {
-  id        String   @id @default(uuid())
-  saleId    String
-  sale      Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
-  quantity  Int
-  returnedQty Int    @default(0) // Units of this line returned by the customer and put back in stock
-  unitPrice Float
-  variant   String? // Size/colour chosen on the website, e.g. "L · Navy"
-  variantId String? // The exact size/colour stock row this line took from
+  id             String          @id @default(uuid())
+  saleId         String
+  sale           Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity       Int
+  returnedQty    Int             @default(0) // Units of this line returned by the customer and put back in stock
+  unitPrice      Float
+  variant        String? // Size/colour chosen on the website, e.g. "L · Navy"
+  variantId      String? // The exact size/colour stock row this line took from
   productVariant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
-  createdAt DateTime @default(now())
+  createdAt      DateTime        @default(now())
 
   @@index([saleId])
   @@index([productId])
@@ -394,18 +395,18 @@ model SaleItem {
 /// Stock per size and colour of a product (clothing). The product's Stock row
 /// holds the total of these, so everything that reads product stock still works.
 model ProductVariant {
-  id        String     @id @default(uuid())
-  storeId   String
-  store     Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  size      String     @default("") // "" when the product has no sizes
-  color     String     @default("") // "" when the product has no colours
-  quantity  Int        @default(0)
+  id                 String     @id @default(uuid())
+  storeId            String
+  store              Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId          String
+  product            Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  size               String     @default("") // "" when the product has no sizes
+  color              String     @default("") // "" when the product has no colours
+  quantity           Int        @default(0)
   lowStockIgnoredQty Int? // Low-stock alert ignored while stock stays at or below this
-  saleItems SaleItem[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  saleItems          SaleItem[]
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   @@unique([productId, size, color])
   @@index([storeId])
@@ -435,4 +436,23 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([storeId, createdAt])
+}
+
+/// A phone or computer that gets Karmify alerts as phone notifications
+/// (Settings → Phone notifications). One row per browser push subscription.
+model PushDevice {
+  id         String   @id @default(uuid())
+  storeId    String
+  store      Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  /// The push service address for this browser; unique per device.
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  /// Also alert for low stock, stock received and problems to fix, not only new website orders.
+  everything Boolean  @default(false)
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([storeId])
 }

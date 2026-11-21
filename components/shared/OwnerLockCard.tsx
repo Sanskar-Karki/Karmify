@@ -91,7 +91,7 @@ export function OwnerLockCard() {
   );
 }
 
-function Switch({ checked, onChange, label, busy, disabled }: {
+export function Switch({ checked, onChange, label, busy, disabled }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;

@@ -17,7 +17,7 @@ import {
   dayLabel, NOTIFICATION_CATEGORIES, notificationCategory, notificationLink, timeAgo, type NotificationCategory,
 } from "@/lib/notifications";
 
-const POLL_MS = 30_000;
+const POLL_MS = 10_000;
 const LONG_MESSAGE = 140;
 
 type Filter = "all" | "unread" | NotificationCategory;
@@ -66,11 +66,22 @@ export function NotificationBell() {
   );
   const unread = notifications.filter(n => !n.isRead).length;
 
+  // Checked every few seconds while Karmify is on screen, and straight away when
+  // the tab or phone app comes back into view or the connection returns.
   useEffect(() => {
-    const timer = setInterval(() => {
+    const check = () => {
       if (document.visibilityState === "visible") void refreshNotifications(true);
-    }, POLL_MS);
-    return () => clearInterval(timer);
+    };
+    const timer = setInterval(check, POLL_MS);
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    window.addEventListener("online", check);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("online", check);
+    };
   }, []);
 
   // A short ring when something new arrives (not on the first load).

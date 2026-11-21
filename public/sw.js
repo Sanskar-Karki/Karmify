@@ -76,3 +76,35 @@ self.addEventListener("fetch", (event) => {
   }
   // Everything else (data, images, sign-in) passes through untouched.
 });
+
+// Phone notifications (Settings → Phone notifications; sent by lib/push.ts).
+self.addEventListener("push", (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch { data = { body: event.data ? event.data.text() : "" }; }
+  const title = data.title || "Karmify";
+  event.waitUntil(self.registration.showNotification(title, {
+    body: data.body || "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    tag: data.tag || undefined,
+    renotify: Boolean(data.tag),
+    data: { url: typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/customers" },
+  }));
+});
+
+// Tapping one opens that page in Karmify: in a window already open if there is one.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url || "/customers", self.location.origin).href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (open) {
+      await open.focus();
+      if ("navigate" in open) {
+        try { await open.navigate(target); return; } catch { /* falls through to a new window */ }
+      } else return;
+    }
+    await self.clients.openWindow(target);
+  })());
+});
