@@ -10,6 +10,7 @@ import { syncStockTotal } from "@/lib/variants";
 import { courierStillOpen, isCourierService } from "@/lib/courier";
 import { deletedOrderDetails, WEBSITE_ORDER_DELETED } from "@/lib/websiteOrders";
 import { formatNPR } from "@/lib/utils";
+import { courierEnabledFor } from "@/lib/courierSync";
 import { instantCourierLabel, isInstantCourier } from "@/lib/orders";
 import { sameLines, setAsideByLine, type FutureOrderData } from "@/lib/futureOrders";
 import { openExchangeUnits, ORDER_LEDGER_TYPES, returnOrderLines, takeStock, type StockLine } from "@/lib/stockOut";
@@ -520,6 +521,11 @@ export async function updateSaleDetails(saleId: string, data: {
 
     // Cash on delivery is only collected at the door, so when delivery status
     // changes the payment follows it. QR orders are paid up front.
+    // A COD amount typed on an order paid by QR or cash (or already paid) means the
+    // rider still collects that much: it becomes a part-paid cash-on-delivery order.
+    const owedAgain = data.codAmount !== undefined && data.codAmount > 0 && current.kind !== "pr";
+    const switchedToCod = owedAgain && (data.paymentMethod ?? current.paymentMethod) !== PaymentMethod.COD;
+    if (switchedToCod) data = { ...data, paymentMethod: PaymentMethod.COD };
     const method = data.paymentMethod ?? current.paymentMethod;
     const deliveryChanged = data.deliveryStatus !== undefined && data.deliveryStatus !== current.deliveryStatus;
     const byStatus: PaymentStatus | undefined = deliveryChanged && method === PaymentMethod.COD
@@ -529,14 +535,17 @@ export async function updateSaleDetails(saleId: string, data: {
     // an amount again on an order not yet delivered means it's still owed.
     const finalStatus = data.deliveryStatus ?? current.deliveryStatus;
     const goneBack = finalStatus === DeliveryStatus.RETURNED || finalStatus === DeliveryStatus.RETURN_PROCESS || finalStatus === DeliveryStatus.CANCELLED;
-    const byCod: PaymentStatus | undefined = method !== PaymentMethod.COD || data.codAmount === undefined || goneBack
-      ? undefined
-      : data.codAmount === 0
-        ? PaymentStatus.PAID
-        : current.paymentStatus === PaymentStatus.PAID && finalStatus !== DeliveryStatus.DELIVERED
-          ? PaymentStatus.UNPAID
-          : undefined;
-    const paymentStatus = byCod ?? byStatus;
+    const byCod: PaymentStatus | undefined = switchedToCod
+      ? PaymentStatus.PARTIAL
+      : method !== PaymentMethod.COD || data.codAmount === undefined || goneBack
+        ? undefined
+        : data.codAmount === 0
+          ? PaymentStatus.PAID
+          : current.paymentStatus === PaymentStatus.PAID
+            ? PaymentStatus.UNPAID
+            : undefined;
+    // Marked Delivered in the same save: the rider has collected it.
+    const paymentStatus = byStatus === PaymentStatus.PAID ? byStatus : byCod ?? byStatus;
 
     const itemNote = await db.$transaction(async (tx) => {
       const customerId = await customerAfterEdit(tx, tenant.storeId, current, data);
@@ -704,6 +713,11 @@ export async function createSale(data: SaleInput & {
 
     const tenant = await requireTenant();
     const storeId = tenant.storeId;
+    // A delivery goes with Upaya, which needs the hub location, whether it's booked now or later.
+    // (A future order being moved in keeps whatever it was saved with.)
+    if (!data.walkIn && !pr && !data.futureOrderId && !area && courierEnabledFor(storeId)) {
+      throw new UserError("Choose the Upaya hub location for this delivery.");
+    }
     const warehouseId = await getDefaultWarehouseIdFor(storeId);
     const walkIn = data.walkIn === true && !pr;
     const paymentStatus: PaymentStatus = pr

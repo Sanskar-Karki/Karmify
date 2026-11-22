@@ -648,8 +648,9 @@ export default function SalesPage() {
       }
       if (deliveryPay === "cod" && cod <= 0) return void toast.error("COD amount is required.");
     }
-    // Delivery booked with Upaya on completion: it needs a hub location and a mobile number.
-    // A future order isn't booked now: it's sent with Upaya once it's moved to the orders.
+    // Every Upaya delivery needs its hub location, booked now or later (and future orders too,
+    // so they can be sent once moved to the orders). Booking now also needs a mobile number.
+    if (sending && upayaEnabled && !pr && !hub) return void toast.error("Choose the Upaya hub location for this delivery.");
     const booking = !future && sending && upayaEnabled && bookUpaya;
     if (booking) {
       if (!hub) return void toast.error("Choose the Upaya hub location for this delivery.");

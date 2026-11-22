@@ -216,7 +216,7 @@ function isWithinDateFilter(dateStr: string | Date, filter: string, customStart:
 /**
  * The COD column: what the rider still has to collect, or, once paid, the
  * amount collected with "Paid" under it. Orders paid at the till or by QR
- * have nothing to collect.
+ * have nothing to collect, so they show what was paid and how (Cash or QR).
  */
 function CodAmount({ sale }: { sale: Sale }) {
   if (sale.paymentMethod === "COD" && sale.paymentStatus === "PAID") {
@@ -228,7 +228,18 @@ function CodAmount({ sale }: { sale: Sale }) {
     );
   }
   if (sale.paymentMethod === "COD") return <span className="font-bold text-xs">{formatNPR(codToCollect(sale))}</span>;
-  return <span className="text-xs text-muted-foreground" title={sale.paymentMethod === "QR" ? "Paid by QR: nothing to collect" : "Paid at the till: nothing to collect"}>—</span>;
+  // PR orders are given free: nothing was paid.
+  if (sale.kind === "pr" || !(sale.totalAmount > 0)) return <span className="text-xs text-muted-foreground">—</span>;
+  const method = sale.paymentMethod === "QR" ? "QR" : "Cash";
+  const paid = sale.paymentStatus === "PAID";
+  return (
+    <span title={`${paid ? "Paid" : "To be paid"} by ${method}: nothing for the rider to collect`}>
+      <span className="block font-bold text-xs text-muted-foreground">{formatNPR(sale.totalAmount)}</span>
+      <span className={cn("block text-[11px] font-semibold", paid ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400")}>
+        {paid ? method : `${method} · unpaid`}
+      </span>
+    </span>
+  );
 }
 
 const fieldClass = "w-full px-3 py-2.5 rounded-xl border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
@@ -1331,8 +1342,12 @@ export default function CustomersPage() {
           )}
           <div className="space-y-1.5">
             <label htmlFor="edit-cod" className="text-xs font-semibold text-muted-foreground">COD amount (Rs.)</label>
-            <input id="edit-cod" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.codAmount} onChange={setField("codAmount")} disabled={editing?.paymentMethod !== "COD"} className={cn(fieldClass, "disabled:opacity-60")} />
-            {editing && editing.paymentMethod !== "COD" && <p className="text-[12px] text-muted-foreground">Paid {editing.paymentMethod === "QR" ? "by QR" : "at the till"}, so there&apos;s nothing to collect.</p>}
+            <input id="edit-cod" type="number" inputMode="decimal" min={0} step="0.01" value={editForm.codAmount} onChange={setField("codAmount")} className={fieldClass} />
+            {editing && editing.kind !== "pr" && (editing.paymentMethod !== "COD" || editing.paymentStatus === "PAID") && (
+              <p className="text-[12px] text-muted-foreground">
+                {editing.paymentMethod === "QR" ? "Paid by QR" : editing.paymentMethod === "CASH" ? "Paid at the till" : "Fully paid"}, so 0 to collect. Type an amount if the rider still has to collect something: the order becomes {editing.paymentMethod === "COD" ? "unpaid" : "part paid, cash on delivery"}.
+              </p>
+            )}
             {editing?.courierTrackingCode && <p className="text-[12px] text-muted-foreground">Upaya keeps the amount it was booked with. Changing it here doesn&apos;t update the rider.</p>}
           </div>
           <div className="space-y-1.5">

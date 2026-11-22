@@ -63,14 +63,6 @@ export function OwnerLockCard() {
         </div>
         <div className="min-w-0 flex-1">
           <h2 id="owner-lock-title" className="font-bold text-base">Dashboard &amp; Analytics</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {unlocked
-              ? <>Showing on this device{until ? <> until {formatUntil(until)}</> : null}. Switch off before handing this phone or computer to someone else.</>
-              : <>Hidden on this device. Switch on with the owner password to see the sales figures and charts here.</>}
-          </p>
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            The lock is per device: unlocking here doesn&apos;t unlock anyone else&apos;s phone. Orders, POS, Products and Stock work either way.
-          </p>
           {!configured && !unlocked && (
             <p className="mt-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
               The owner password isn&apos;t set up on the server yet (OWNER_UNLOCK_PASSWORD), so nothing can be unlocked.
@@ -159,7 +151,6 @@ function UnlockDialog({ onClose }: { onClose: () => void }) {
       open
       onClose={onClose}
       title="Unlock Dashboard & Analytics"
-      description="On this device only"
       icon={KeyRound}
       size="sm"
       busy={busy}

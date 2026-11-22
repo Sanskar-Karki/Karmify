@@ -270,7 +270,6 @@ export default function SettingsPage() {
         <p className="text-xs text-muted-foreground mt-0.5">Manage your store profile, suppliers and team</p>
       </div>
 
-      <OwnerLockCard />
       <PhoneNotificationsCard />
 
       <div role="tablist" className="grid grid-cols-2 gap-1.5 bg-muted/40 border border-border/60 p-1 rounded-2xl sm:flex sm:flex-wrap sm:w-fit max-w-full">
@@ -293,6 +292,8 @@ export default function SettingsPage() {
       {activeTab === "suppliers" && <SuppliersTab />}
       {activeTab === "team" && <TeamTab />}
       {activeTab === "backup" && <BackupTab />}
+
+      <OwnerLockCard />
       </div>
 </>
   );
