@@ -37,7 +37,7 @@ import { useResources } from "@/lib/useResources";
 import { useCourierAutoRefresh } from "@/lib/useCourierAutoRefresh";
 import { resources } from "@/lib/resources";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,instantCourierLabel, isPR, itemName, codToCollect, codAmountOf, referralLabel, isFromAd,
+import { countsAsSale, customerKey, isExchangeOrder, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,instantCourierLabel, isPR, itemName, codToCollect, codAmountOf, referralLabel, isFromAd,
 } from "@/lib/orders";
 import { useUrlState } from "@/lib/useUrlState";
 import { useOwnerUnlocked } from "@/lib/ownerLock";
@@ -96,7 +96,7 @@ function searchMatcher(search: string): (sale: Sale) => boolean {
     let text = cache.get(s);
     if (text === undefined) {
       text = [
-        s.customerName, s.customerPhone, phoneDigits(s.customerPhone ?? ""), s.customerAddress, s.courierAreaTitle,
+        s.customerName, s.customerPhone, phoneDigits(s.customerPhone ?? ""), s.customerAltPhone, phoneDigits(s.customerAltPhone ?? ""), s.customerAddress, s.courierAreaTitle,
         s.customer?.code, s.courierTrackingCode, s.invoiceNumber, ...s.items.map(itemName),
       ].filter(Boolean).join(" ").toLowerCase();
       cache.set(s, text);
@@ -161,7 +161,7 @@ function matchesSource(sale: Sale, source: string) {
   return channelOf(sale) === "store";
 }
 
-const BLANK_EDIT = { customerName: "", customerPhone: "", customerAddress: "", codAmount: "", deliveryAmount: "", deliveryStatus: "IN_PROCESS" };
+const BLANK_EDIT = { customerName: "", customerPhone: "", customerAltPhone: "", customerAddress: "", codAmount: "", deliveryAmount: "", deliveryStatus: "IN_PROCESS" };
 
 function startOfDay(d: Date) {
   const x = new Date(d);
@@ -388,6 +388,9 @@ export default function CustomersPage() {
   const ownerUnlocked = useOwnerUnlocked();
   const upayaSummary = useMemo(() => (byUpayaSend ? upayaTotals(filtered) : null), [byUpayaSend, filtered]);
   const summary = useMemo(() => ({
+    // Exchanges are in the revenue but aren't counted as more orders.
+    orders: filtered.filter(s => !isExchangeOrder(s)).length,
+    exchanges: filtered.filter(isExchangeOrder).length,
     revenue: filtered.filter(countsAsSale).reduce((total, s) => total + s.totalAmount, 0),
     pending: filtered.filter(s => s.deliveryStatus === "IN_PROCESS" || s.deliveryStatus === "RETURN_PROCESS").length,
     unpaid: filtered.filter(s => countsAsSale(s) && s.paymentStatus !== "PAID").length,
@@ -580,7 +583,7 @@ export default function CustomersPage() {
         exchangeOf(s) ? `${s.source} · exchange for ${exchangeOf(s)!.ofInvoice}` : s.source,
         s.customer?.code,
         s.customerName,
-        s.customerPhone,
+        [s.customerPhone, s.customerAltPhone].filter(Boolean).join(" / "),
         s.customerAddress,
         s.items.map(item => `${item.quantity} x ${itemName(item)}`).join("; "),
         s.totalAmount,
@@ -599,6 +602,7 @@ export default function CustomersPage() {
     const next = {
       customerName: sale.customerName ?? "",
       customerPhone: sale.customerPhone ?? "",
+      customerAltPhone: sale.customerAltPhone ?? "",
       customerAddress: sale.customerAddress ?? "",
       // Cash at the till or QR: nothing to collect, so no COD amount is suggested.
       codAmount: String(codToCollect(sale)),
@@ -679,6 +683,7 @@ export default function CustomersPage() {
         }),
         customerName: editForm.customerName,
         customerPhone: editForm.customerPhone,
+        customerAltPhone: editForm.customerAltPhone,
         customerAddress: editForm.customerAddress,
         // Only amounts that were changed are saved, so fixing a name can't rewrite them.
         ...(editForm.codAmount !== initialEdit.codAmount && { codAmount: parseFloat(editForm.codAmount) || 0 }),
@@ -730,7 +735,11 @@ export default function CustomersPage() {
                   { label: "COD for Upaya to collect", val: formatNPR(upayaSummary.cod), icon: Receipt, money: true },
                 ]
               : [
-                  { label: filtered.length === 1 ? "order" : "orders", val: filtered.length.toLocaleString(), icon: ShoppingBag },
+                  {
+                    label: (summary.orders === 1 ? "order" : "orders") + (summary.exchanges ? ` (+${summary.exchanges} exchange${summary.exchanges === 1 ? "" : "s"})` : ""),
+                    val: summary.orders.toLocaleString(),
+                    icon: ShoppingBag,
+                  },
                   { label: "revenue", val: formatNPR(summary.revenue), icon: Wallet, money: true },
                   { label: "to deliver", val: summary.pending.toLocaleString(), icon: Truck },
                   { label: "unpaid", val: summary.unpaid.toLocaleString(), icon: Receipt },
@@ -1046,6 +1055,9 @@ export default function CustomersPage() {
                           {sale.customerPhone && (
                             <a href={`tel:${sale.customerPhone}`} className="font-semibold text-foreground/80 underline-offset-2 hover:underline">{sale.customerPhone}</a>
                           )}
+                          {sale.customerAltPhone && (
+                            <a href={`tel:${sale.customerAltPhone}`} title="Alternative number" className="underline-offset-2 hover:underline">alt {sale.customerAltPhone}</a>
+                          )}
                         </p>
                       )}
                       {(address || sale.courierAreaTitle) && (
@@ -1194,12 +1206,15 @@ export default function CustomersPage() {
                     <td className="px-5 py-3.5 font-semibold text-xs">
                       {sale.customerName || "Walk-in Customer"}
                       {sale.customer && <p className="text-[11px] text-muted-foreground mt-0.5 font-mono font-medium">{sale.customer.code}</p>}
-                      <p className="text-[11px] text-muted-foreground mt-0.5 font-normal lg:hidden">{sale.customerPhone || "—"}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 font-normal lg:hidden">{sale.customerPhone || "—"}{sale.customerAltPhone && ` · alt ${sale.customerAltPhone}`}</p>
                     </td>
                     <td className="px-5 py-3.5 text-xs hidden lg:table-cell">
                       <span className={cn(!sale.customerPhone && "text-muted-foreground italic")}>
                         {sale.customerPhone || "—"}
                       </span>
+                      {sale.customerAltPhone && (
+                        <p className="text-[11px] text-muted-foreground mt-0.5" title="Alternative number">alt {sale.customerAltPhone}</p>
+                      )}
                       {sale.customerAddress && (
                         <p className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[140px]" title={sale.customerAddress}>{sale.customerAddress}</p>
                       )}
@@ -1323,6 +1338,10 @@ export default function CustomersPage() {
           <div className="space-y-1.5">
             <label htmlFor="edit-phone" className="text-xs font-semibold text-muted-foreground">Phone</label>
             <input id="edit-phone" type="tel" value={editForm.customerPhone} onChange={setField("customerPhone")} className={fieldClass} />
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="edit-alt-phone" className="text-xs font-semibold text-muted-foreground">Alternative number <span className="font-normal">(optional)</span></label>
+            <input id="edit-alt-phone" type="tel" value={editForm.customerAltPhone} onChange={setField("customerAltPhone")} className={fieldClass} />
           </div>
           <div className="space-y-1.5">
             <span className="text-xs font-semibold text-muted-foreground">Delivery status</span>

@@ -24,8 +24,8 @@ import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
 import { fetchResource } from "@/lib/resourceCache";
 import { mutate } from "@/lib/mutate";
-import { countsAsSale, deliveryAddress, findCustomerMatches, itemOptions, itemOptionsText, PAYMENT_STYLES, type CustomerMatch } from "@/lib/orders";
-import { nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
+import { countsAsSale, deliveryAddress, isExchangeOrder, findCustomerMatches, itemOptions, itemOptionsText, PAYMENT_STYLES, type CustomerMatch } from "@/lib/orders";
+import { altPhoneProblem, nameProblem, normalizePhone, parseCustomerCode, phoneProblem } from "@/lib/customerIdentity";
 import { useStoreProfile } from "@/lib/storeProfile";
 import { shopOfProducts, useShop } from "@/lib/shop";
 import { addDays, MAX_DAYS_AHEAD, nepalToday, sendOnLabel, type FutureKind } from "@/lib/futureOrders";
@@ -65,7 +65,8 @@ const CUSTOMER_FIELDS = [
   { label: "Address", icon: MapPin, key: "address", placeholder: "Delivery address", type: "text" },
 ] as const;
 
-const BLANK_CUSTOMER = { name: "", address: "", phone: "" };
+/** altPhone: a second number to try, shown once staff press + next to the phone. */
+const BLANK_CUSTOMER = { name: "", address: "", phone: "", altPhone: "" };
 
 /**
  * Walk-in: sold over the counter and paid now. Delivery: sent to the customer,
@@ -136,6 +137,10 @@ export default function SalesPage() {
 
   const [rawCart, setCart] = useState<CartItem[]>([]);
   const [customer, setCustomer] = useState(BLANK_CUSTOMER);
+  // The alternative number box: open after +, and while it has a number in it.
+  const [altOpen, setAltOpen] = useState(false);
+  const showAlt = altOpen || customer.altPhone !== "";
+  const altInput = useRef<HTMLInputElement>(null);
   // The note this order is being entered from, shown above the details.
   const [noteId, setNoteId] = useState<string | null>(null);
   // An existing customer staff confirmed this is, and the ones they said it isn't.
@@ -429,7 +434,7 @@ export default function SalesPage() {
     const name = previous.customerName ?? "";
     const phone = previous.customerPhone ?? "";
     const address = deliveryAddress(previous.customerAddress);
-    setCustomer(c => ({ name, phone: c.phone || phone, address: c.address || address }));
+    setCustomer(c => ({ name, phone: c.phone || phone, address: c.address || address, altPhone: c.altPhone || (previous.customerAltPhone ?? "") }));
     if (previous.customerId) setLinkedId(previous.customerId);
     toast.info(`Returning customer: ${name}`, { id: "returning-customer", description: previous.customer?.code });
   }
@@ -462,6 +467,7 @@ export default function SalesPage() {
       name: c.name.trim() ? c.name : match.name,
       phone: c.phone.trim() ? c.phone : match.phone ?? "",
       address: c.address.trim() ? c.address : match.address ?? "",
+      altPhone: c.altPhone,
     }));
   }
   function notThisCustomer(ids: string[]) {
@@ -501,7 +507,7 @@ export default function SalesPage() {
       setMode(address ? "delivery" : "walkin");
       setFuture(false);
       setNoteId(null);
-      setCustomer({ name: original.customerName ?? "", phone: original.customerPhone ?? "", address });
+      setCustomer({ name: original.customerName ?? "", phone: original.customerPhone ?? "", altPhone: original.customerAltPhone ?? "", address });
       if (original.customerId) setLinkedId(original.customerId);
       const service = BATCH_COURIER_SERVICES.some(sv => sv.id === original.courierServiceId) ? (original.courierServiceId as number) : DOOR_TO_DOOR;
       setCourierService(service);
@@ -579,9 +585,10 @@ export default function SalesPage() {
   const change = received !== null && received > grandTotal ? received - grandTotal : null;
   const cartUnits = cart.reduce((a, c) => a + c.quantity, 0);
 
-  const fieldErrors: Partial<Record<"name" | "phone", string>> = {
+  const fieldErrors: Partial<Record<"name" | "phone" | "altPhone", string>> = {
     ...(customer.name.trim() && nameProblem(customer.name) ? { name: nameProblem(customer.name)! } : {}),
     ...(customer.phone.trim() && phoneProblem(customer.phone) ? { phone: phoneProblem(customer.phone)! } : {}),
+    ...(customer.altPhone.trim() && altPhoneProblem(customer.altPhone) ? { altPhone: altPhoneProblem(customer.altPhone)! } : {}),
   };
 
   // Today's takings for the header (Nepal date).
@@ -596,6 +603,7 @@ export default function SalesPage() {
     setCashReceived("");
     setCart([]);
     setCustomer(BLANK_CUSTOMER);
+    setAltOpen(false);
     setLinkedId(null);
     setNotSame([]);
     setDeliveryAmount(0);
@@ -620,6 +628,7 @@ export default function SalesPage() {
     if (cart.length === 0) return;
     if (fieldErrors.name) return void toast.error(fieldErrors.name);
     if (fieldErrors.phone) return void toast.error(fieldErrors.phone);
+    if (fieldErrors.altPhone) return void toast.error(fieldErrors.altPhone);
     const cod = parseFloat(codAmount) || 0;
     if (exchange) {
       if (!exchangeSale) return void toast.error("The order being exchanged wasn't found. Stop the exchange, or open it again from the order.");
@@ -660,6 +669,7 @@ export default function SalesPage() {
     const payload = {
       customerName: customer.name.trim() || undefined,
       customerPhone: customer.phone.trim() || undefined,
+      customerAltPhone: customer.altPhone.trim() || undefined,
       customerAddress: walkIn && !instant ? undefined : customer.address.trim() || undefined,
       items: cart.map(c => ({ productId: c.productId, quantity: c.quantity, unitPrice: c.listPrice, variantId: c.variantId ?? null })),
       discount: discountAmount + exchangeCredit + totalCut + shortDiscount,
@@ -776,7 +786,7 @@ export default function SalesPage() {
           <div className="flex gap-2">
             <div className="rounded-xl border border-border/80 bg-card px-4 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Sales today</p>
-              <p className="text-lg font-extrabold leading-tight">{todaySales.filter(s => s.kind !== "pr").length}</p>
+              <p className="text-lg font-extrabold leading-tight">{todaySales.filter(s => s.kind !== "pr" && !isExchangeOrder(s)).length}</p>
             </div>
             <div className="rounded-xl border border-border/80 bg-card px-4 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Taken today</p>
@@ -1032,11 +1042,50 @@ export default function SalesPage() {
                       onBlur={field.key === "phone" ? fillReturningCustomer : undefined}
                       inputMode={field.key === "phone" ? "tel" : undefined}
                       aria-invalid={field.key !== "address" && Boolean(fieldErrors[field.key]) || undefined}
-                      className={cn(smallField, "py-2", field.key !== "address" && fieldErrors[field.key] && "border-red-400 focus:ring-red-200")}
+                      className={cn(smallField, "py-2", field.key === "phone" && !showAlt && "pr-10", field.key !== "address" && fieldErrors[field.key] && "border-red-400 focus:ring-red-200")}
                     />
+                    {field.key === "phone" && !showAlt && (
+                      <button
+                        type="button"
+                        onClick={() => { setAltOpen(true); requestAnimationFrame(() => altInput.current?.focus()); }}
+                        title="Add an alternative number"
+                        aria-label="Add an alternative number"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-6 w-6 place-items-center rounded-lg text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    )}
                   </div>
                   {field.key !== "address" && fieldErrors[field.key] && (
                     <p className="mt-1 text-[11px] font-medium text-red-600">{fieldErrors[field.key]}</p>
+                  )}
+                  {field.key === "phone" && showAlt && (
+                    <div className="mt-2.5">
+                      <div className="relative">
+                        <Phone size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          ref={altInput}
+                          type="tel"
+                          inputMode="tel"
+                          value={customer.altPhone}
+                          onChange={e => setCustomer(c => ({ ...c, altPhone: e.target.value }))}
+                          placeholder="Alternative number (optional)"
+                          aria-label="Alternative number"
+                          aria-invalid={Boolean(fieldErrors.altPhone) || undefined}
+                          className={cn(smallField, "py-2 pr-10", fieldErrors.altPhone && "border-red-400 focus:ring-red-200")}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => { setCustomer(c => ({ ...c, altPhone: "" })); setAltOpen(false); }}
+                          title="Remove the alternative number"
+                          aria-label="Remove the alternative number"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-6 w-6 place-items-center rounded-lg text-muted-foreground hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200 dark:hover:bg-red-950/40"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      {fieldErrors.altPhone && <p className="mt-1 text-[11px] font-medium text-red-600">{fieldErrors.altPhone}</p>}
+                    </div>
                   )}
                   </div>
                   );

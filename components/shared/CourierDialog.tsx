@@ -36,6 +36,7 @@ function initialForm(sale: Sale) {
   return {
     name: sale.customerName ?? "",
     phone: courierMobile(sale.customerPhone) ?? sale.customerPhone ?? "",
+    altPhone: sale.customerAltPhone ?? "",
     address,
     landmark,
     description: sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join(", ").slice(0, 2500),
@@ -139,6 +140,7 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
       () => sendOrderToCourier(sale.id, {
         receiverName: form.name,
         receiverPhone: form.phone,
+        receiverAltPhone: form.altPhone,
         address: form.address,
         landmark: form.landmark,
         areaId: area.areaId,
@@ -182,6 +184,10 @@ function SendForm({ sale, onClose, onBooked }: { sale: Sale; onClose: () => void
         <div className="space-y-1.5">
           <label htmlFor="courier-phone" className={labelClass}>Mobile (10 digits)</label>
           <input id="courier-phone" type="tel" value={form.phone} onChange={update("phone")} className={fieldClass} />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="courier-alt-phone" className={labelClass}>Alternative number (optional)</label>
+          <input id="courier-alt-phone" type="tel" value={form.altPhone} onChange={update("altPhone")} placeholder="Tried if the mobile doesn't answer" className={fieldClass} />
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <label htmlFor="courier-address" className={labelClass}>Street and house</label>

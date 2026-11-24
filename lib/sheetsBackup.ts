@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "@/lib/db";
 import { getSales } from "@/lib/queries";
-import { countsAsSale, deliveryAddress, DELIVERY_STATUSES, groupSalesByCustomer, itemName } from "@/lib/orders";
+import { countsAsSale, deliveryAddress, isExchangeOrder, DELIVERY_STATUSES, groupSalesByCustomer, itemName } from "@/lib/orders";
 import { courierStatusLabel } from "@/lib/courier";
 import type { Sale } from "@/lib/types";
 
@@ -61,7 +61,7 @@ function orderRow(sale: Sale) {
   const goods = sale.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
   return [
     date, time, sale.invoiceNumber, sale.externalOrderId ?? "", sale.source === "website" ? "Website" : "In store",
-    shopLabel(sale.brand), sale.customer?.code ?? "", sale.customerName ?? "", sale.customerPhone ?? "", sale.customerEmail ?? "",
+    shopLabel(sale.brand), sale.customer?.code ?? "", sale.customerName ?? "", [sale.customerPhone, sale.customerAltPhone].filter(Boolean).join(" / "), sale.customerEmail ?? "",
     deliveryAddress(sale.customerAddress),
     sale.items.map(item => `${item.quantity} x ${itemName(item)}`).join("; "),
     sale.items.reduce((n, item) => n + item.quantity, 0),
@@ -78,7 +78,7 @@ function customerRows(sales: Sale[]) {
     const counted = customer.sales.filter(countsAsSale);
     return [
       customer.code ?? "", customer.name, customer.phone ?? "", customer.email ?? "", deliveryAddress(customer.address),
-      customer.orderCount,
+      customer.sales.filter(s => !isExchangeOrder(s)).length,
       counted.reduce((sum, s) => sum + s.totalAmount, 0),
       customer.sales.filter(s => s.source === "website").length,
       customer.sales.filter(s => s.deliveryStatus === "RETURNED" || s.deliveryStatus === "RETURN_PROCESS").length,

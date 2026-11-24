@@ -269,7 +269,7 @@ export function PackingListDialog({ open, onClose, orders }: { open: boolean; on
                             <span className="font-semibold">· {sale.customerName || "Walk-in Customer"}</span>
                             {sale.customer?.code && <span className="font-mono text-[11px] font-normal text-muted-foreground">{sale.customer.code}</span>}
                           </p>
-                          {sale.customerPhone && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Phone size={11} /> {sale.customerPhone}</p>}
+                          {sale.customerPhone && <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Phone size={11} /> {sale.customerPhone}{sale.customerAltPhone && ` · alt ${sale.customerAltPhone}`}</p>}
                           {address && <p className="flex items-start gap-1.5 text-xs text-muted-foreground"><MapPin size={11} className="mt-0.5 shrink-0" /> <span className="break-words">{address}</span></p>}
                           {sale.courierAreaTitle && !sale.deliveryVia && <p className="text-xs text-muted-foreground">Hub: <span className="font-semibold text-foreground">{sale.courierAreaTitle}</span></p>}
                           <p className="flex items-center gap-1.5 text-xs font-semibold text-foreground">{sale.deliveryVia && <Zap size={11} />}{sendNote(sale)}</p>
@@ -329,7 +329,7 @@ export function PackingListDialog({ open, onClose, orders }: { open: boolean; on
           </table>
           {packOrders.map(({ sale, lines }) => (
             <div key={sale.id} style={{ border: "1pt solid #000", borderRadius: "2mm", padding: "3mm", marginBottom: "4mm", breakInside: "avoid" }}>
-              <p style={{ margin: 0, fontWeight: 700 }}>☐ {sale.invoiceNumber} · {sale.customerName || "Walk-in Customer"}{sale.customerPhone ? ` · ${sale.customerPhone}` : ""}</p>
+              <p style={{ margin: 0, fontWeight: 700 }}>☐ {sale.invoiceNumber} · {sale.customerName || "Walk-in Customer"}{sale.customerPhone ? ` · ${sale.customerPhone}` : ""}{sale.customerAltPhone ? ` / ${sale.customerAltPhone}` : ""}</p>
               {deliveryAddress(sale.customerAddress) && <p style={{ margin: "1mm 0 0" }}>{deliveryAddress(sale.customerAddress)}</p>}
               {sale.courierAreaTitle && !sale.deliveryVia && <p style={{ margin: "1mm 0 0" }}>Hub: {sale.courierAreaTitle}</p>}
               <p style={{ margin: "1mm 0 2mm", fontWeight: 700 }}>{sendNote(sale)}</p>

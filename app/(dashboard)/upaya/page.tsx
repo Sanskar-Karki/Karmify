@@ -183,9 +183,9 @@ export default function UpayaPage() {
       if (view !== "all" && o.bucket !== view && o.stage !== view) return false;
       if (words.length === 0) return true;
       const s = o.sale;
-      const text = [s.invoiceNumber, s.customerName, s.customerPhone, s.customerAddress, s.courierAreaTitle, s.courierTrackingCode, s.customer?.code]
+      const text = [s.invoiceNumber, s.customerName, s.customerPhone, s.customerAltPhone, s.customerAddress, s.courierAreaTitle, s.courierTrackingCode, s.customer?.code]
         .filter(Boolean).join(" ").toLowerCase();
-      return words.every(w => text.includes(w)) || (digits.length >= 4 && (s.customerPhone ?? "").replace(/\D/g, "").includes(digits));
+      return words.every(w => text.includes(w)) || (digits.length >= 4 && [s.customerPhone, s.customerAltPhone].some(p => (p ?? "").replace(/\D/g, "").includes(digits)));
     });
     // Parcels still moving: the longest-waiting first, since those need the call.
     // Finished ones (delivered, returned): the latest first.
@@ -552,14 +552,19 @@ function StatusPill({ sale }: { sale: Sale }) {
   return <span className={cn("inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-bold", courierStatusStyle(status))}>{courierStatusLabel(status)}</span>;
 }
 
+/** The customer's phone, and their alternative number when the order has one. */
 function CallLink({ sale, className }: { sale: Sale; className?: string }) {
   const phone = sale.customerPhone?.trim();
-  if (!phone) return null;
-  return (
-    <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} aria-label={`Call ${sale.customerName || "the customer"} on ${phone}`} className={className}>
-      <Phone size={11} aria-hidden /> {phone}
+  const alt = sale.customerAltPhone?.trim();
+  if (!phone && !alt) return null;
+  const link = (number: string, isAlt: boolean) => (
+    <a href={`tel:${number.replace(/[^\d+]/g, "")}`} aria-label={`Call ${sale.customerName || "the customer"} on ${isAlt ? "their alternative number " : ""}${number}`} className={className}>
+      <Phone size={11} aria-hidden /> {isAlt && <span className="opacity-70">alt</span>} {number}
     </a>
   );
+  if (!alt) return link(phone!, false);
+  if (!phone) return link(alt, true);
+  return <span className="inline-flex flex-wrap items-center gap-x-2">{link(phone, false)}{link(alt, true)}</span>;
 }
 
 /**

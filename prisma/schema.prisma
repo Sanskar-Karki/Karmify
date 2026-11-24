@@ -277,6 +277,7 @@ model Sale {
   customerName        String?
   customerEmail       String?
   customerPhone       String?
+  customerAltPhone    String? // A second number to try (a family member's, say), added with + in the POS. Sent to Upaya as the alternate number
   customerAddress     String?
   customerId          String?
   customer            Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)

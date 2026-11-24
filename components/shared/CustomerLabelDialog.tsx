@@ -39,6 +39,7 @@ export interface LabelOrder {
   createdAt: Date | string;
   customerName: string | null;
   customerPhone: string | null;
+  customerAltPhone?: string | null;
   customerAddress: string | null;
   customer?: { code: string } | null;
   paymentMethod: "COD" | "QR" | "CASH";
@@ -73,6 +74,7 @@ function CustomerLabel({ order, store, outlined }: { order: LabelOrder; store: S
         <p className="text-[8pt] font-bold uppercase tracking-wider">Deliver to</p>
         <p className="text-[19pt] font-extrabold leading-tight line-clamp-2 break-words">{order.customerName ?? "Walk-in Customer"}</p>
         {order.customerPhone && <p className="text-[15pt] font-bold leading-snug mt-1">{order.customerPhone}</p>}
+        {order.customerAltPhone && <p className="text-[11pt] font-semibold leading-snug">Alt: {order.customerAltPhone}</p>}
         {address && <p className="text-[12pt] leading-snug mt-1 line-clamp-4 break-words">{address}</p>}
       </div>
 

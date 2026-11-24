@@ -5,7 +5,7 @@ import { MovementType, PaymentMethod, PaymentStatus, DeliveryStatus } from "@pri
 import { requireTenant } from "@/lib/tenant";
 import { documentStem, getDefaultWarehouseIdFor, lockDocumentNumbering, logActivity, nextDocumentNumber } from "@/lib/actions/helpers";
 import { guarded, retryOnUniqueConflict, UserError } from "@/lib/actions/result";
-import { customerIdentityKey, findOrCreateCustomerId, nameProblem, phoneProblem } from "@/lib/customerIdentity";
+import { altPhoneProblem, cleanAltPhone, customerIdentityKey, findOrCreateCustomerId, nameProblem, phoneProblem } from "@/lib/customerIdentity";
 import { syncStockTotal } from "@/lib/variants";
 import { courierStillOpen, isCourierService } from "@/lib/courier";
 import { deletedOrderDetails, WEBSITE_ORDER_DELETED } from "@/lib/websiteOrders";
@@ -42,8 +42,9 @@ async function changeCustomerIdentity(tx: Tx, storeId: string, customerId: strin
   if (!owner) await tx.customer.update({ where: { id: customerId }, data: { identityKey } });
 }
 
-export async function updateCustomerInfo(saleIds: string[], data: { name?: string; phone?: string; address?: string }) {
+export async function updateCustomerInfo(saleIds: string[], data: { name?: string; phone?: string; altPhone?: string; address?: string }) {
   return guarded("Could not update this customer.", async () => {
+    if (data.altPhone?.trim() && altPhoneProblem(data.altPhone)) throw new UserError(altPhoneProblem(data.altPhone)!);
     const tenant = await requireTenant();
     const storeId = tenant.storeId;
     const name = data.name?.trim() || null;
@@ -64,7 +65,10 @@ export async function updateCustomerInfo(saleIds: string[], data: { name?: strin
 
       await tx.sale.updateMany({
         where: { id: { in: saleIds }, storeId },
-        data: { customerName: name, customerPhone: phone, customerAddress: data.address?.trim() || null, customerId },
+        data: {
+          customerName: name, customerPhone: phone, customerAddress: data.address?.trim() || null, customerId,
+          ...(data.altPhone !== undefined && { customerAltPhone: cleanAltPhone(data.altPhone, phone) }),
+        },
       });
     });
     revalidatePath("/customers");
@@ -480,6 +484,8 @@ export async function updateSaleDetails(saleId: string, data: {
   totalAmount?: number;
   customerName?: string;
   customerPhone?: string;
+  /** The alternative number; blank clears it. */
+  customerAltPhone?: string;
   customerAddress?: string;
   deliveryStatus?: DeliveryStatus;
   deliveryAmount?: number;
@@ -498,6 +504,7 @@ export async function updateSaleDetails(saleId: string, data: {
       throw new UserError("Choose the Upaya hub location again.");
     }
     if (data.deliveryVia && !isInstantCourier(data.deliveryVia)) throw new UserError("Unknown delivery app.");
+    if (data.customerAltPhone?.trim() && altPhoneProblem(data.customerAltPhone)) throw new UserError(altPhoneProblem(data.customerAltPhone)!);
     const tenant = await requireTenant();
     for (const amount of [data.totalAmount, data.deliveryAmount, data.codAmount, data.discount]) {
       if (amount !== undefined && (!Number.isFinite(amount) || amount < 0)) {
@@ -573,6 +580,7 @@ export async function updateSaleDetails(saleId: string, data: {
         ...money,
         ...(data.customerName !== undefined && { customerName: data.customerName.trim() || null }),
         ...(data.customerPhone !== undefined && { customerPhone: data.customerPhone.trim() || null }),
+        ...(data.customerAltPhone !== undefined && { customerAltPhone: cleanAltPhone(data.customerAltPhone, data.customerPhone ?? current.customerPhone) }),
         ...(data.customerAddress !== undefined && { customerAddress: data.customerAddress.trim() || null }),
         ...(data.deliveryStatus !== undefined && { deliveryStatus: data.deliveryStatus }),
         ...(data.deliveryAmount !== undefined && { deliveryAmount: data.deliveryAmount }),
@@ -635,6 +643,8 @@ export async function updateDeliveryStatuses(saleIds: string[], status: Delivery
 export type SaleInput = {
   customerName?: string;
   customerPhone?: string;
+  /** A second number to try when the main one doesn't answer (sent to Upaya as the alternate number). */
+  customerAltPhone?: string;
   customerAddress?: string;
   /** variantId: the size/colour stock row sold, for products with sizes. */
   items: { productId: string; quantity: number; unitPrice: number; variantId?: string | null }[];
@@ -685,6 +695,7 @@ export async function createSale(data: SaleInput & {
     if (pr && !data.customerName?.trim()) throw new UserError("Enter who the PR order is for.");
     if (data.customerName?.trim() && nameProblem(data.customerName)) throw new UserError(nameProblem(data.customerName)!);
     if (data.customerPhone?.trim() && phoneProblem(data.customerPhone)) throw new UserError(phoneProblem(data.customerPhone)!);
+    if (data.customerAltPhone?.trim() && altPhoneProblem(data.customerAltPhone)) throw new UserError(altPhoneProblem(data.customerAltPhone)!);
     for (const amount of [data.discount, data.deliveryAmount, data.codAmount, data.totalAmount]) {
       if (!Number.isFinite(amount) || amount < 0) throw new UserError("Amounts can't be negative.");
     }
@@ -826,6 +837,7 @@ export async function createSale(data: SaleInput & {
           customerId,
           customerName: data.customerName,
           customerPhone: data.customerPhone,
+          customerAltPhone: cleanAltPhone(data.customerAltPhone, data.customerPhone),
           customerAddress: data.customerAddress,
           warehouseId,
           ...money,

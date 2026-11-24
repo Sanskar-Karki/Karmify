@@ -18,7 +18,7 @@ import { Pulse } from "@/components/shared/Pulse";
 import { ActivityRowPlaceholder, ChartPlaceholder, LowStockRowPlaceholder } from "@/components/skeletons/placeholders";
 import { useResources } from "@/lib/useResources";
 import { resources } from "@/lib/resources";
-import { countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, itemName } from "@/lib/orders";
+import { countsAsOrder, countsAsSale, customerKey, DELIVERY_STATUSES, DELIVERY_STYLES, isExchangeOrder, itemName } from "@/lib/orders";
 import { COURIER_FINAL_STATUSES, courierCodAmount } from "@/lib/courier";
 import { buildBuckets, RangeSelector, type RangeKey } from "@/components/dashboard/RangeSelector";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
@@ -145,17 +145,19 @@ export default function Dashboard() {
     for (const sale of sales) {
       const t = new Date(sale.createdAt).getTime();
       const counts = countsAsSale(sale);
+      // An exchange's money counts, but it isn't one more order.
+      const newOrder = !isExchangeOrder(sale);
       if (t >= todayStart.getTime()) {
-        todayOrders += 1;
+        if (newOrder) todayOrders += 1;
         if (sale.source === "website") todayWebsite += 1;
         if (counts) todaySales += sale.totalAmount;
       } else if (t >= yesterdayStart.getTime() && t < yesterdaySameTime) {
-        yesterdayOrders += 1;
+        if (newOrder) yesterdayOrders += 1;
         if (counts) yesterdaySales += sale.totalAmount;
       }
       if (counts && t >= monthStart.getTime()) {
         monthSales += sale.totalAmount;
-        monthOrders += 1;
+        if (newOrder) monthOrders += 1;
       }
       if (counts && t >= lastMonthStart.getTime() && t < Math.min(lastMonthSameDay.getTime(), monthStart.getTime())) {
         lastMonthSales += sale.totalAmount;
@@ -246,7 +248,8 @@ export default function Dashboard() {
     const topProducts = [...top.values()].sort((a, b) => b.units - a.units || b.revenue - a.revenue).slice(0, 5);
 
     return {
-      chart, revenue, orders: inPeriod.length, average: counted.length ? revenue / counted.length : 0,
+      // Exchanges are in the revenue but not in the order count.
+      chart, revenue, orders: inPeriod.filter(s => !isExchangeOrder(s)).length, average: counted.filter(countsAsOrder).length ? revenue / counted.filter(countsAsOrder).length : 0,
       pipeline, pipelineTotal: inPeriod.length, topProducts,
     };
   }, [sales, range, customStart, customEnd]);

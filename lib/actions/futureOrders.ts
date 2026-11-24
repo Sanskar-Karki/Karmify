@@ -6,7 +6,7 @@ import { requireTenant } from "@/lib/tenant";
 import { getDefaultWarehouseIdFor, logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
 import { createSale, type SaleInput } from "@/lib/actions/sales";
-import { nameProblem, phoneProblem } from "@/lib/customerIdentity";
+import { altPhoneProblem, nameProblem, phoneProblem } from "@/lib/customerIdentity";
 import {
   addDays, futureKindOf, isYmd, MAX_DAYS_AHEAD, nepalToday, sendOnLabel, setAsideByLine,
   type FutureKind, type FutureLine, type FutureMode, type FutureOrderData,
@@ -55,6 +55,7 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
     if (!name) throw new UserError("Enter who the order is for, so you know whose it is when it's sent.");
     if (nameProblem(name)) throw new UserError(nameProblem(name)!);
     if (sale.customerPhone?.trim() && phoneProblem(sale.customerPhone)) throw new UserError(phoneProblem(sale.customerPhone)!);
+    if (sale.customerAltPhone?.trim() && altPhoneProblem(sale.customerAltPhone)) throw new UserError(altPhoneProblem(sale.customerAltPhone)!);
     const sendOn = kind === "scheduled" ? checkSendOn(input.sendOn) : null;
     const advance = Math.max(0, Number(input.advance) || 0);
 
@@ -230,6 +231,7 @@ export async function listFutureOrders() {
         setAside: aside.reduce((n, a) => n + a, 0),
         customerName: row.customerName,
         customerPhone: row.customerPhone,
+        customerAltPhone: data.sale.customerAltPhone?.trim() || null,
         address: data.sale.customerAddress ?? null,
         mode: data.mode,
         totalAmount: row.totalAmount,

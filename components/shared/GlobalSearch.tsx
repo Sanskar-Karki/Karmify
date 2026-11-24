@@ -70,7 +70,7 @@ function useSearchResults(query: string, index: SearchIndex) {
       .map(p => ({ id: `prod-${p.id}`, type: "Product", label: p.name, sub: p.sku, href: `/products?q=${encodeURIComponent(p.sku)}`, icon: Package }));
 
     const saleResults: SearchResult[] = index.sales
-      .filter(s => s.invoiceNumber.toLowerCase().includes(q) || (s.customerName ?? "").toLowerCase().includes(q) || (s.customerPhone ?? "").toLowerCase().includes(q))
+      .filter(s => s.invoiceNumber.toLowerCase().includes(q) || (s.customerName ?? "").toLowerCase().includes(q) || (s.customerPhone ?? "").toLowerCase().includes(q) || (s.customerAltPhone ?? "").toLowerCase().includes(q))
       .slice(0, 5)
       .map(s => ({ id: `sale-${s.id}`, type: "Invoice", label: s.invoiceNumber, sub: `${s.customerName ?? "Walk-in Customer"} · ${formatNPR(s.totalAmount)}`, href: `/customers/${encodeURIComponent(customerKey(s))}`, icon: Receipt }));
 

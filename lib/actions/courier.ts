@@ -119,9 +119,13 @@ function validated(form: CourierOrderForm, paidOnline: boolean) {
   const name = form.receiverName.trim();
   const address = form.address.trim();
   const phone = courierMobile(form.receiverPhone);
+  // Upaya takes the alternate number as digits only; a mobile or a landline.
+  const altDigits = (form.receiverAltPhone ?? "").replace(/[०-९]/g, d => String(d.charCodeAt(0) - 0x0966)).replace(/\D/g, "");
+  const alternate = courierMobile(form.receiverAltPhone) ?? (altDigits.length >= 7 && altDigits.length <= 10 ? altDigits : null);
 
   if (!name || name.length > 100) throw new UserError("Enter the receiver's name (100 characters at most).");
   if (!phone) throw new UserError("Upaya needs a 10-digit Nepal mobile number for the receiver.");
+  if (altDigits && !alternate) throw new UserError("The alternative number should be a mobile (10 digits) or a landline (7 to 9 digits).");
   if (!address || address.length > 100) throw new UserError("Enter the street and house (100 characters at most).");
   if (form.landmark.length > 250) throw new UserError("The landmark can be 250 characters at most.");
   if (form.note.length > 250) throw new UserError("The rider note can be 250 characters at most.");
@@ -139,6 +143,7 @@ function validated(form: CourierOrderForm, paidOnline: boolean) {
   return {
     receiver_name: name,
     receiver_contact: phone,
+    receiver_alternate_number: alternate && alternate !== phone ? alternate : undefined,
     receiver_address: address,
     receiver_landmark: form.landmark.trim() || undefined,
     area_id: form.areaId,
@@ -251,7 +256,7 @@ export async function bookSaleWithUpaya(saleId: string, service?: number) {
     const sale = await db.sale.findFirst({
       where: { id: saleId, storeId: tenant.storeId },
       select: {
-        customerName: true, customerPhone: true, customerAddress: true, courierAreaId: true, courierServiceId: true, notes: true, deliveryVia: true,
+        customerName: true, customerPhone: true, customerAltPhone: true, customerAddress: true, courierAreaId: true, courierServiceId: true, notes: true, deliveryVia: true,
         paymentMethod: true, paymentStatus: true, codAmount: true, totalAmount: true, discount: true, brand: true, exchange: true,
         items: { select: { quantity: true, unitPrice: true, variant: true, product: { select: { name: true } } } },
       },
@@ -269,6 +274,7 @@ export async function bookSaleWithUpaya(saleId: string, service?: number) {
     const result = await sendOrderToCourier(saleId, {
       receiverName: sale.customerName ?? "",
       receiverPhone: sale.customerPhone ?? "",
+      receiverAltPhone: sale.customerAltPhone ?? "",
       address,
       landmark,
       areaId: sale.courierAreaId,

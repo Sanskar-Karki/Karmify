@@ -158,7 +158,7 @@ export function FutureOrdersPanel({ startOpen, onMoved }: { startOpen: boolean; 
                   </p>
                   {(row.customerPhone || address) && (
                     <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-                      {row.customerPhone && <span className="inline-flex items-center gap-1"><Phone size={11} />{row.customerPhone}</span>}
+                      {row.customerPhone && <span className="inline-flex items-center gap-1"><Phone size={11} />{row.customerPhone}{row.customerAltPhone && ` · alt ${row.customerAltPhone}`}</span>}
                       {address && <span className="inline-flex min-w-0 items-center gap-1"><MapPin size={11} className="shrink-0" /><span className="truncate">{address}</span></span>}
                     </p>
                   )}

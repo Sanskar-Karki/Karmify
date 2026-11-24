@@ -51,6 +51,18 @@ export const DELIVERY_STATUSES = [
 export const countsAsSale = (sale: { deliveryStatus?: string | null; kind?: string | null }) =>
   sale.deliveryStatus !== "CANCELLED" && sale.kind !== "pr";
 
+/** An exchange order: it replaces items from an earlier order (lib/exchange.ts). */
+export const isExchangeOrder = (sale: { exchange?: unknown }) =>
+  sale.exchange !== null && typeof sale.exchange === "object";
+
+/**
+ * Counts as one more sale in order counts. An exchange's money still counts
+ * toward revenue (countsAsSale), but it isn't a new sale: it's the same
+ * purchase swapped, so it doesn't add to the number of sales.
+ */
+export const countsAsOrder = (sale: { deliveryStatus?: string | null; kind?: string | null; exchange?: unknown }) =>
+  countsAsSale(sale) && !isExchangeOrder(sale);
+
 /** A PR order: given free to someone for promotion. */
 export const isPR = (sale: { kind?: string | null }) => sale.kind === "pr";
 
@@ -142,6 +154,8 @@ export type Customer = {
   name: string;
   email: string | null;
   phone: string | null;
+  /** The alternative number from their latest order that has one. */
+  altPhone: string | null;
   address: string | null;
   orderCount: number;
   totalSpent: number;
@@ -229,6 +243,7 @@ export function groupSalesByCustomer(sales: Sale[]): Customer[] {
       existing.sales.push(sale);
       existing.email ??= sale.customerEmail;
       existing.phone ??= sale.customerPhone;
+      existing.altPhone ??= sale.customerAltPhone || null;
       existing.address ??= sale.customerAddress;
       if (existing.name === "Walk-in Customer" && sale.customerName) existing.name = sale.customerName;
     } else {
@@ -238,6 +253,7 @@ export function groupSalesByCustomer(sales: Sale[]): Customer[] {
         name: sale.customerName || "Walk-in Customer",
         email: sale.customerEmail || null,
         phone: sale.customerPhone || null,
+        altPhone: sale.customerAltPhone || null,
         address: sale.customerAddress || null,
         orderCount: 1,
         totalSpent: sale.totalAmount,

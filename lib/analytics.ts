@@ -1,4 +1,4 @@
-import { countsAsSale, customerKey, itemOptions } from "@/lib/orders";
+import { countsAsOrder, countsAsSale, customerKey, itemOptions } from "@/lib/orders";
 
 // Sales analytics, worked out in the browser from the orders Karmify already
 // loads. Kept free of React so it can be tested on its own.
@@ -18,6 +18,8 @@ type AnalyticsSale = {
   totalAmount?: number;
   deliveryVia?: string | null;
   kind?: string | null;
+  /** Set on an exchange order: its money counts, but it isn't counted as another sale. */
+  exchange?: unknown;
   discount: number;
   deliveryAmount: number;
   paymentMethod: string;
@@ -135,15 +137,17 @@ function totalsFor(sales: AnalyticsSale[], costOf: Map<string, number>, orderCou
       if (unitCost > 0) cost += unitCost * item.quantity;
       else unitsWithoutCost += item.quantity;
     }
+    const order = countsAsOrder(sale);
     if (isReturn(sale.deliveryStatus)) {
       returns += value;
-      returnedOrders += 1;
+      if (order) returnedOrders += 1;
     } else if (sale.paymentStatus !== "PAID") {
       awaiting += value + (sale.deliveryAmount || 0);
     }
-    if ((orderCountByCustomer.get(customerKey(sale)) ?? 0) > 1) repeatOrders += 1;
+    if (order && (orderCountByCustomer.get(customerKey(sale)) ?? 0) > 1) repeatOrders += 1;
   }
-  const orders = counted.length;
+  // Exchanges add their money above but aren't another sale.
+  const orders = counted.filter(countsAsOrder).length;
   return {
     sales: goods, orders, averageOrder: orders ? goods / orders : 0, units,
     grossProfit: goods - cost, unitsWithoutCost, discounts, delivery,
@@ -221,7 +225,7 @@ function channelTotals(sales: AnalyticsSale[]) {
     const key = channelOf(sale);
     const row = out.get(key) ?? { sales: 0, orders: 0 };
     row.sales += goodsValue(sale);
-    row.orders += 1;
+    if (countsAsOrder(sale)) row.orders += 1;
     out.set(key, row);
   }
   return out;
@@ -329,7 +333,7 @@ export function buildAnalytics(
   const categoryName = new Map(categories.map(c => [c.id, c.name]));
   // "Repeat" is judged on the whole history: someone's second order counts even if the first was long ago.
   const orderCountByCustomer = new Map<string, number>();
-  for (const sale of allSales.filter(countsAsSale)) {
+  for (const sale of allSales.filter(countsAsOrder)) {
     if (!sale.customerName && !sale.customerPhone && !sale.customerEmail) continue;
     const key = customerKey(sale);
     orderCountByCustomer.set(key, (orderCountByCustomer.get(key) ?? 0) + 1);
@@ -350,7 +354,7 @@ export function buildAnalytics(
     const i = index.get(bucketStart(new Date(sale.createdAt), period.bucket).getTime());
     if (i === undefined) continue;
     trend[i].sales += goodsValue(sale);
-    trend[i].orders += 1;
+    if (countsAsOrder(sale)) trend[i].orders += 1;
   }
   if (before && period.prevStart) {
     const prevBuckets: number[] = [];
@@ -368,6 +372,8 @@ export function buildAnalytics(
   const hourCounts = Array.from({ length: 24 }, () => 0);
   for (const sale of counted) {
     const value = goodsValue(sale);
+    // An exchange adds its money to each ranking, but not one more order.
+    const order = countsAsOrder(sale) ? 1 : 0;
     const lines = sale.items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0) || 1;
     for (const item of sale.items) {
       // The order discount is shared across its lines by value.
@@ -379,19 +385,20 @@ export function buildAnalytics(
       if (size) add(sizeMap, size.toUpperCase(), size.toUpperCase(), item.quantity);
       if (color) add(colourMap, color.toLowerCase(), titleCase(color), item.quantity);
     }
-    add(brandMap, sale.brand ?? "none", sale.brand === "decor" ? "Living & Decor" : sale.brand === "originals" ? "Originals" : "Not set", value, 1);
-    add(paymentMap, sale.paymentMethod, sale.paymentMethod === "QR" ? "QR payment" : sale.paymentMethod === "CASH" ? "Cash at the till" : "Cash on delivery", value, 1);
+    add(brandMap, sale.brand ?? "none", sale.brand === "decor" ? "Living & Decor" : sale.brand === "originals" ? "Originals" : "Not set", value, order);
+    add(paymentMap, sale.paymentMethod, sale.paymentMethod === "QR" ? "QR payment" : sale.paymentMethod === "CASH" ? "Cash at the till" : "Cash on delivery", value, order);
     if (sale.customerName || sale.customerPhone || sale.customerEmail) {
       const key = customerKey(sale);
-      add(customerMap, key, sale.customerName || sale.customerPhone || "Customer", value, 1, `/customers/${encodeURIComponent(key)}`);
+      add(customerMap, key, sale.customerName || sale.customerPhone || "Customer", value, order, `/customers/${encodeURIComponent(key)}`);
     }
     if (sale.courierAreaTitle) {
       const area = sale.courierAreaTitle.split(" · ")[0].trim();
-      add(areaMap, area.toLowerCase(), area, 1, value);
+      // Ranked by orders, so an exchange only adds its money to an area already listed.
+      if (order || areaMap.has(area.toLowerCase())) add(areaMap, area.toLowerCase(), area, order, value);
     }
     const created = new Date(sale.createdAt);
-    weekdayCounts[(created.getDay() + 6) % 7] += 1;
-    hourCounts[created.getHours()] += 1;
+    weekdayCounts[(created.getDay() + 6) % 7] += order;
+    hourCounts[created.getHours()] += order;
   }
 
   const outcomeCounts = new Map<string, number>();

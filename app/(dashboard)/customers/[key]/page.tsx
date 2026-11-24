@@ -19,7 +19,7 @@ import { resources } from "@/lib/resources";
 import { useResources } from "@/lib/useResources";
 import { mutate } from "@/lib/mutate";
 import {
-  contactKey, countsAsSale, customerKey, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,INSTANT_COURIERS, instantCourierLabel,
+  contactKey, countsAsOrder, countsAsSale, customerKey, isExchangeOrder, deliveryAddress, DELIVERY_STATUSES, DELIVERY_STYLES, sentWithUpaya, SENT_STATUS_BORDER,INSTANT_COURIERS, instantCourierLabel,
   isPR, itemOptionsText, PAYMENT_STYLES, codToCollect, referralLabel,
 } from "@/lib/orders";
 import { parseCustomerCode } from "@/lib/customerIdentity";
@@ -94,7 +94,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
   const [showLabel, setShowLabel] = useState(false);
 
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ name: "", phone: "", address: "" });
+  const [form, setForm] = useState({ name: "", phone: "", altPhone: "", address: "" });
   const [saving, setSaving] = useState(false);
   const [filter, setFilter] = useState<OrderFilter>("all");
 
@@ -110,7 +110,10 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
     for (const s of customer.sales) byStatus.set(s.deliveryStatus, (byStatus.get(s.deliveryStatus) ?? 0) + 1);
     return {
       spent,
-      average: counted.length ? spent / counted.length : 0,
+      // Exchanges add to what they spent, not to how many orders they made.
+      average: counted.filter(countsAsOrder).length ? spent / counted.filter(countsAsOrder).length : 0,
+      orders: customer.sales.filter(s => !isExchangeOrder(s)).length,
+      exchanges: customer.sales.filter(isExchangeOrder).length,
       first: new Date(Math.min(...dates)),
       last: new Date(Math.max(...dates)),
       returns: (byStatus.get("RETURNED") ?? 0) + (byStatus.get("RETURN_PROCESS") ?? 0),
@@ -122,7 +125,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
 
   function startEditing() {
     if (!customer) return;
-    setForm({ name: customer.name, phone: customer.phone ?? "", address: deliveryAddress(customer.address) });
+    setForm({ name: customer.name, phone: customer.phone ?? "", altPhone: customer.altPhone ?? "", address: deliveryAddress(customer.address) });
     setEditing(true);
   }
 
@@ -234,6 +237,10 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                   <input id="customer-phone" type="tel" inputMode="tel" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="98XXXXXXXX" className={fieldClass} />
                 </div>
                 <div className="space-y-1.5">
+                  <label htmlFor="customer-alt-phone" className={labelClass}>Alternative number <span className="font-normal">(optional)</span></label>
+                  <input id="customer-alt-phone" type="tel" inputMode="tel" value={form.altPhone} onChange={e => setForm(f => ({ ...f, altPhone: e.target.value }))} placeholder="Tried if the phone doesn't answer" className={fieldClass} />
+                </div>
+                <div className="space-y-1.5">
                   <label htmlFor="customer-address" className={labelClass}>Address</label>
                   <textarea id="customer-address" rows={2} value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} placeholder="Delivery address" className={cn(fieldClass, "resize-none")} />
                   <p className="text-[11px] text-muted-foreground">Saved on all {customer.orderCount} of this customer&apos;s orders.</p>
@@ -265,6 +272,12 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
                       </>
                     )}
                   </ContactRow>
+                  {customer.altPhone && (
+                    <ContactRow icon={Phone} label="Alternative number" value={customer.altPhone}>
+                      <a href={`tel:${customer.altPhone}`} className={iconButton} title="Call" aria-label={`Call ${customer.altPhone}`}><Phone size={13} /></a>
+                      <button type="button" onClick={() => copy(customer.altPhone as string, "alternative number")} className={iconButton} title="Copy" aria-label="Copy alternative number"><Copy size={13} /></button>
+                    </ContactRow>
+                  )}
                   {customer.email && (
                     <ContactRow icon={Mail} label="Email" value={customer.email}>
                       <a href={`mailto:${customer.email}`} className={iconButton} title="Email" aria-label="Send an email"><Mail size={13} /></a>
@@ -283,7 +296,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
           {/* Numbers */}
           <section className={cn(card, "grid grid-cols-2 gap-px overflow-hidden bg-border/60")} aria-label="Customer summary">
             {[
-              { label: "Orders", value: String(customer.orderCount), note: `${stats.website} from the website` },
+              { label: "Orders", value: String(stats.orders), note: [`${stats.website} from the website`, stats.exchanges ? `${stats.exchanges} exchange${stats.exchanges === 1 ? "" : "s"} not counted` : ""].filter(Boolean).join(" · ") },
               { label: "Spent", value: formatNPR(stats.spent), note: "Cancelled left out" },
               { label: "Average order", value: formatNPR(Math.round(stats.average)), note: "Per order" },
               { label: "Last order", value: timeAgo(stats.last), note: stats.last.toLocaleDateString() },

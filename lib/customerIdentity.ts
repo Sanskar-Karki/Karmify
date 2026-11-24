@@ -100,6 +100,28 @@ export function phoneProblem(raw: string): string | null {
   return "Phone must be 10 digits (mobile) or 7 digits (landline).";
 }
 
+/**
+ * The alternative number on an order: the same as the main one, and a landline
+ * may also have its area code (01-4412345). Never used to match customers.
+ */
+export function altPhoneProblem(raw: string): string | null {
+  const digits = raw.replace(/[०-९]/g, d => String(d.charCodeAt(0) - 0x0966)).replace(/\D/g, "");
+  if (digits.length === 9 && digits.startsWith("0")) return null;
+  const problem = phoneProblem(raw);
+  return problem && `Alternative number: ${problem.charAt(0).toLowerCase()}${problem.slice(1)}`;
+}
+
+/**
+ * The alternative number as it's saved: trimmed, or null when it's blank or the
+ * same as the main number (nothing extra to call).
+ */
+export function cleanAltPhone(alt?: string | null, main?: string | null): string | null {
+  const value = alt?.trim();
+  if (!value) return null;
+  const digits = (s?: string | null) => normalizePhone(s) ?? (s ?? "").replace(/\D/g, "");
+  return main && digits(value) === digits(main) ? null : value;
+}
+
 /** A customer name has letters and no digits. Returns what's wrong, or null. */
 export function nameProblem(raw: string): string | null {
   if (/[0-9०-९]/.test(raw)) return "Name can't contain numbers.";

@@ -119,6 +119,8 @@ export type CourierCategory = { value: string; label: string };
 export type CourierOrderForm = {
   receiverName: string;
   receiverPhone: string;
+  /** A second number for the rider to try; blank for none. */
+  receiverAltPhone?: string;
   address: string;
   landmark: string;
   areaId: number;
