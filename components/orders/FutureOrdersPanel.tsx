@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { ArrowUpToLine, CalendarClock, CalendarDays, ChevronDown, Gift, Hourglass, MapPin, Phone, Store, Trash2, Truck } from "lucide-react";
+import { ArrowUpToLine, CalendarClock, CalendarDays, ChevronDown, Gift, Hourglass, MapPin, Pencil, Phone, Store, Trash2, Truck } from "lucide-react";
 import { deleteFutureOrder, listFutureOrders, moveFutureOrder } from "@/app/actions";
 import { Button } from "@/components/shared/Button";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { FutureOrderEditDialog } from "@/components/orders/FutureOrderEditDialog";
 import { daysUntil, dueLabel, nepalToday, sendOnLabel } from "@/lib/futureOrders";
 import { mutate } from "@/lib/mutate";
 import { deliveryAddress } from "@/lib/orders";
@@ -60,6 +61,7 @@ export function FutureOrdersPanel({ startOpen, onMoved }: { startOpen: boolean; 
   const [open, setOpen] = useState(startOpen);
   const [busy, setBusy] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Future | null>(null);
+  const [editing, setEditing] = useState<Future | null>(null);
 
   const load = useCallback(async () => {
     const result = await listFutureOrders();
@@ -214,6 +216,16 @@ export function FutureOrdersPanel({ startOpen, onMoved }: { startOpen: boolean; 
                     </Button>
                     <Button
                       variant="secondary"
+                      onClick={() => setEditing(row)}
+                      disabled={busy !== null}
+                      aria-label={`Edit the future order for ${row.customerName ?? "this customer"}`}
+                      title="Edit the customer, items, date or delivery"
+                      className="px-2.5 py-1.5 text-xs rounded-lg"
+                    >
+                      <Pencil size={13} />
+                    </Button>
+                    <Button
+                      variant="secondary"
                       onClick={() => setDeleting(row)}
                       disabled={busy !== null}
                       aria-label={`Delete the future order for ${row.customerName ?? "this customer"}`}
@@ -228,6 +240,8 @@ export function FutureOrdersPanel({ startOpen, onMoved }: { startOpen: boolean; 
           })}
         </ul>
       )}
+
+      {editing && <FutureOrderEditDialog key={editing.id} row={editing} onClose={() => setEditing(null)} onSaved={load} />}
 
       <ConfirmDialog
         open={deleting !== null}

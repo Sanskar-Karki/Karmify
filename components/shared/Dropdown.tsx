@@ -21,6 +21,8 @@ interface DropdownProps {
   /** Applied to the trigger button — use to match the sizing of surrounding form controls. */
   triggerClassName?: string;
   "aria-label"?: string;
+  /** false: never show the filter box (short, familiar lists like the order filters). Default: only for long lists. */
+  searchable?: boolean;
 }
 
 // Long lists get a filter box; short ones stay a plain menu.
@@ -29,7 +31,7 @@ const SEARCH_THRESHOLD = 8;
 // Styled replacement for a native <select>, built on the shared Popover so it
 // positions and dismisses like the rest of the app's floating UI. Supports
 // arrow keys, Enter, Escape and type-to-jump.
-export function Dropdown({ value, onChange, options, placeholder = "Select...", disabled, className, triggerClassName, "aria-label": ariaLabel }: DropdownProps) {
+export function Dropdown({ value, onChange, options, placeholder = "Select...", disabled, className, triggerClassName, "aria-label": ariaLabel, searchable: allowSearch }: DropdownProps) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
@@ -39,7 +41,7 @@ export function Dropdown({ value, onChange, options, placeholder = "Select...", 
   const listId = useId();
 
   const selected = options.find(o => o.value === value);
-  const searchable = options.length >= SEARCH_THRESHOLD;
+  const searchable = allowSearch !== false && options.length >= SEARCH_THRESHOLD;
 
   const visible = useMemo(() => {
     const q = filter.trim().toLowerCase();

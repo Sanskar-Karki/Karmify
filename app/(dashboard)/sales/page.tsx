@@ -4,11 +4,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ShoppingCart, Search, Plus, Minus, X, CheckCircle, User, Phone, MapPin,
   Receipt, Package, QrCode, Truck, Printer, Tag, Store, Banknote, Gift, Zap, UserCheck, Users, CalendarClock,
-  CalendarDays, Hourglass, ArrowLeftRight,
+  CalendarDays, Hourglass, ArrowLeftRight, Pencil,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { bookSaleWithUpaya, createFutureOrder, createSale, estimateCourierRate, getCourierStatus, updateNote } from "@/app/actions";
+import { bookSaleWithUpaya, createFutureOrder, createSale, estimateCourierRate, getCourierStatus, getFutureOrder, updateNote } from "@/app/actions";
 import { NoteReference } from "@/components/notes/NoteReference";
 import { UpayaHubPicker } from "@/components/shared/UpayaHubPicker";
 import { BATCH_COURIER_SERVICES, courierMobile, DOOR_TO_DOOR, type CourierArea } from "@/lib/courier";
@@ -100,6 +101,20 @@ type Draft = {
   noteId?: string | null;
   /** An exchange: the order whose items come back, and how many of each line. */
   exchange?: Exchange | null;
+  /** A saved future order opened here to change its items. */
+  editingFuture?: EditingFuture | null;
+};
+
+/**
+ * A saved future order opened in the POS (its Edit → Edit items). Saving replaces
+ * it; what it set aside goes back on the shelf first, so it counts as in stock here.
+ */
+type EditingFuture = {
+  id: string;
+  customerName: string;
+  /** Its send date as saved: keeping it is allowed even once it's due. */
+  sendOn: string | null;
+  aside: { productId: string; variantId: string | null; units: number }[];
 };
 
 /** An exchange in progress (lib/exchange.ts): the order being swapped from, and units coming back per line. */
@@ -170,6 +185,10 @@ export default function SalesPage() {
   // An exchange: this order sends replacements for items of an earlier order, which
   // come back (credited against this order). Started from that order's Exchange button.
   const [exchange, setExchange] = useState<Exchange | null>(null);
+  const [editingFuture, setEditingFuture] = useState<EditingFuture | null>(null);
+  // A future order named in the link (?editFuture=…), loaded once the products are in.
+  const [futureToOpen, setFutureToOpen] = useState<string | null>(null);
+  const router = useRouter();
   // The exchange whose customer, address and hub were filled in already, so it happens once.
   const exchangeFilled = useRef<string | null>(null);
   const [walkInVia, setWalkInVia] = useState<WalkInVia>("studio");
@@ -241,6 +260,7 @@ export default function SalesPage() {
           setExchange({ saleId: d.exchange.saleId, picked: d.exchange.picked && typeof d.exchange.picked === "object" ? d.exchange.picked : {} });
           exchangeFilled.current = d.exchange.saleId; // already filled in before the reload
         }
+        if (d.editingFuture && typeof d.editingFuture.id === "string" && Array.isArray(d.editingFuture.aside)) setEditingFuture(d.editingFuture);
       }
     } catch {
       // A broken or blocked draft just means starting fresh.
@@ -256,7 +276,10 @@ export default function SalesPage() {
       setExchange({ saleId: fromExchange, picked: {} });
       exchangeFilled.current = null;
     }
-    if (fromNote || fromExchange) window.history.replaceState(null, "", window.location.pathname);
+    // A future order's Edit items: open it here (over whatever was in the cart).
+    const fromFuture = params.get("editFuture");
+    if (fromFuture) setFutureToOpen(fromFuture);
+    if (fromNote || fromExchange || fromFuture) window.history.replaceState(null, "", window.location.pathname);
     draftLoaded.current = true;
     });
     return () => cancelAnimationFrame(frame);
@@ -264,12 +287,12 @@ export default function SalesPage() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId, exchange };
+      const draft: Draft = { cart: rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId, exchange, editingFuture };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // Storage full or blocked: the sale still works, it just won't survive a reload.
     }
-  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId, exchange]);
+  }, [rawCart, customer, mode, walkInVia, deliveryAmount, hub, courierService, linkedId, future, futureKind, sendOn, noteId, exchange, editingFuture]);
 
   // "/" jumps to the search/scan box from anywhere on the page.
   useEffect(() => {
@@ -306,7 +329,12 @@ export default function SalesPage() {
     return totals;
   }, [stocks]);
 
-  const getStock = (productId: string) => stockByProduct.get(productId) ?? 0;
+  /** Units the future order being edited set aside: back on the shelf when it's saved, so available to it here. */
+  const asideFor = (productId: string, variantId?: string | null) =>
+    (editingFuture?.aside ?? [])
+      .filter(a => a.productId === productId && (variantId === undefined || a.variantId === (variantId ?? null)))
+      .reduce((n, a) => n + a.units, 0);
+  const getStock = (productId: string) => (stockByProduct.get(productId) ?? 0) + asideFor(productId);
 
   // A restored cart may name products that were since deleted or deactivated; leave those out.
   const cart = useMemo(() => {
@@ -333,7 +361,7 @@ export default function SalesPage() {
   /** What's left for a cart line: that size's own stock for sized products. */
   function lineStock(item: { productId: string; variantId?: string | null }) {
     if (!item.variantId) return getStock(item.productId);
-    return products.find(p => p.id === item.productId)?.variants.find(v => v.id === item.variantId)?.quantity ?? 0;
+    return (products.find(p => p.id === item.productId)?.variants.find(v => v.id === item.variantId)?.quantity ?? 0) + asideFor(item.productId, item.variantId);
   }
 
   /** Products with sizes ask which one; others go straight in. */
@@ -506,6 +534,7 @@ export default function SalesPage() {
       const address = deliveryAddress(original.customerAddress);
       setMode(address ? "delivery" : "walkin");
       setFuture(false);
+      setEditingFuture(null);
       setNoteId(null);
       setCustomer({ name: original.customerName ?? "", phone: original.customerPhone ?? "", altPhone: original.customerAltPhone ?? "", address });
       if (original.customerId) setLinkedId(original.customerId);
@@ -615,6 +644,82 @@ export default function SalesPage() {
     setCourierService(DOOR_TO_DOOR);
     setExchange(null);
     exchangeFilled.current = null;
+    setEditingFuture(null);
+  }
+
+  /**
+   * Opens a saved future order here to change its items: the cart, customer,
+   * delivery, payment and the Future order box are filled in as it was saved.
+   */
+  async function openFutureForEdit(id: string) {
+    const result = await getFutureOrder(id);
+    if (!result.ok) return void toast.error(result.message);
+    const f = result.data;
+    const sale = f.sale;
+    const byId = new Map(products.map(p => [p.id, p]));
+    const lines = f.lines.filter(l => byId.has(l.productId));
+    resetOrder();
+    setNoteId(null);
+    setCart(lines.map(l => ({
+      productId: l.productId, variantId: l.variantId, name: l.name, sku: byId.get(l.productId)?.sku ?? "",
+      unitPrice: l.unitPrice, listPrice: l.unitPrice, quantity: l.quantity, variantLabel: l.variantLabel ?? undefined,
+    })));
+    setCustomer({ name: sale.customerName ?? "", phone: sale.customerPhone ?? "", altPhone: sale.customerAltPhone ?? "", address: deliveryAddress(sale.customerAddress) });
+    setAltOpen(Boolean(sale.customerAltPhone));
+    setLinkedId(sale.customerId ?? null);
+    setMode(f.mode);
+    setWalkInVia(sale.deliveryVia === "yango" ? "yango" : "studio");
+    const delivery = f.mode === "delivery" ? sale.deliveryAmount : 0;
+    setDeliveryAmount(delivery);
+    // Set straight, not looked up again, so the delivery charge stays as saved.
+    if (sale.courierArea) setHub({ ...sale.courierArea, hub: null });
+    setCourierService(BATCH_COURIER_SERVICES.some(sv => sv.id === sale.courierServiceId) ? (sale.courierServiceId as number) : DOOR_TO_DOOR);
+    if (f.mode === "walkin") setPaymentMethod(sale.paymentMethod === "QR" ? "QR" : "CASH");
+    if (f.mode === "delivery") {
+      if (sale.paymentMethod === "QR") setDeliveryPay("paid");
+      else if (sale.partial && f.advance > 0) {
+        setDeliveryPay("partial");
+        setAdvance(String(f.advance));
+      } else if (Math.abs(sale.codAmount - (sale.totalAmount + delivery)) > 0.004) setCodOverride(String(sale.codAmount));
+    }
+    // Lines are saved at full price with every cut in the discount, so the discount comes back as the typed total.
+    const goods = lines.reduce((n, l) => n + l.unitPrice * l.quantity, 0);
+    if (f.mode !== "pr" && sale.discount > 0 && lines.length === f.lines.length) {
+      setTotalOverride({ value: String(Math.round((sale.totalAmount + delivery) * 100) / 100), base: goods + delivery });
+    }
+    setFuture(true);
+    setFutureKind(f.kind);
+    setSendOn(f.sendOn ?? "");
+    setEditingFuture({
+      id: f.id,
+      customerName: sale.customerName ?? "the customer",
+      sendOn: f.sendOn,
+      aside: f.lines.filter(l => l.setAside > 0).map(l => ({ productId: l.productId, variantId: l.variantId, units: l.setAside })),
+    });
+    if (lines.length < f.lines.length) toast.warning("An item in it was removed from the catalog, so it isn't in the cart. Check the total before saving.", { duration: 8000 });
+    else toast.info(`Editing ${sale.customerName ?? "the customer"}'s future order. Change the items, then save.`, { id: "future-edit" });
+  }
+
+  // Opens the future order named in the link once the products have loaded.
+  useEffect(() => {
+    if (!futureToOpen || loading) return;
+    const id = futureToOpen;
+    const frame = requestAnimationFrame(() => {
+      setFutureToOpen(null);
+      void openFutureForEdit(id);
+    });
+    return () => cancelAnimationFrame(frame);
+    // openFutureForEdit reads the products once, when they're in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [futureToOpen, loading]);
+
+  /** Leaves the future order as it was and clears the POS. */
+  function stopEditingFuture() {
+    resetOrder();
+    setFuture(false);
+    setFutureKind("restock");
+    setSendOn("");
+    toast.info("Stopped editing. The future order is unchanged.", { id: "future-edit" });
   }
 
   /** The order is saved: tick off the note it was entered from, and put the note away. */
@@ -638,7 +743,8 @@ export default function SalesPage() {
     if (future && !customer.name.trim()) return void toast.error("Enter who the future order is for.");
     if (scheduled) {
       if (!sendOn) return void toast.error("Choose the date the customer wants it sent.");
-      if (sendOn <= nepalToday()) return void toast.error("Choose a date after today. To send it today, untick Future order.");
+      const keptDate = editingFuture !== null && sendOn === editingFuture.sendOn;
+      if (sendOn <= nepalToday() && !keptDate) return void toast.error("Choose a date after today. To send it today, untick Future order.");
       const over = cart.filter(c => c.quantity > lineStock(c));
       if (over.length) {
         return void toast.error(`Not enough in stock to set aside: ${over.slice(0, 3).map(c => `${c.name} (${Math.max(0, lineStock(c))} left)`).join(", ")}. Lower the quantity, or save it as waiting for stock.`);
@@ -694,9 +800,11 @@ export default function SalesPage() {
 
     if (future) {
       const saved = await mutate(
-        () => createFutureOrder({ sale: payload, mode, advance: advancePaid, kind: futureKind, ...(scheduled && { sendOn }) }),
+        () => createFutureOrder({ sale: payload, mode, advance: advancePaid, kind: futureKind, ...(scheduled && { sendOn }), ...(editingFuture && { replaceId: editingFuture.id }) }),
         {
-          success: r => r.sendOn
+          success: r => r.replaced
+            ? `Future order for ${r.customerName} updated.${r.setAside > 0 && !r.sendOn ? ` ${r.setAside} set aside${r.waiting ? `, ${r.waiting} waiting for stock` : ""}.` : ""}`
+            : r.sendOn
             ? `Future order saved for ${r.customerName}, to send on ${sendOnLabel(r.sendOn)}. Its stock is set aside.`
             : r.setAside === 0
               ? `Future order saved for ${r.customerName}. It's waiting in Customers & Orders → Future orders.`
@@ -716,6 +824,8 @@ export default function SalesPage() {
       setFutureKind("restock");
       setSendOn("");
       finishNote();
+      // An edit: back to the future orders, where it came from.
+      if (saved.data.replaced) return void router.push("/customers?future=1");
       // It took stock (all of it, or what was in): the cards should show what's left.
       if (saved.data.setAside > 0) await refetch({ quiet: true });
       return;
@@ -946,9 +1056,23 @@ export default function SalesPage() {
                   future ? "border-amber-300 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/30" : "border-border bg-muted/40 hover:border-primary/30"
                 )}
               >
-                <label className="flex cursor-pointer items-start gap-2.5 px-3 py-2.5">
+                {editingFuture && (
+                  <div className="flex items-start gap-2 border-b border-amber-200 px-3 py-2.5 text-[12px] text-amber-900 dark:border-amber-900/50 dark:text-amber-100">
+                    <Pencil size={13} className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      Editing <span className="font-bold">{editingFuture.customerName}</span>&apos;s future order. Saving replaces it
+                      {editingFuture.aside.length > 0 ? "; the stock it set aside counts as in stock here." : "."}
+                    </span>
+                    <button type="button" onClick={stopEditingFuture} className="shrink-0 rounded-md px-1.5 py-0.5 font-semibold underline-offset-2 hover:underline">
+                      Stop editing
+                    </button>
+                  </div>
+                )}
+                <label className={cn("flex items-start gap-2.5 px-3 py-2.5", editingFuture ? "cursor-default" : "cursor-pointer")}>
                   <input
                     type="checkbox"
+                    disabled={editingFuture !== null}
+                    title={editingFuture ? "This is a future order being edited. Use Stop editing to leave it." : undefined}
                     checked={future}
                     onChange={e => {
                       const on = e.target.checked;
@@ -1610,7 +1734,7 @@ export default function SalesPage() {
                 {submitting
                   ? exchange ? "Creating exchange order…" : future ? "Saving future order…" : pr ? "Recording PR order…" : "Completing sale…"
                   : exchange ? `Create exchange order · ${formatNPR(amountDue)}`
-                  : future ? `Save future order · ${pr ? `${cartUnits} item${cartUnits === 1 ? "" : "s"}` : formatNPR(amountDue)}`
+                  : future ? `${editingFuture ? "Save changes" : "Save future order"} · ${pr ? `${cartUnits} item${cartUnits === 1 ? "" : "s"}` : formatNPR(amountDue)}`
                   : pr ? `Record PR order · ${cartUnits} item${cartUnits === 1 ? "" : "s"} free` : `${walkIn ? "Complete Sale" : "Complete Sale & Invoice"} · ${formatNPR(amountDue)}`}
               </Button>
             </div>
@@ -1679,7 +1803,7 @@ export default function SalesPage() {
           <div className="p-4 sm:p-5">
             <VariantPicker
               variants={picking.variants}
-              available={id => (picking.variants.find(v => v.id === id)?.quantity ?? 0) - (cart.find(c => c.variantId === id)?.quantity ?? 0)}
+              available={id => lineStock({ productId: picking.id, variantId: id }) - (cart.find(c => c.variantId === id)?.quantity ?? 0)}
               onPick={id => {
                 const v = picking.variants.find(x => x.id === id);
                 if (v) addToCart(picking, v);

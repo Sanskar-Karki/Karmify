@@ -755,31 +755,6 @@ export default function CustomersPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
-          <div className="relative flex-1 min-w-full sm:min-w-56 xl:w-64 xl:flex-none">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={onSearchKeyDown}
-              placeholder="Name, phone, address, item, order ID…"
-              title="Every word must match: try “hoodie lalitpur” or “ram 9841”. Searches name, phone, address, hub, items, order and customer ID, and tracking code."
-              aria-label="Search orders"
-              className={cn(
-                "w-full pl-8.5 py-2 rounded-lg border bg-background text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20",
-                search ? "pr-8 border-primary/50" : "pr-3 border-border"
-              )}
-            />
-            {search && (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label="Clear search"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
           {/* On phones the less-used buttons are icons only, so the actions fit on one row. */}
           <Button variant="secondary" onClick={() => setTrashOpen(true)} aria-label="Recently deleted" className="w-10 flex-none px-0 py-2 rounded-lg text-[13px] whitespace-nowrap sm:w-auto sm:px-3" title="Orders deleted in the last 30 days">
             <ArchiveRestore size={14} /> <span className="hidden sm:inline">Recently deleted</span>
@@ -820,6 +795,33 @@ export default function CustomersPage() {
         </div>
       </div>
 
+      {/* Search: its own row, the full width */}
+      <div className="relative w-full shrink-0">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          onKeyDown={onSearchKeyDown}
+          placeholder="Name, phone, address, item, order ID…"
+          title="Every word must match: try “hoodie lalitpur” or “ram 9841”. Searches name, phone, address, hub, items, order and customer ID, and tracking code."
+          aria-label="Search orders"
+          className={cn(
+            "w-full pl-8.5 py-2 rounded-lg border bg-background text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20",
+            search ? "pr-8 border-primary/50" : "pr-3 border-border"
+          )}
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            aria-label="Clear search"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
+
       {/* Orders to send later, once restocked: not in the table or the totals until moved */}
       <FutureOrdersPanel startOpen={futureParam === "1"} onMoved={() => refetch({ quiet: true })} />
 
@@ -849,6 +851,7 @@ export default function CustomersPage() {
         <div className="-mx-3 flex items-center gap-1.5 overflow-x-auto px-3 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
           <div ref={dateAnchor} className="flex shrink-0 items-center gap-1.5">
             <Dropdown
+              searchable={false}
               aria-label="Date"
               value={dateFilter}
               onChange={v => {
@@ -865,10 +868,10 @@ export default function CustomersPage() {
               </button>
             )}
           </div>
-          <Dropdown aria-label="Source" value={sourceFilter} onChange={v => updateFilters({ source: v })} options={SOURCE_FILTERS} className="w-36 shrink-0" triggerClassName={filterTrigger(sourceFilter !== "all")} />
-          <Dropdown aria-label="Area" value={areaFilter} onChange={v => updateFilters({ area: v })} options={AREA_FILTERS} className="w-36 shrink-0" triggerClassName={filterTrigger(areaFilter !== "all")} />
-          <Dropdown aria-label="Payment" value={paymentFilter} onChange={v => updateFilters({ payment: v })} options={PAYMENT_FILTERS} className="w-32 shrink-0" triggerClassName={filterTrigger(paymentFilter !== "all")} />
-          <Dropdown aria-label="Sort" value={sort} onChange={v => updateFilters({ sort: v })} options={SORT_OPTIONS} className="w-36 shrink-0" triggerClassName={filterTrigger(sort !== "newest")} />
+          <Dropdown searchable={false} aria-label="Source" value={sourceFilter} onChange={v => updateFilters({ source: v })} options={SOURCE_FILTERS} className="w-36 shrink-0" triggerClassName={filterTrigger(sourceFilter !== "all")} />
+          <Dropdown searchable={false} aria-label="Area" value={areaFilter} onChange={v => updateFilters({ area: v })} options={AREA_FILTERS} className="w-36 shrink-0" triggerClassName={filterTrigger(areaFilter !== "all")} />
+          <Dropdown searchable={false} aria-label="Payment" value={paymentFilter} onChange={v => updateFilters({ payment: v })} options={PAYMENT_FILTERS} className="w-32 shrink-0" triggerClassName={filterTrigger(paymentFilter !== "all")} />
+          <Dropdown searchable={false} aria-label="Sort" value={sort} onChange={v => updateFilters({ sort: v })} options={SORT_OPTIONS} className="w-36 shrink-0" triggerClassName={filterTrigger(sort !== "newest")} />
           {activeCount > 0 && (
             <button
               type="button"

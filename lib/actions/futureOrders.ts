@@ -6,7 +6,8 @@ import { requireTenant } from "@/lib/tenant";
 import { getDefaultWarehouseIdFor, logActivity } from "@/lib/actions/helpers";
 import { guarded, UserError } from "@/lib/actions/result";
 import { createSale, type SaleInput } from "@/lib/actions/sales";
-import { altPhoneProblem, nameProblem, phoneProblem } from "@/lib/customerIdentity";
+import { altPhoneProblem, cleanAltPhone, nameProblem, phoneProblem } from "@/lib/customerIdentity";
+import { isCourierService } from "@/lib/courier";
 import {
   addDays, futureKindOf, isYmd, MAX_DAYS_AHEAD, nepalToday, sendOnLabel, setAsideByLine,
   type FutureKind, type FutureLine, type FutureMode, type FutureOrderData,
@@ -38,8 +39,11 @@ function checkSendOn(sendOn: unknown) {
  * out or not; what's in stock is taken out now and kept for the customer, and the
  * rest waits. "scheduled": the items must all be in stock, and they're taken out
  * now and kept for the customer until `sendOn`.
+ * replaceId: a saved future order opened in the POS to change its items. It's
+ * replaced in the same step: its set-aside stock goes back on the shelf first (so
+ * this order can take it again), and the new one keeps its place in the list.
  */
-export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMode; advance?: number; kind?: FutureKind; sendOn?: string }) {
+export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMode; advance?: number; kind?: FutureKind; sendOn?: string; replaceId?: string }) {
   return guarded("Could not save this future order.", async () => {
     const { sale, mode } = input;
     const kind: FutureKind = input.kind === "scheduled" ? "scheduled" : "restock";
@@ -56,11 +60,18 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
     if (nameProblem(name)) throw new UserError(nameProblem(name)!);
     if (sale.customerPhone?.trim() && phoneProblem(sale.customerPhone)) throw new UserError(phoneProblem(sale.customerPhone)!);
     if (sale.customerAltPhone?.trim() && altPhoneProblem(sale.customerAltPhone)) throw new UserError(altPhoneProblem(sale.customerAltPhone)!);
-    const sendOn = kind === "scheduled" ? checkSendOn(input.sendOn) : null;
     const advance = Math.max(0, Number(input.advance) || 0);
 
     const tenant = await requireTenant();
     const storeId = tenant.storeId;
+    const gone = "This future order was already moved to the orders or deleted. Save it as a new one, or clear the cart.";
+    const replacing = input.replaceId
+      ? await db.futureOrder.findFirst({ where: { id: input.replaceId, storeId }, select: { data: true } })
+      : null;
+    if (input.replaceId && !replacing) throw new UserError(gone);
+    // An edited order keeping its date doesn't need it to be in the future (it may be due).
+    const keptDate = replacing ? (replacing.data as unknown as FutureOrderData).sendOn : null;
+    const sendOn = kind !== "scheduled" ? null : keptDate && input.sendOn === keptDate ? keptDate : checkSendOn(input.sendOn);
 
     // Names and size/colour labels come from the catalog, so the list reads right later.
     const productIds = [...new Set(sale.items.map(i => i.productId))];
@@ -93,6 +104,26 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
     // stock (if anything isn't, nothing is saved); one waiting for stock takes what's
     // on the shelf now and waits for the rest.
     const saved = await db.$transaction(async (tx) => {
+      // Replacing: the old one goes, and what it set aside is back on the shelf for this one.
+      let createdAt: Date | undefined;
+      if (input.replaceId) {
+        const old = await tx.futureOrder.findFirst({ where: { id: input.replaceId, storeId }, select: { id: true, customerName: true, data: true, createdAt: true } });
+        const removed = old ? await tx.futureOrder.deleteMany({ where: { id: old.id, storeId } }) : { count: 0 };
+        if (!old || removed.count === 0) throw new UserError(gone);
+        createdAt = old.createdAt;
+        const oldData = old.data as unknown as FutureOrderData;
+        const aside = setAsideByLine(oldData);
+        if (aside.some(n => n > 0)) {
+          await putBackStock(tx, {
+            storeId,
+            warehouseId: oldData.setAsideFrom!,
+            userId: tenant.userId,
+            referenceId: old.id,
+            notes: `Back on the shelf: ${old.customerName ?? "a customer"}'s future order was changed`,
+            items: oldData.lines.map((l, i) => ({ productId: l.productId, variantId: l.variantId, quantity: aside[i] })).filter(l => l.quantity > 0),
+          });
+        }
+      }
       const takes = kind === "scheduled" ? lines.map(l => l.quantity) : await shelfTakes(tx, storeId, warehouseId, lines);
       const tookAny = takes.some(n => n > 0);
       const data: FutureOrderData = {
@@ -112,6 +143,7 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
           totalAmount,
           data: data as unknown as object,
           createdBy: tenant.userId,
+          ...(createdAt && { createdAt }),
         },
         select: { id: true },
       });
@@ -134,21 +166,21 @@ export async function createFutureOrder(input: { sale: SaleInput; mode: FutureMo
     const what = `${units} item${units === 1 ? "" : "s"}, ${formatNPR(totalAmount)}`;
     await logActivity(
       tenant,
-      "Future Order Saved",
-      sendOn
+      input.replaceId ? "Future Order Edited" : "Future Order Saved",
+      (input.replaceId ? "Changed items: " : "") + (sendOn
         ? `Future order for ${name}: ${what}, to send on ${sendOnLabel(sendOn)}. Its stock is set aside.`
         : `Future order for ${name}: ${what}. ${
             saved.setAside === 0 ? "Waiting for stock; nothing taken yet."
               : waiting === 0 ? "All in stock: set aside."
                 : `${saved.setAside} in stock set aside; ${waiting} waiting for stock.`
-          }`
+          }`)
     );
     revalidatePath("/customers");
-    if (saved.setAside > 0) {
+    if (saved.setAside > 0 || input.replaceId) {
       revalidatePath("/inventory");
       revalidatePath("/products");
     }
-    return { id: saved.id, customerName: name, kind, sendOn, setAside: saved.setAside, waiting };
+    return { id: saved.id, customerName: name, kind, sendOn, setAside: saved.setAside, waiting, replaced: Boolean(input.replaceId) };
   });
 }
 
@@ -236,6 +268,11 @@ export async function listFutureOrders() {
         mode: data.mode,
         totalAmount: row.totalAmount,
         codAmount: data.mode === "delivery" ? data.sale.codAmount : 0,
+        // What the Edit dialog starts from.
+        goodsTotal: data.sale.totalAmount,
+        deliveryAmount: data.mode === "delivery" ? data.sale.deliveryAmount : 0,
+        courierArea: data.sale.courierArea ?? null,
+        courierServiceId: data.sale.courierServiceId ?? null,
         advance: data.advance,
         paymentMethod: data.sale.paymentMethod,
         createdAt: row.createdAt,
@@ -246,6 +283,29 @@ export async function listFutureOrders() {
 
     const dated = list.filter(o => o.sendOn).sort((a, b) => a.sendOn!.localeCompare(b.sendOn!));
     return [...dated, ...list.filter(o => !o.sendOn)];
+  });
+}
+
+/** One saved future order as the POS needs it, to open it there and change its items. */
+export async function getFutureOrder(id: string) {
+  return guarded("Could not load this future order.", async () => {
+    const tenant = await requireTenant();
+    const row = await db.futureOrder.findFirst({ where: { id, storeId: tenant.storeId }, select: { id: true, data: true } });
+    if (!row) throw new UserError("This future order was already moved to the orders or deleted.");
+    const data = row.data as unknown as FutureOrderData;
+    const aside = setAsideByLine(data);
+    return {
+      id: row.id,
+      mode: data.mode,
+      kind: futureKindOf(data),
+      sendOn: data.sendOn ?? null,
+      advance: data.advance,
+      sale: data.sale,
+      lines: data.lines.map((l, i) => ({
+        productId: l.productId, variantId: l.variantId, name: l.name, variantLabel: l.variantLabel,
+        quantity: l.quantity, unitPrice: l.unitPrice, setAside: aside[i],
+      })),
+    };
   });
 }
 
@@ -270,6 +330,95 @@ export async function moveFutureOrder(id: string) {
   }
   revalidatePath("/customers");
   return result;
+}
+
+export type FutureOrderEdit = {
+  customerName: string;
+  customerPhone?: string;
+  customerAltPhone?: string;
+  customerAddress?: string;
+  /** Scheduled orders: the day to send it on. */
+  sendOn?: string;
+  /** Delivery orders: the charge, what the rider collects, and the Upaya hub and service. */
+  deliveryAmount?: number;
+  codAmount?: number;
+  courierArea?: { areaId: number; locationId: number; title: string } | null;
+  courierServiceId?: number | null;
+};
+
+/**
+ * Changes a saved future order's customer details, send date and delivery money.
+ * Its items stay as saved: their stock may already be set aside, and "Move to
+ * orders" sends exactly those (to change items, delete it and save a new one).
+ */
+export async function updateFutureOrder(id: string, edit: FutureOrderEdit) {
+  return guarded("Could not save the changes to this future order.", async () => {
+    const name = edit.customerName?.trim();
+    if (!name) throw new UserError("Enter who the order is for.");
+    if (nameProblem(name)) throw new UserError(nameProblem(name)!);
+    const phone = edit.customerPhone?.trim() ?? "";
+    if (phone && phoneProblem(phone)) throw new UserError(phoneProblem(phone)!);
+    if (edit.customerAltPhone?.trim() && altPhoneProblem(edit.customerAltPhone)) throw new UserError(altPhoneProblem(edit.customerAltPhone)!);
+
+    const tenant = await requireTenant();
+    const storeId = tenant.storeId;
+    const row = await db.futureOrder.findFirst({ where: { id, storeId }, select: { id: true, data: true, totalAmount: true } });
+    if (!row) throw new UserError("This future order was already moved to the orders or deleted.");
+    const data = row.data as unknown as FutureOrderData;
+    const sale: SaleInput = { ...data.sale };
+    const changes: string[] = [];
+
+    // A field left out keeps what was saved.
+    sale.customerName = name;
+    if (edit.customerPhone !== undefined) sale.customerPhone = phone || undefined;
+    if (edit.customerAltPhone !== undefined) sale.customerAltPhone = cleanAltPhone(edit.customerAltPhone, sale.customerPhone) ?? undefined;
+    if (edit.customerAddress !== undefined && (data.mode !== "walkin" || sale.customerAddress)) sale.customerAddress = edit.customerAddress.trim() || undefined;
+
+    // The date: only checked when it changes, so a late order can still have its phone fixed.
+    let sendOn = data.sendOn ?? null;
+    if (futureKindOf(data) === "scheduled" && edit.sendOn !== undefined && edit.sendOn !== data.sendOn) {
+      sendOn = checkSendOn(edit.sendOn);
+      changes.push(`send date to ${sendOnLabel(sendOn)}`);
+    }
+
+    let advance = data.advance;
+    if (data.mode === "delivery") {
+      const delivery = edit.deliveryAmount ?? sale.deliveryAmount;
+      if (!Number.isFinite(delivery) || delivery < 0) throw new UserError("The delivery charge can't be negative.");
+      const grand = Math.round((sale.totalAmount + delivery) * 100) / 100;
+      if (sale.paymentMethod === "COD") {
+        const cod = edit.codAmount ?? sale.codAmount + (delivery - sale.deliveryAmount);
+        if (!Number.isFinite(cod) || cod <= 0) throw new UserError("Enter the amount for the rider to collect (more than 0).");
+        if (cod > grand + 0.001) throw new UserError(`The amount to collect can't be more than the total, ${formatNPR(grand)}.`);
+        // Anything not collected on delivery was paid up front.
+        advance = Math.round((grand - cod) * 100) / 100;
+        sale.codAmount = Math.round(cod * 100) / 100;
+        sale.partial = advance > 0;
+      }
+      if (delivery !== sale.deliveryAmount) changes.push(`delivery charge to ${formatNPR(delivery)}`);
+      sale.deliveryAmount = delivery;
+      if (edit.courierArea !== undefined) {
+        const area = edit.courierArea;
+        if (area && !(Number.isInteger(area.areaId) && Number.isInteger(area.locationId))) throw new UserError("Choose the Upaya hub location again.");
+        sale.courierArea = area ? { areaId: area.areaId, locationId: area.locationId, title: String(area.title ?? "").slice(0, 200) } : null;
+      }
+      if (edit.courierServiceId !== undefined) {
+        sale.courierServiceId = edit.courierServiceId !== null && isCourierService(Number(edit.courierServiceId)) ? Number(edit.courierServiceId) : null;
+      }
+    }
+
+    const totalAmount = data.mode === "pr" ? 0 : sale.totalAmount + (data.mode === "walkin" ? 0 : sale.deliveryAmount);
+    const next: FutureOrderData = { ...data, sale, advance, sendOn };
+    const updated = await db.futureOrder.updateMany({
+      where: { id: row.id, storeId },
+      data: { customerName: name, customerPhone: sale.customerPhone?.trim() || null, totalAmount, data: next as unknown as object },
+    });
+    if (updated.count === 0) throw new UserError("This future order was already moved to the orders or deleted.");
+
+    await logActivity(tenant, "Future Order Edited", `Edited the future order for ${name}${changes.length ? `: ${changes.join(", ")}` : ""}.`);
+    revalidatePath("/customers");
+    return { customerName: name };
+  });
 }
 
 /**
