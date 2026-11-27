@@ -15,8 +15,8 @@
   --popover: 0 0% 100%;
   --popover-foreground: 240 10% 7%;
 
-  /* #CB2957 → primary */
-  --primary: 343 66% 48%;
+  /* #A5121C (blood red) → primary */
+  --primary: 356 80% 36%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 240 6% 91%;
@@ -27,7 +27,7 @@
   --muted-foreground: 240 5% 36%;
 
   /* accent same as primary */
-  --accent: 343 66% 48%;
+  --accent: 356 80% 36%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 72% 51%;
@@ -36,20 +36,20 @@
   /* Light hairline borders */
   --border: 240 6% 89%;
   --input: 240 6% 88%;
-  /* #CB2957 → ring */
-  --ring: 343 66% 48%;
+  /* #A5121C → ring */
+  --ring: 356 80% 36%;
 
   --radius: 0.875rem;
 
   /* Sidebar: dark near-black */
   --sidebar-background: 0 0% 6%;
   --sidebar-foreground: 0 0% 82%;
-  --sidebar-primary: 343 66% 48%;
+  --sidebar-primary: 356 80% 36%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 13%;
   --sidebar-accent-foreground: 0 0% 93%;
   --sidebar-border: 0 0% 16%;
-  --sidebar-ring: 343 66% 48%;
+  --sidebar-ring: 356 80% 36%;
 }
 
 .dark {
@@ -65,7 +65,8 @@
   --popover: 0 0% 10%;
   --popover-foreground: 0 0% 93%;
 
-  --primary: 343 66% 52%;
+  /* #CE222D: a little brighter so it reads on the dark background */
+  --primary: 356 72% 47%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 0 0% 16%;
@@ -74,7 +75,7 @@
   --muted: 0 0% 14%;
   --muted-foreground: 0 0% 62%;
 
-  --accent: 343 66% 52%;
+  --accent: 356 72% 47%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 60% 50%;
@@ -82,16 +83,22 @@
 
   --border: 0 0% 18%;
   --input: 0 0% 14%;
-  --ring: 343 66% 52%;
+  --ring: 356 72% 47%;
 
   --sidebar-background: 0 0% 4%;
   --sidebar-foreground: 0 0% 78%;
-  --sidebar-primary: 343 66% 52%;
+  --sidebar-primary: 356 72% 47%;
   --sidebar-primary-foreground: 0 0% 100%;
   --sidebar-accent: 0 0% 10%;
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 0 0% 13%;
-  --sidebar-ring: 343 66% 52%;
+  --sidebar-ring: 356 72% 47%;
+}
+
+/* The dark-mode red is right for buttons and bars, but too dark for small text
+   on the dark cards (about 3:1). Red text gets a lighter shade (#F65A65, about 5.4:1). */
+.dark .text-primary {
+  color: hsl(356 90% 66%);
 }
 
 @theme {

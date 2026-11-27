@@ -56,7 +56,7 @@ export function OwnerLockCard() {
           aria-hidden
           className={cn(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-            unlocked ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-primary/10 text-primary dark:text-pink-300"
+            unlocked ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-primary/10 text-primary dark:text-red-400"
           )}
         >
           {unlocked ? <LockKeyholeOpen size={18} /> : <LockKeyhole size={18} />}

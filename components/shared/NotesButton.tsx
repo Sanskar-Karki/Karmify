@@ -26,7 +26,7 @@ export function NotesButton() {
       className={cn(
         "flex items-center justify-center gap-1.5 w-10 h-10 sm:w-8 sm:h-8 lg:w-auto lg:px-2.5 rounded-lg border transition-colors shrink-0",
         active
-          ? "border-primary/30 bg-primary/5 text-primary dark:text-pink-300"
+          ? "border-primary/30 bg-primary/5 text-primary dark:text-red-400"
           : "border-border text-muted-foreground hover:bg-muted hover:text-foreground"
       )}
     >

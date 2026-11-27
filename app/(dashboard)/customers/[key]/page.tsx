@@ -165,7 +165,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
       <div className={cn(card, "flex flex-col items-center gap-2 py-16 text-center text-muted-foreground")}>
         <Users size={36} className="opacity-30" />
         <p className="text-sm font-semibold">Customer not found</p>
-        <Link href="/customers" className="mt-2 text-xs font-semibold text-primary dark:text-pink-300 hover:underline">Back to Customers</Link>
+        <Link href="/customers" className="mt-2 text-xs font-semibold text-primary dark:text-red-400 hover:underline">Back to Customers</Link>
       </div>
     );
   }
@@ -258,7 +258,7 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ key: 
               <div className="border-t border-border/60 p-5">
                 <div className="mb-2 flex items-center justify-between">
                   <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contact</h2>
-                  <button type="button" onClick={startEditing} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary dark:text-pink-300 hover:bg-primary/10">
+                  <button type="button" onClick={startEditing} className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-primary dark:text-red-400 hover:bg-primary/10">
                     <Edit2 size={12} /> Edit
                   </button>
                 </div>
@@ -542,7 +542,7 @@ function OrderCard({ sale, related, onLabel, onReceipt, onSaved }: {
               <span className="font-mono text-sm font-bold">{sale.invoiceNumber}</span>
               <span className="text-[11px] text-muted-foreground">{sale.source === "website" ? "Website order" : "In store"}</span>
               {isPR(sale) && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-pink-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-pink-700 dark:bg-pink-950/40 dark:text-pink-300">
+                <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-primary dark:bg-primary/20 dark:text-red-400">
                   <Gift size={10} /> PR · free
                 </span>
               )}

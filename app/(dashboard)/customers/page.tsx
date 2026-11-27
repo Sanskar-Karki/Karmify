@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import {
   Search, Users, ChevronRight, Plus, Edit2, X, Calendar, RefreshCw, Globe, Trash2,
   ShoppingBag, Wallet, Truck, Download, Tag, Receipt, ClipboardList, ArchiveRestore,
-  ListChecks,
+  ListChecks, CalendarClock, CalendarDays, Hourglass, ArrowLeft,
 } from "lucide-react";
 import { RecentlyDeletedDialog } from "@/components/orders/RecentlyDeletedDialog";
-import { FutureOrdersPanel } from "@/components/orders/FutureOrdersPanel";
+import { FutureOrdersTable, futureCounts, useFutureOrders } from "@/components/orders/FutureOrdersTable";
 import { ExchangeBadge } from "@/components/orders/ExchangeInfo";
 import { awaitingReturn, exchangeOf } from "@/lib/exchange";
 import { editedTotal, linesFromSale, linesGoods, linesSignature, OrderItemsEditor, stockChanges, type EditLine } from "@/components/orders/OrderItemsEditor";
@@ -276,8 +276,14 @@ export default function CustomersPage() {
   const setStatusFilter = (status: string) => updateFilters({ status });
   // Area: inside or outside the Kathmandu valley, by the order's Upaya hub.
   const valleyLive = useValleyLocations();
-  // ?future=1 (from the POS) opens the Future orders section.
-  const [futureParam] = useUrlState("future");
+  // The Future orders button shows them in the table in place of the orders;
+  // ?future=1 (from the POS) opens the page that way.
+  const [futureParam, setFutureParam] = useUrlState("future");
+  const showFuture = futureParam === "1";
+  const future = useFutureOrders();
+  const futureStats = useMemo(() => futureCounts(future.rows ?? []), [future.rows]);
+  const futureTotal = future.rows?.length ?? 0;
+  const futureToSend = futureStats.dueNow + futureStats.ready;
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const dateAnchor = useRef<HTMLDivElement>(null);
 
@@ -728,7 +734,15 @@ export default function CustomersPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-extrabold tracking-tight">Customers &amp; Orders</h1>
           <div className="mt-1 flex flex-wrap items-center gap-x-3.5 gap-y-1 text-xs text-muted-foreground" aria-live="polite">
-            {(upayaSummary
+            {(showFuture
+              ? [
+                  { label: futureTotal === 1 ? "future order" : "future orders", val: futureTotal.toLocaleString(), icon: CalendarClock },
+                  { label: "to send now", val: futureToSend.toLocaleString(), icon: Truck },
+                  { label: "on a later date", val: futureStats.later.toLocaleString(), icon: CalendarDays },
+                  { label: "waiting for stock", val: futureStats.waiting.toLocaleString(), icon: Hourglass },
+                  { label: "order value", val: formatNPR(futureStats.value), icon: Wallet, money: true },
+                ]
+              : upayaSummary
               ? [
                   { label: upayaSummary.parcels === 1 ? "parcel sent with Upaya" : "parcels sent with Upaya", val: upayaSummary.parcels.toLocaleString(), icon: Truck },
                   { label: "order value sent", val: formatNPR(upayaSummary.value), icon: Wallet, money: true },
@@ -748,23 +762,49 @@ export default function CustomersPage() {
             ).filter(stat => ownerUnlocked || !("money" in stat)).map(stat => (
               <span key={stat.label} className="flex items-center gap-1.5 whitespace-nowrap">
                 <stat.icon size={13} aria-hidden />
-                {loading ? <Pulse className="h-3.5 w-10" /> : <span className="font-bold text-foreground tabular-nums">{stat.val}</span>}
+                {(showFuture ? future.rows === null : loading) ? <Pulse className="h-3.5 w-10" /> : <span className="font-bold text-foreground tabular-nums">{stat.val}</span>}
                 {stat.label}
               </span>
             ))}
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto">
+        {/* The buttons keep one row on laptops; the summary beside the title wraps instead. */}
+        <div className="flex flex-wrap items-center gap-2 w-full xl:w-auto xl:shrink-0">
           {/* On phones the less-used buttons are icons only, so the actions fit on one row. */}
+          <Button
+            variant="secondary"
+            onClick={() => setFutureParam(showFuture ? "" : "1")}
+            aria-pressed={showFuture}
+            title={showFuture ? "Back to the orders" : "Orders to send later: waiting for stock, or for the customer's date"}
+            className={cn(
+              "relative w-10 flex-none px-0 py-2 rounded-lg text-[13px] whitespace-nowrap sm:w-auto sm:px-3",
+              showFuture && "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-50 dark:hover:bg-amber-950/60"
+            )}
+          >
+            {/* Read out on phones too, where only the icon shows: "Future orders 5". */}
+            <CalendarClock size={14} aria-hidden /> <span className="sr-only sm:not-sr-only">Future orders</span>
+            {futureTotal > 0 && (
+              <span
+                className={cn(
+                  // A corner badge on phones (icon only), a count pill beside the words from sm up.
+                  "absolute -right-1.5 -top-1.5 min-w-4.5 rounded-full px-1 text-[10px] font-extrabold leading-4.5 tabular-nums sm:static sm:min-w-0 sm:px-1.5 sm:text-[11px] sm:leading-4",
+                  futureToSend > 0 ? "bg-amber-500 text-white dark:bg-amber-500 dark:text-amber-950" : "bg-muted-foreground/15 text-foreground"
+                )}
+                title={futureToSend > 0 ? `${futureToSend} to send now` : undefined}
+              >
+                {futureTotal}
+              </span>
+            )}
+          </Button>
           <Button variant="secondary" onClick={() => setTrashOpen(true)} aria-label="Recently deleted" className="w-10 flex-none px-0 py-2 rounded-lg text-[13px] whitespace-nowrap sm:w-auto sm:px-3" title="Orders deleted in the last 30 days">
             <ArchiveRestore size={14} /> <span className="hidden sm:inline">Recently deleted</span>
           </Button>
           <Button
             variant="secondary"
             onClick={exportCsv}
-            disabled={filtered.length === 0}
+            disabled={showFuture || filtered.length === 0}
             aria-label={selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}
-            title={selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export the orders shown"}
+            title={showFuture ? "Export is for the orders. Go back to them to export." : selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export the orders shown"}
             className="w-10 flex-none px-0 py-2 rounded-lg text-[13px] sm:w-auto sm:px-3"
           >
             <Download size={14} /> <span className="hidden sm:inline">{selectedVisible.length > 0 ? `Export ${selectedVisible.length} selected` : "Export"}</span>
@@ -822,10 +862,25 @@ export default function CustomersPage() {
         )}
       </div>
 
-      {/* Orders to send later, once restocked: not in the table or the totals until moved */}
-      <FutureOrdersPanel startOpen={futureParam === "1"} onMoved={() => refetch({ quiet: true })} />
-
-      {/* Filters: a status switch with counts, then date, source and payment */}
+      {/* Future orders in the table: the order filters don't apply, so a note and the way back sit in their place */}
+      {showFuture ? (
+        <div className="flex shrink-0 flex-col gap-2 rounded-xl border border-amber-200/80 bg-amber-50/50 px-3.5 py-2.5 sm:flex-row sm:items-center sm:justify-between dark:border-amber-900/50 dark:bg-amber-950/15">
+          <p className="flex items-start gap-2 text-xs text-amber-950 dark:text-amber-50">
+            <CalendarClock size={14} className="mt-px shrink-0 text-amber-700 dark:text-amber-400" />
+            <span>
+              <span className="font-bold">Future orders.</span> Sent later, and not counted in sales until you move them to orders.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setFutureParam("")}
+            className="flex shrink-0 items-center gap-1.5 self-start rounded-lg px-2 py-1.5 text-xs font-semibold text-foreground hover:bg-amber-100 sm:self-auto dark:hover:bg-amber-900/40"
+          >
+            <ArrowLeft size={13} /> Back to orders
+          </button>
+        </div>
+      ) : (
+      /* Filters: a status switch with counts, then date, source and payment */
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div role="group" aria-label="Delivery status" className="flex max-w-full items-center gap-0.5 self-start overflow-x-auto rounded-xl border border-border/70 bg-muted/70 p-1">
           {[{ value: "all", label: "All" }, ...DELIVERY_STATUSES].map(st => {
@@ -898,10 +953,11 @@ export default function CustomersPage() {
           />
         )}
       </div>
+      )}
 
       {/* Bulk actions on phones: float above the tab bar, so they're in reach
           wherever you are in the list. One row that scrolls sideways. */}
-      {selectedVisible.length > 0 && (
+      {!showFuture && selectedVisible.length > 0 && (
         <div
           className="md:hidden fixed inset-x-2 z-20 rounded-2xl border border-border/80 bg-card/95 p-2 shadow-xl shadow-black/10 backdrop-blur-xl animate-fade-in"
           style={{ bottom: "calc(max(0.5rem, env(safe-area-inset-bottom)) + 4.75rem)" }}
@@ -948,7 +1004,7 @@ export default function CustomersPage() {
       )}
 
       {/* Bulk action bar (tablet and up; phones get the floating one above) */}
-      {selectedVisible.length > 0 && (
+      {!showFuture && selectedVisible.length > 0 && (
         <div className="hidden md:flex flex-wrap items-center justify-between gap-3 bg-card border border-border/80 rounded-2xl shadow-sm px-5 py-3 animate-fade-in">
           <span className="text-xs font-semibold text-muted-foreground">
             {selectedVisible.length} order{selectedVisible.length > 1 ? "s" : ""} selected
@@ -991,6 +1047,9 @@ export default function CustomersPage() {
           where the rows scroll in their box and the column names stay on top */}
       <div className="bg-card border border-border/80 rounded-2xl shadow-sm overflow-hidden flex flex-col lg:min-h-[20rem] lg:flex-1">
         <div ref={tableScroll} className="scroll-mt-3 md:max-h-[calc(100dvh-8rem)] md:overflow-auto md:overscroll-contain lg:max-h-none lg:min-h-0 lg:flex-1">
+          {showFuture ? (
+            <FutureOrdersTable rows={future.rows} reload={future.reload} search={search} onMoved={() => refetch({ quiet: true })} />
+          ) : (<>
           <div className="md:hidden">
             {!loading && displayed.length > 0 && (
               <label className="flex cursor-pointer items-center gap-3 border-b border-border/60 bg-muted/40 px-3.5 py-2.5 text-xs font-semibold text-muted-foreground">
@@ -1039,7 +1098,7 @@ export default function CustomersPage() {
                               </span>
                             )}
                             {isPR(sale) && (
-                              <span className="rounded-full bg-pink-100 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-pink-700 dark:bg-pink-950/40 dark:text-pink-300" title="Given free for promotion">PR</span>
+                              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-extrabold uppercase text-primary dark:bg-primary/20 dark:text-red-400" title="Given free for promotion">PR</span>
                             )}
                             <ExchangeBadge sale={sale} />
                           </p>
@@ -1200,7 +1259,7 @@ export default function CustomersPage() {
                           </span>
                         )}
                         {isPR(sale) && (
-                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300" title="Given free for promotion">PR</span>
+                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-primary/10 dark:bg-primary/20 text-primary dark:text-red-400" title="Given free for promotion">PR</span>
                         )}
                         <ExchangeBadge sale={sale} className="whitespace-nowrap" />
                       </div>
@@ -1300,9 +1359,10 @@ export default function CustomersPage() {
               <EmptyState icon={Search} title="No matching orders" description="Try adjusting your search or filters." />
             )
           )}
+          </>)}
         </div>
 
-        {!loading && (
+        {!loading && !showFuture && (
           <Pagination
             page={pager.page}
             pageCount={pager.pageCount}
@@ -1316,7 +1376,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Room to scroll the last orders and the page buttons above the floating bulk bar (phones). */}
-      {selectedVisible.length > 0 && <div aria-hidden className="h-24 shrink-0 md:hidden" />}
+      {!showFuture && selectedVisible.length > 0 && <div aria-hidden className="h-24 shrink-0 md:hidden" />}
 
       <Modal
         open={showEdit}

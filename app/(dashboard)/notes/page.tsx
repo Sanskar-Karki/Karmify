@@ -522,7 +522,7 @@ function NoteEditor({ note, onClose, onSaved, onDelete }: {
         {/* What to do with it: enter it as an order, copy it, or ring the number in it */}
         <div className="flex flex-wrap items-center gap-2">
           {!note.done && (
-            <button type="button" onClick={enterOrder} disabled={saving} className={cn(chip, "border-primary/30 bg-primary/5 text-primary hover:border-primary/50 hover:bg-primary/5 dark:text-pink-300")}>
+            <button type="button" onClick={enterOrder} disabled={saving} className={cn(chip, "border-primary/30 bg-primary/5 text-primary hover:border-primary/50 hover:bg-primary/5 dark:text-red-400")}>
               <ShoppingCart size={14} /> Enter as order
             </button>
           )}

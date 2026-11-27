@@ -33,7 +33,7 @@ const RevenueChart = dynamic(() => import("@/components/dashboard/Charts").then(
 });
 
 const PIPELINE: { key: string; label: string; color: string }[] = [
-  { key: "IN_PROCESS", label: "In process", color: "#F4A6BE" },
+  { key: "IN_PROCESS", label: "In process", color: "var(--color-primary)" },
   { key: "DELIVERED", label: "Delivered", color: "#22c55e" },
   { key: "RETURN_PROCESS", label: "Return in process", color: "#f59e0b" },
   { key: "RETURNED", label: "Returned", color: "#ef4444" },
@@ -223,15 +223,18 @@ export default function Dashboard() {
     });
     const counted = inPeriod.filter(countsAsSale);
 
-    const chart = buckets.map(b => ({
-      label: b.label,
-      amount: counted
-        .filter(s => {
-          const t = new Date(s.createdAt);
-          return t >= b.start && t < b.end;
-        })
-        .reduce((sum, s) => sum + s.totalAmount, 0),
-    }));
+    const chart = buckets.map(b => {
+      const inBucket = counted.filter(s => {
+        const t = new Date(s.createdAt);
+        return t >= b.start && t < b.end;
+      });
+      return {
+        label: b.label,
+        amount: inBucket.reduce((sum, s) => sum + s.totalAmount, 0),
+        // The orders behind the bar: exchanges add money but aren't new orders.
+        orders: inBucket.filter(countsAsOrder).length,
+      };
+    });
 
     const revenue = counted.reduce((sum, s) => sum + s.totalAmount, 0);
     const pipeline = PIPELINE.map(p => ({ ...p, count: inPeriod.filter(s => s.deliveryStatus === p.key).length }));

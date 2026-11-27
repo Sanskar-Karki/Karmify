@@ -958,7 +958,7 @@ export default function SalesPage() {
                             <button
                               type="button"
                               onClick={() => addToCart(product)}
-                              className="mt-1 text-[11px] font-semibold text-primary underline underline-offset-2 hover:no-underline dark:text-pink-300"
+                              className="mt-1 text-[11px] font-semibold text-primary underline underline-offset-2 hover:no-underline dark:text-red-400"
                             >
                               {product.variants.length > 0 ? `Pick the new ${pickAxes(product)}` : "Add the replacement"}
                             </button>
@@ -1042,7 +1042,7 @@ export default function SalesPage() {
               )}
 
               {pr && (
-                <p className="flex items-start gap-2 rounded-xl border border-pink-200 bg-pink-50 px-3 py-2 text-[12px] text-pink-800 dark:border-pink-900/50 dark:bg-pink-950/30 dark:text-pink-200">
+                <p className="flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-[12px] text-primary dark:border-primary/30 dark:bg-primary/10 dark:text-red-300">
                   <Gift size={14} className="mt-0.5 shrink-0" />
                   <span>Given free for promotion. Stock goes out, nothing is charged, and it isn&apos;t counted as a sale. Leave the address empty if it&apos;s handed over.</span>
                 </p>
@@ -1408,7 +1408,7 @@ export default function SalesPage() {
                       role="radio"
                       aria-checked={paymentMethod === option.value}
                       onClick={() => setPaymentMethod(option.value)}
-                      className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all", paymentMethod === option.value ? "bg-primary/10 border-primary/40 text-primary dark:text-pink-300" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
+                      className={cn("flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-semibold rounded-xl border transition-all", paymentMethod === option.value ? "bg-primary/10 border-primary/40 text-primary dark:text-red-400" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
                     >
                       <option.icon size={12} /> {option.label}
                     </button>
@@ -1427,7 +1427,7 @@ export default function SalesPage() {
                       role="radio"
                       aria-checked={deliveryPay === option.value}
                       onClick={() => setDeliveryPay(option.value)}
-                      className={cn("flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-[12px] font-semibold rounded-xl border transition-all", deliveryPay === option.value ? "bg-primary/10 border-primary/40 text-primary dark:text-pink-300" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
+                      className={cn("flex flex-col items-center justify-center gap-1 px-2 py-2.5 text-[12px] font-semibold rounded-xl border transition-all", deliveryPay === option.value ? "bg-primary/10 border-primary/40 text-primary dark:text-red-400" : "bg-muted border-border text-muted-foreground hover:text-foreground")}
                     >
                       <option.icon size={13} /> {option.label}
                     </button>
@@ -1510,7 +1510,7 @@ export default function SalesPage() {
                     <p className="text-[12px] font-bold text-foreground line-clamp-2 leading-tight">{p.name}</p>
                   </div>
                   <div className="flex flex-wrap items-center justify-between w-full mt-auto gap-1">
-                    <p className="text-xs font-extrabold text-primary dark:text-pink-300">{formatNPR(p.sellingPrice)}</p>
+                    <p className="text-xs font-extrabold text-primary dark:text-red-400">{formatNPR(p.sellingPrice)}</p>
                     <span className={cn("text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap", avail <= p.minStockLevel ? "bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "bg-emerald-100 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400")}>
                       {avail <= 0 ? (restockFuture ? "Out · order" : "Sold out") : `${avail} left`}
                     </span>
@@ -1702,7 +1702,7 @@ export default function SalesPage() {
                 )}
                 {shortDiscount > 0 && <div className="flex justify-between font-bold text-foreground"><span>Paid</span><span>{formatNPR(amountDue)}</span></div>}
                 {advancePaid > 0 && <div className="flex justify-between text-muted-foreground"><span>Advance paid</span><span>−{formatNPR(advancePaid)}</span></div>}
-                {!walkIn && <div className="flex justify-between font-bold text-primary dark:text-pink-300"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>}
+                {!walkIn && <div className="flex justify-between font-bold text-primary dark:text-red-400"><span>COD to Collect</span><span>{formatNPR(parseFloat(codAmount) || 0)}</span></div>}
                 {change !== null && (
                   <div className="flex justify-between font-bold text-emerald-600">
                     <span>Change to give</span><span>{formatNPR(change)}</span>
@@ -1764,7 +1764,7 @@ export default function SalesPage() {
                         </span>
                       )}
                       {s.kind === "pr" && (
-                        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-pink-100 dark:bg-pink-950/40 text-pink-700 dark:text-pink-300">PR</span>
+                        <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-full whitespace-nowrap bg-primary/10 dark:bg-primary/20 text-primary dark:text-red-400">PR</span>
                       )}
                     </p>
                     <p className="text-[11px] text-muted-foreground truncate">{s.customerName ?? "Walk-in"} · {new Date(s.createdAt).toLocaleDateString()}</p>
@@ -1867,7 +1867,7 @@ export default function SalesPage() {
               {lastSale.deliveryAmount > 0 && <div className="flex justify-between text-muted-foreground"><span>Delivery</span><span>{formatNPR(lastSale.deliveryAmount)}</span></div>}
               <div className="flex justify-between font-extrabold text-base text-foreground pt-1 border-t border-border/60"><span>TOTAL</span><span>{formatNPR(lastSale.totalAmount + lastSale.deliveryAmount)}</span></div>
               {receiptExtras.advance > 0 && <div className="flex justify-between text-muted-foreground"><span>Advance paid</span><span>−{formatNPR(receiptExtras.advance)}</span></div>}
-              {!receiptExtras.walkIn && lastSale.paymentMethod === "COD" && <div className="flex justify-between font-bold text-primary dark:text-pink-300"><span>COD to Collect</span><span>{formatNPR(lastSale.codAmount)}</span></div>}
+              {!receiptExtras.walkIn && lastSale.paymentMethod === "COD" && <div className="flex justify-between font-bold text-primary dark:text-red-400"><span>COD to Collect</span><span>{formatNPR(lastSale.codAmount)}</span></div>}
               {receiptExtras.cashReceived !== null && (
                 <>
                   <div className="flex justify-between text-muted-foreground"><span>{lastSale.paymentMethod === "QR" ? "QR received" : "Cash received"}</span><span>{formatNPR(receiptExtras.cashReceived)}</span></div>

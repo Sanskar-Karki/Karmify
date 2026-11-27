@@ -157,7 +157,7 @@ export function PhoneNotificationsCard() {
           aria-hidden
           className={cn(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-            on ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-primary/10 text-primary dark:text-pink-300"
+            on ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400" : "bg-primary/10 text-primary dark:text-red-400"
           )}
         >
           {on ? <BellRing size={18} /> : <BellOff size={18} />}

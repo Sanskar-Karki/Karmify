@@ -305,7 +305,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                     <span className="flex items-baseline gap-2">
                       <span className="truncate text-xs font-semibold">{line.sale.customerName || "Walk-in"}</span>
                       <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{line.sale.invoiceNumber}</span>
-                      {line.sale.kind === "pr" && <span className="shrink-0 rounded bg-pink-100 px-1 text-[9px] font-extrabold uppercase text-pink-700 dark:bg-pink-950/40 dark:text-pink-300">PR</span>}
+                      {line.sale.kind === "pr" && <span className="shrink-0 rounded bg-primary/10 px-1 text-[9px] font-extrabold uppercase text-primary dark:bg-primary/20 dark:text-red-400">PR</span>}
                     </span>
                     <span className="block truncate text-[11px] text-muted-foreground">
                       {[line.variant, `${line.quantity} × ${formatNPR(line.unitPrice)}`, line.returnedQty > 0 ? `${line.returnedQty} returned` : null].filter(Boolean).join(" · ")}

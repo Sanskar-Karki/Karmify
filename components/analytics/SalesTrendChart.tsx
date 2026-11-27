@@ -7,7 +7,8 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { formatNPR } from "@/lib/utils";
 import type { TrendPoint } from "@/lib/analytics";
 
-const PRIMARY = "#CB2957";
+// Follows the theme: blood red, a little brighter in dark mode.
+const PRIMARY = "var(--color-primary)";
 const PREVIOUS = "#a1a1aa";
 
 function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: { payload: TrendPoint }[]; label?: string }) {

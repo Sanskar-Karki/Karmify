@@ -63,7 +63,7 @@ const TOTALS: {
   },
   {
     id: "followup", label: "Follow up for return", hint: "need a decision", icon: AlertTriangle,
-    iconTone: "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300", bar: "bg-rose-500", ring: "ring-rose-500/50", tint: "bg-rose-50/70 dark:bg-rose-950/20",
+    iconTone: "bg-red-100 text-red-700 dark:bg-red-950/50 dark:text-red-300", bar: "bg-red-500", ring: "ring-red-500/50", tint: "bg-red-50/70 dark:bg-red-950/20",
   },
 ];
 
@@ -536,7 +536,7 @@ function OrderTags({ sale, plain }: { sale: Sale; plain?: boolean }) {
   return (
     <span className={cn("flex flex-wrap items-center gap-1", !plain && "mt-1")}>
       {sale.source === "website" && <span className={cn(pill, "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300")}><Globe size={9} aria-hidden /> Website</span>}
-      {isPR(sale) && <span className={cn(pill, "bg-pink-100 text-pink-700 dark:bg-pink-950/40 dark:text-pink-300")} title="Given free for promotion"><Gift size={9} aria-hidden /> PR</span>}
+      {isPR(sale) && <span className={cn(pill, "bg-primary/10 text-primary dark:bg-primary/20 dark:text-red-400")} title="Given free for promotion"><Gift size={9} aria-hidden /> PR</span>}
       <ExchangeBadge sale={sale} />
       {ad && <span className={cn(pill, "bg-violet-100 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300")} title={sale.referral ?? ""}><Megaphone size={9} aria-hidden /> {ad}</span>}
     </span>
@@ -676,7 +676,7 @@ function LatestComment({ sale, onTrack, className }: Pick<RowProps, "sale" | "on
         className,
       )}
     >
-      <span className={cn("flex items-center gap-1 text-[10px] font-bold", ours ? "text-primary dark:text-pink-300" : "text-muted-foreground")}>
+      <span className={cn("flex items-center gap-1 text-[10px] font-bold", ours ? "text-primary dark:text-red-400" : "text-muted-foreground")}>
         <MessageSquare size={10} aria-hidden /> {by}
         {at && <time dateTime={at} title={new Date(at).toLocaleString()} className="ml-auto font-medium tabular-nums">{commentTimeLabel(at)}</time>}
       </span>
@@ -701,7 +701,7 @@ function CardRow({ n, sale, at, bucket, onTrack }: RowProps) {
         <OrderTags sale={sale} />
         <div>
           <p className="text-[13px] font-semibold text-foreground">{sale.customerName || "Customer"}</p>
-          <CallLink sale={sale} className="inline-flex items-center gap-1 py-0.5 text-xs font-medium text-primary dark:text-pink-300" />
+          <CallLink sale={sale} className="inline-flex items-center gap-1 py-0.5 text-xs font-medium text-primary dark:text-red-400" />
         </div>
         <p className="text-xs text-muted-foreground">
           {address || "No address"}{sale.courierAreaTitle && <> · Hub: {sale.courierAreaTitle}</>}

@@ -23,7 +23,7 @@ export default function GlobalError({
           <p style={{ color: "#666", fontSize: 14 }}>Your saved data is safe. Please try again in a moment.</p>
           <button
             onClick={() => unstable_retry()}
-            style={{ padding: "10px 16px", borderRadius: 10, border: 0, background: "#CB2957", color: "#fff", fontWeight: 600, cursor: "pointer" }}
+            style={{ padding: "10px 16px", borderRadius: 10, border: 0, background: "#A5121C", color: "#fff", fontWeight: 600, cursor: "pointer" }}
           >
             Try again
           </button>

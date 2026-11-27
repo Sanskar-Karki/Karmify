@@ -331,7 +331,7 @@ export function AnalyticsView({ sales, products, categories, loading }: ViewProp
                 </p>
               </div>
               <div className="flex items-center gap-4 text-[12px] text-muted-foreground">
-                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] bg-[#CB2957]" />This period</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] bg-primary" />This period</span>
                 {data.period.prevStart && <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px] bg-[#a1a1aa]" />Previous period</span>}
               </div>
             </div>
